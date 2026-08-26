@@ -13,6 +13,7 @@ import {
   gridInstants,
   headBounds,
   headContainment,
+  headPointCount,
   isForeground,
   orientationOf,
   outputSize,
@@ -1830,11 +1831,59 @@ describe('headContainment', () => {
     expect(value).toBeCloseTo(0.4, 10)
   })
 
-  it('lit une tête réduite à un seul point comme une appartenance, pas une aire', () => {
+  // Checkpoint du 26 août 2026 : une tête dégénérée ne répond pas à
+  // « contenue à quel point ? », elle sort de la distribution — comme
+  // l'absence. Un point unique passait auparavant pour « contenu ».
+  it('rend null pour une tête réduite à un seul point, dedans comme dehors', () => {
     const inside = headPerson(0, { NOSE: [0.4, 0.4, 0.9] })
     const outside = headPerson(0, { NOSE: [0.9, 0.4, 0.9] })
-    expect(headContainment(inside, cell)).toBe(1)
-    expect(headContainment(outside, cell)).toBe(0)
+    expect(headContainment(inside, cell)).toBeNull()
+    expect(headContainment(outside, cell)).toBeNull()
+  })
+
+  it('rend null pour deux points confiants mais alignés — une aire nulle', () => {
+    const flatHorizontal = headPerson(0, {
+      LEFT_EYE: [0.3, 0.3, 0.9],
+      RIGHT_EYE: [0.5, 0.3, 0.9],
+    })
+    expect(headContainment(flatHorizontal, cell)).toBeNull()
+
+    const flatVertical = headPerson(0, {
+      LEFT_EYE: [0.3, 0.2, 0.9],
+      LEFT_EAR: [0.3, 0.4, 0.9],
+    })
+    expect(headContainment(flatVertical, cell)).toBeNull()
+  })
+
+  it('rend une valeur définie dès que deux points confiants forment une aire non nulle', () => {
+    const b = headPerson(0, {
+      LEFT_EYE: [0.3, 0.2, 0.9],
+      NOSE: [0.4, 0.3, 0.9],
+    })
+    expect(headContainment(b, cell)).not.toBeNull()
+  })
+})
+
+describe('headPointCount', () => {
+  it('compte les points de tête qui passent le seuil de confiance, jamais les autres', () => {
+    const b = headPerson(0, {
+      NOSE: [0.4, 0.3, 0.9],
+      LEFT_EYE: [0.38, 0.28, 0.9],
+      RIGHT_EYE: [0.42, 0.28, 0.2], // sous le seuil par défaut (0,5)
+    })
+    expect(headPointCount(b)).toBe(2)
+  })
+
+  it('rend 0 sans points de pose, y compris sur une boîte de version 1 sans `k`', () => {
+    expect(headPointCount(box(0, 0.3, 0.5, 0.9))).toBe(0)
+    const v1: PersonBox = { t: 0, x0: 0.3, x1: 0.5, y0: 0.1, y1: 0.9, score: 0.9 }
+    expect(headPointCount(v1)).toBe(0)
+  })
+
+  it('respecte `torsoMinScore` comme `headBounds`', () => {
+    const b = headPerson(0, { NOSE: [0.4, 0.3, 0.6] })
+    expect(headPointCount(b)).toBe(1)
+    expect(headPointCount(b, { torsoMinScore: 0.95 })).toBe(0)
   })
 })
 

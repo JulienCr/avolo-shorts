@@ -812,19 +812,14 @@ export function headBounds(
 }
 
 /**
- * La part de la tête d'une personne qui tombe dans une cellule de split — `1`
- * pleinement dedans, `0` pleinement dehors, `null` quand `headBounds` ne se
- * définit pas. **Jamais `0` pour une tête absente** (issue #190) : l'absence
- * et la troncature sont deux indicateurs distincts, voir `ShotHeadInstrument`.
+ * La part de la tête d'une personne qui tombe dans une cellule de split ;
+ * `null` quand `headBounds` ne se définit pas ou que la tête est dégénérée
+ * (moins de deux points confiants, ou une aire nulle) — jamais un `0` ou un
+ * `1` de circonstance sur une tête qu'on ne peut pas mesurer (issue #190) :
+ * un point unique, une oreille aperçue de dos, passait pour « contenu ».
  *
- * Les bornes de tête se clampent aux deux extrémités de `[0, 1]` avant
- * l'intersection — piège n°1 de la skill `cadrage` : un point de pose hors
- * cadre produirait sinon une largeur négative qui traverserait le calcul en
- * silence.
- *
- * @returns L'aire d'intersection sur l'aire de tête ; une tête réduite à un
- *   point (un seul point de pose confiant) se lit comme une appartenance,
- *   pas une aire.
+ * @returns L'aire d'intersection sur l'aire de tête, clampée aux deux
+ *   extrémités de [0, 1] (piège n°1 de la skill `cadrage`), ou `null`.
  */
 export function headContainment(
   box: PersonBox,
@@ -840,13 +835,36 @@ export function headContainment(
   const headWidth = hx1 - hx0
   const headHeight = hy1 - hy0
 
-  if (headWidth <= 0 || headHeight <= 0) {
-    return hx0 >= cell.x0 && hx0 <= cell.x1 && hy0 >= cell.y0 && hy0 <= cell.y1 ? 1 : 0
-  }
+  // Une tête dégénérée ne répond pas à « contenue à quel point ? » : elle
+  // sort de la distribution, comme l'absence — jamais un 0 ou un 1 de
+  // circonstance sur une géométrie qui n'existe pas.
+  if (headWidth <= 0 || headHeight <= 0) return null
 
   const insideWidth = Math.max(0, Math.min(hx1, cell.x1) - Math.max(hx0, cell.x0))
   const insideHeight = Math.max(0, Math.min(hy1, cell.y1) - Math.max(hy0, cell.y0))
   return (insideWidth * insideHeight) / (headWidth * headHeight)
+}
+
+/**
+ * Combien des cinq points de tête (nez, yeux, oreilles) passent
+ * `torsoMinScore` — ce que `headBounds` ne rend pas, et qui sépare un
+ * visage lisible d'un point unique dégénéré (issue #190). Mesuré, pas
+ * câblé : voir `docs/tete-dans-la-cellule.md`.
+ *
+ * N'écrit pas dans `headBounds`, qui a six autres appelants.
+ */
+export function headPointCount(box: PersonBox, options: FramingOptions = {}): number {
+  const k = box.k
+  if (k === undefined || k.length !== POINT_COUNT * 3) return 0
+  const threshold = setting(options.torsoMinScore, FRAMING_DEFAULTS.torsoMinScore)
+  let count = 0
+  for (const rank of TORSOS.head) {
+    const x = k[rank * 3]
+    const y = k[rank * 3 + 1]
+    const confidence = k[rank * 3 + 2]
+    if (Number.isFinite(x) && Number.isFinite(y) && confidence >= threshold) count += 1
+  }
+  return count
 }
 
 /**
@@ -1726,11 +1744,17 @@ function headStatsFor(
   options: FramingOptions,
 ): CellHeadStats {
   if (boxes.length === 0) return { headAbsenceShare: 0, headContainmentMedian: null }
-  const values = boxes.map((b) => headContainment(b, cell, options))
-  const present = values.filter((v): v is number => v !== null).sort((a, b) => a - b)
+  // Deux questions distinctes, jamais l'une déduite de l'autre : l'absence
+  // reste « `headBounds` ne se définit pas » (au moins un point), le
+  // containment exclut en plus les têtes dégénérées de sa propre médiane.
+  const absentCount = boxes.filter((b) => headBounds(b, options) === null).length
+  const containments = boxes
+    .map((b) => headContainment(b, cell, options))
+    .filter((v): v is number => v !== null)
+    .sort((a, b) => a - b)
   return {
-    headAbsenceShare: (values.length - present.length) / values.length,
-    headContainmentMedian: present.length === 0 ? null : median(present),
+    headAbsenceShare: absentCount / boxes.length,
+    headContainmentMedian: containments.length === 0 ? null : median(containments),
   }
 }
 

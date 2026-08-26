@@ -99,10 +99,10 @@ export const POST = route('POST /api/planning/schedule', async (request: Request
   for (const clipId of clipIds) {
     const clip = getClip(db, clipId)
     if (clip === undefined) continue
+    // Tous les statuts, comme le GET : filtrer sur `scheduledAt` faisait
+    // disparaître une plateforme déjà publiée manuellement de la réponse.
     const statuses: ScheduledEntry['statuses'] = {}
-    for (const row of getPublications(db, clipId)) {
-      if (row.scheduledAt !== null) statuses[row.platform] = row.status
-    }
+    for (const row of getPublications(db, clipId)) statuses[row.platform] = row.status
     entries.push({
       clipId,
       projectId: clip.projectId,

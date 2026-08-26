@@ -272,6 +272,32 @@ describe('POST /api/planning/schedule', () => {
     expect(getPublications(getDb(), 'a')).toHaveLength(4)
   })
 
+  // Une plateforme déjà publiée à la main n'a pas d'échéance : le filtre sur
+  // `scheduledAt` la faisait disparaître de la réponse alors que le GET la
+  // montre. Les deux doivent s'accorder (relevé par Copilot, passe 4).
+  it('montre aussi une plateforme déjà publiée manuellement, sans échéance', async () => {
+    putClip(getDb(), baseClip('a'))
+    upsertPublication(getDb(), {
+      clipId: 'a',
+      platform: 'youtube',
+      status: 'published',
+      remoteId: 'p1',
+      remoteUrl: 'https://example.test/p1',
+      requestId: null,
+      error: null,
+      publishedFingerprint: null,
+      createdAt: 1000,
+      updatedAt: 1000,
+      scheduledAt: null,
+    })
+
+    const response = await scheduleRoute(
+      postRequest('http://test/api/planning/schedule', { clipIds: ['a'], scheduledAt: 5000 }),
+    )
+    const payload = (await response.json()) as { entries: { statuses: Record<string, string> }[] }
+    expect(payload.entries[0].statuses.youtube).toBe('published')
+  })
+
   it('400 sur des identifiants dupliqués', async () => {
     const response = await scheduleRoute(
       postRequest('http://test/api/planning/schedule', { clipIds: ['a', 'a'], scheduledAt: 5000 }),

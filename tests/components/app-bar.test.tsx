@@ -80,6 +80,26 @@ describe('AppBar', () => {
     expect(screen.getByRole('link', { name: 'Planning' })).toHaveProperty('pathname', '/planning')
   })
 
+  it('reste présent sur un projet', () => {
+    render(
+      <AppBar lieu={{ kind: 'project', project: { id: 'p1', title: 'Une émission' } }} />,
+    )
+    expect(screen.getByRole('link', { name: 'Planning' })).toHaveProperty('pathname', '/planning')
+  })
+
+  it('reste présent sur un clip', () => {
+    render(
+      <AppBar
+        lieu={{
+          kind: 'clip',
+          project: { id: '2025-06-15-cqlp', title: 'La scène du 15 juin' },
+          clip: { title: 'La chute' },
+        }}
+      />,
+    )
+    expect(screen.getByRole('link', { name: 'Planning' })).toHaveProperty('pathname', '/planning')
+  })
+
   it('porte un emplacement pour l’indicateur d’exécution', () => {
     // La barre laisse la place, elle ne dessine pas l'indicateur : c'est
     // l'écran de projet qui sait ce qui tourne.

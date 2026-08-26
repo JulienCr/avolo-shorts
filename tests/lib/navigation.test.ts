@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ClipStatus } from '@/core/edl'
 import type { StepName } from '@/core/graph'
 import { phaseProject, type Phase } from '@/core/phase'
-import { path, clipNext, settingsLink, next } from '@/lib/navigation'
+import { path, clipNext, planningLink, settingsLink, next } from '@/lib/navigation'
 
 const project = { id: 'p1', title: 'La scène Avolo du 15 juin' }
 
@@ -43,6 +43,11 @@ describe('chemin', () => {
     // recalcule rien. Les ranger sous une émission aurait suggéré le contraire.
     expect(path({ kind: 'settings' })).toEqual([{ label: 'Paramètres' }])
     expect(settingsLink()).toBe('/settings')
+  })
+
+  it('nomme le planning, en frère de la racine et non en quatrième étage', () => {
+    expect(path({ kind: 'planning' })).toEqual([{ label: 'Planning' }])
+    expect(planningLink()).toBe('/planning')
   })
 
   it('porte un cran quand l’objet n’est pas encore connu', () => {

@@ -651,6 +651,16 @@ function probeStreamKinds(file: string): string[] {
  * pensé pour l'œil, pas pour être analysé de façon fiable.
  */
 function worstPsnr(a: string, b: string): number {
+  // Comparées avant le filtre : le framesync de ffmpeg tronque ou répète un
+  // flux plutôt que d'échouer, ce qui laisserait passer une image d'écart
+  // sous couvert d'une comparaison « image par image ».
+  const framesA = probeVideoStream(a).frames
+  const framesB = probeVideoStream(b).frames
+  if (framesA !== framesB) {
+    throw new Error(
+      `psnr entre ${a} (${framesA} images) et ${b} (${framesB} images) : nombre d'images différent.`,
+    )
+  }
   const statsFile = path.join(os.tmpdir(), `psnr-${process.pid}-${Math.random().toString(36).slice(2)}.txt`)
   try {
     try {
@@ -677,6 +687,11 @@ function worstPsnr(a: string, b: string): number {
       if (value < worst) worst = value
     }
     if (matched === 0) throw new Error(`psnr : aucune valeur psnr_avg reconnue entre ${a} et ${b}.`)
+    if (matched !== framesA) {
+      throw new Error(
+        `psnr entre ${a} et ${b} : ${matched} paire(s) comparée(s) sur ${framesA} attendue(s).`,
+      )
+    }
     return worst
   } finally {
     fs.rmSync(statsFile, { force: true })

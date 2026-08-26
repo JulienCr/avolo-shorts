@@ -1,0 +1,35 @@
+Planche : cas-2026-08-26
+Commit : ad4d957 (MODIFIÉ) · 26 août 2026 à 13:06 · encodeur nvenc
+
+Réglé
+  · Source : 2026-05-31-nabla : 2026-05-31-nabla.mp4, 1920x1080, 60 im/s
+  · Analyse : 2026-05-31-nabla : yolo11m-pose.pt, grille 2 im/s
+  · Source : 2025-06-15-cqlp : 2025-06-15-cqlp.mp4, 1920x1080, 30 im/s
+  · Analyse : 2025-06-15-cqlp : yolo11m-pose.pt, grille 2 im/s
+  · Source : 2026-22-02-entre-nous : 2026-22-02-entre-nous.mp4, 1920x1080, 60 im/s
+  · Analyse : 2026-22-02-entre-nous : yolo11m-pose.pt, grille 2 im/s
+  · Source : 2026-04-24-fmr : 2026-04-24-fmr.mp4, 1920x1080, 60 im/s
+  · Analyse : 2026-04-24-fmr : yolo11m-pose.pt, grille 2 im/s
+  · Cadrage : splitScreen=true splitMinShotMs=4000 splitMinCellWidthPermille=380 splitBleedTolerancePermille=80 splitBleedSharePermille=900 sizeFloorPermille=500
+  · Variantes : Split activé (défauts) · Split désactivé (splitScreen=false)
+  · Classifieur : single
+
+2026-05-31-nabla@2077400#unique@2080500 — 2026-05-31-nabla 2077.4-2083.933 @2080.5
+  → garder
+
+2026-05-31-nabla@6418667#unique@6423000 — 2026-05-31-nabla 6418.667-6427.367 @6423
+  → écarter
+  note : Baba est trop de dos
+
+2025-06-15-cqlp@1366033#unique@1369000 — 2025-06-15-cqlp 1366.033-1372 @1369
+  → écarter
+  note : Le plan large est mieux ici
+
+2026-22-02-entre-nous@3495867#unique@3501500 — 2026-22-02-entre-nous 3495.867-3507.633 @3501.5
+  → écarter
+  note : Baba est trop bord cadre, le zoom est moche.
+    On pourrait meme faire un 9:16 sur Mathilde uniquement
+
+2026-04-24-fmr@1115733#unique@1118000 — 2026-04-24-fmr 1115.733-1120.767 @1118
+  → écarter
+  note : aucun intéret de zoomer sur une personne dont on a pas la tete

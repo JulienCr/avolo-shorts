@@ -4,6 +4,7 @@
  *     pnpm tsx scripts/framing-cases.ts list [selector]
  *     pnpm tsx scripts/framing-cases.ts show <id>
  *     pnpm tsx scripts/framing-cases.ts verify [selector] [--strict]
+ *     pnpm tsx scripts/framing-cases.ts ingest [--from <fichier>|-] [--change] [--strict]
  *
  * `selector` : `all` (défaut), `active`, `labelled`, `unlabelled`, `keep`,
  * `drop`, `unsure`, un nom d'émission, un identifiant de cas, ou une liste de
@@ -13,6 +14,12 @@
  * secondes, imprime la dérive de chaque cas (information, pas un échec en
  * soi), et sort en 1 sous `--strict` si un cas a dérivé — un cas absent,
  * introuvable, ou dont le plan ou le split a changé depuis l'étiquetage.
+ *
+ * `ingest` lit le bloc à copier-coller d'une planche (`board/verdicts.ts`) et
+ * imprime les lignes à coller dans `scripts/framing/cases.ts` — jamais
+ * n'écrit le fichier. `--from -` (ou l'absence de `--from`) lit `stdin`.
+ * `--change` débloque l'émission d'un changement de verdict ; `--strict`
+ * sort en 1 dès qu'il y a quoi que ce soit à regarder, même sans conséquence.
  */
 
 import fs from 'node:fs'
@@ -25,6 +32,7 @@ import {
   type ResolvedCase,
 } from './framing/case-registry'
 import { findCase, projectOf, selectCases, type FramingCase } from './framing/cases'
+import { BOARD_OWNER, hasAnyReport, hasBlockingIssues, ingestBlock, renderIngestReport } from './framing/ingest'
 import { chargerEnv, quit } from './dev-common'
 
 function anchorText(c: FramingCase): string {
@@ -153,6 +161,22 @@ function verifyCases(selector: string, strict: boolean): number {
   return strict && hasDrift(resolvedDrift) ? 1 : 0
 }
 
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer)
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+async function ingestCommand(fromArg: string | undefined, change: boolean, strict: boolean): Promise<number> {
+  const text = fromArg === undefined || fromArg === '-' ? await readStdin() : fs.readFileSync(fromArg, 'utf8')
+  const casesSource = fs.readFileSync(new URL('./framing/cases.ts', import.meta.url), 'utf8')
+  const result = ingestBlock(text, { by: BOARD_OWNER, casesSource })
+  for (const line of renderIngestReport(result, { change })) console.log(line)
+  if (hasBlockingIssues(result.outcomes, change)) return 1
+  if (strict && hasAnyReport(result.outcomes)) return 1
+  return 0
+}
+
 async function main(): Promise<number> {
   await chargerEnv()
   const [sub, ...rest] = process.argv.slice(2)
@@ -173,8 +197,16 @@ async function main(): Promise<number> {
     }
     case 'verify':
       return verifyCases(positional[0] ?? 'all', strict)
+    case 'ingest': {
+      const change = rest.includes('--change')
+      const fromIdx = rest.indexOf('--from')
+      const fromArg = fromIdx !== -1 ? rest[fromIdx + 1] : undefined
+      return ingestCommand(fromArg, change, strict)
+    }
     default:
-      console.error('Usage : pnpm tsx scripts/framing-cases.ts <list|show|verify> [selector] [--strict]')
+      console.error(
+        'Usage : pnpm tsx scripts/framing-cases.ts <list|show|verify|ingest> [selector] [--strict] [--from <fichier>|-] [--change]',
+      )
       return 1
   }
 }

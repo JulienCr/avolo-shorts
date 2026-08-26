@@ -10,6 +10,8 @@ import { DEFAULT_SELECTION_DIMENSIONS, type SelectionDimensions } from '@/core/t
 import {
   DEFAULT_COPY_SOURCE_LOCALLY,
   DEFAULT_PUBLICATION_PREFERENCE,
+  FRAMING_BOUNDS,
+  FRAMING_SETTINGS_DEFAULTS,
   HOOK_ALIGNMENTS,
   HOOK_BOUNDS,
   HOOK_DEFAULTS,
@@ -19,6 +21,7 @@ import {
   LLM_PROVIDERS,
   PUBLICATION_ADAPTER_CHOICES,
   type AiSettings,
+  type FramingSettings,
   type HookSettings,
   type IngestionSettings,
   type PublicationSettings,
@@ -452,10 +455,10 @@ export type SettingField = {
   /**
    * Le plus petit entier acceptable. **Entiers seulement**, et absent ailleurs.
    *
-   * Un seul champ y met zéro, et c'est là sa valeur signifiante :
-   * `maximumClips` à zéro veut dire « aucun plafond ». Partout ailleurs zéro est
-   * une saisie ratée — une durée nulle par clip diviserait par zéro, un ratio
-   * nul viderait la présélection.
+   * Deux lectures de zéro coexistent selon le champ. Sur `maximumClips`, zéro
+   * est une valeur signifiante : « aucun plafond ». Sur les cinq champs de la
+   * famille `framing`, zéro est le plancher réel du domaine — pas une
+   * sentinelle. Ailleurs, zéro est une saisie ratée.
    */
   min?: number
   /**
@@ -643,6 +646,48 @@ const HOOK_FIELDS: readonly SettingField[] = (
 ).map((name) => ({ family: 'hook' as const, name, ...HOOK_FIELD_SHAPES[name] }))
 
 /**
+ * Les six champs `framing` (issue #180) : split-screen (PR #176) et plancher
+ * de taille (PR #177), jusqu'ici en dur dans `FRAMING_DEFAULTS`.
+ *
+ * **Même patron que `HOOK_FIELD_SHAPES`** : `keyof FramingSettings`, défauts
+ * et bornes tirés de `FRAMING_SETTINGS_DEFAULTS`/`FRAMING_BOUNDS`, jamais
+ * recopiés. **Sans prose** (issue #78) : le libellé de chaque champ vit dans
+ * `framing-section.tsx`, pas ici.
+ */
+const FRAMING_FIELD_SHAPES = {
+  splitScreen: { type: 'boolean', defaultValue: FRAMING_SETTINGS_DEFAULTS.splitScreen },
+  splitMinShotMs: {
+    type: 'integer',
+    defaultValue: FRAMING_SETTINGS_DEFAULTS.splitMinShotMs,
+    ...FRAMING_BOUNDS.splitMinShotMs,
+  },
+  splitMinCellWidthPermille: {
+    type: 'integer',
+    defaultValue: FRAMING_SETTINGS_DEFAULTS.splitMinCellWidthPermille,
+    ...FRAMING_BOUNDS.splitMinCellWidthPermille,
+  },
+  splitBleedTolerancePermille: {
+    type: 'integer',
+    defaultValue: FRAMING_SETTINGS_DEFAULTS.splitBleedTolerancePermille,
+    ...FRAMING_BOUNDS.splitBleedTolerancePermille,
+  },
+  splitBleedSharePermille: {
+    type: 'integer',
+    defaultValue: FRAMING_SETTINGS_DEFAULTS.splitBleedSharePermille,
+    ...FRAMING_BOUNDS.splitBleedSharePermille,
+  },
+  sizeFloorPermille: {
+    type: 'integer',
+    defaultValue: FRAMING_SETTINGS_DEFAULTS.sizeFloorPermille,
+    ...FRAMING_BOUNDS.sizeFloorPermille,
+  },
+} satisfies Record<keyof FramingSettings, Omit<SettingField, 'family' | 'name'>>
+
+const FRAMING_FIELDS: readonly SettingField[] = (
+  Object.keys(FRAMING_FIELD_SHAPES) as (keyof FramingSettings)[]
+).map((name) => ({ family: 'framing' as const, name, ...FRAMING_FIELD_SHAPES[name] }))
+
+/**
  * Les champs de la famille `publication` : quel connecteur porte chaque
  * plateforme, `auto` par défaut. **Même patron que les familles précédentes**,
  * `satisfies` compris ; l'énumération de chaque champ vient de
@@ -681,6 +726,7 @@ export const SETTING_FIELDS: readonly SettingField[] = [
   ...AI_FIELDS,
   ...INGESTION_FIELDS,
   ...HOOK_FIELDS,
+  ...FRAMING_FIELDS,
   ...PUBLICATION_FIELDS,
 ]
 
@@ -908,6 +954,10 @@ export function effectiveSettings(db: Database.Database): Settings {
     hook: Object.fromEntries(
       HOOK_FIELDS.map((f) => [f.name, f.defaultValue]),
     ) as unknown as HookSettings,
+    // Même dérivation, pour les six défauts globaux du cadrage.
+    framing: Object.fromEntries(
+      FRAMING_FIELDS.map((f) => [f.name, f.defaultValue]),
+    ) as unknown as FramingSettings,
     // Même dérivation, pour les quatre défauts `auto` de la publication.
     publication: Object.fromEntries(
       PUBLICATION_FIELDS.map((f) => [f.name, f.defaultValue]),

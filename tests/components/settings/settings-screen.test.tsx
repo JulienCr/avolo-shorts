@@ -17,12 +17,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsScreen } from '@/components/settings/settings-screen'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
-import { HOOK_BOUNDS, HOOK_DEFAULTS } from '@/lib/api'
+import { FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS, HOOK_BOUNDS, HOOK_DEFAULTS } from '@/lib/api'
 import type { Settings } from '@/lib/api'
+import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
 }))
+
+// La section « Cadrage » clique une `Checkbox` de Base UI, comme
+// `framing-section.test.tsx` : `jsdom` n'a pas de `PointerEvent`.
+installPointerEventPolyfill()
 
 afterEach(() => {
   cleanup()
@@ -71,6 +76,7 @@ const DEFAULTS: Settings = {
   ingestion: { ...INGESTION_DEFAULTS },
   hook: { ...HOOK_DEFAULTS },
   publication: { ...PUBLICATION_DEFAULTS },
+  framing: { ...FRAMING_SETTINGS_DEFAULTS },
 }
 
 /** Un serveur réduit à `/api/settings`, et la liste des corps qu'il a reçus. */
@@ -563,6 +569,48 @@ describe('la section du hook', () => {
 
     await userEvent.click(await screen.findByRole('option', { name: 'Aucune' }))
     await waitFor(() => expect(writes).toEqual([{ hook: { enter: 'none' } }]))
+  })
+})
+
+/**
+ * La section « Cadrage » (issue #180, première moitié) : le split-screen
+ * (PR #176) et le plancher de taille (PR #177), jusqu'ici hors d'atteinte
+ * depuis l'écran.
+ */
+describe('la section cadrage', () => {
+  it('bascule le split-screen par défaut', async () => {
+    const writes = server()
+    await mountScreen()
+    await switchTab('Cadrage')
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /Split-screen activé par défaut/ }))
+
+    await waitFor(() => expect(writes).toEqual([{ framing: { splitScreen: false } }]))
+  })
+
+  it('affiche les valeurs de la base, jamais les constantes du code', async () => {
+    server({
+      read: () =>
+        response({ ...DEFAULTS, framing: { ...FRAMING_SETTINGS_DEFAULTS, splitMinShotMs: 6000 } }),
+    })
+    await mountScreen()
+    await switchTab('Cadrage')
+
+    expect(screen.getByLabelText('Durée minimale du plan')).toHaveProperty('value', '6000')
+  })
+
+  it('borne une saisie hors plage à la sortie du champ', async () => {
+    const writes = server()
+    await mountScreen()
+    await switchTab('Cadrage')
+
+    const input = screen.getByLabelText('Plancher de taille')
+    fireEvent.change(input, { target: { value: '5000' } })
+    fireEvent.blur(input)
+
+    await waitFor(() =>
+      expect(writes).toEqual([{ framing: { sizeFloorPermille: FRAMING_BOUNDS.sizeFloorPermille.max } }]),
+    )
   })
 })
 

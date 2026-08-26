@@ -32,7 +32,7 @@ import {
 import { mergeCandidates } from '@/core/candidates'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
 import type { Clip } from '@/core/edl'
-import { HOOK_DEFAULTS } from '@/lib/api'
+import { FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
 
 /**
  * La base porte les projets et les clips. Les artefacts du pipeline — proxy,
@@ -444,6 +444,85 @@ describe('la famille `hook`', () => {
 })
 
 /**
+ * La famille `framing` (issue #180, première moitié) : les six leviers
+ * globaux du split-screen (PR #176) et du plancher de taille (PR #177),
+ * jusqu'ici en dur dans `FRAMING_DEFAULTS` (`src/core/framing.ts`).
+ *
+ * **Entiers et un booléen, jamais de fraction** — même patron que `hook`.
+ * `splitMinShotMs` porte des millisecondes, les quatre autres des millièmes ;
+ * la conversion vers `FramingOptions` vit dans `src/server/clip-framing.ts`,
+ * pas ici.
+ */
+describe('la famille `framing`', () => {
+  it('décrit ses six champs', () => {
+    for (const name of [
+      'splitScreen',
+      'splitMinShotMs',
+      'splitMinCellWidthPermille',
+      'splitBleedTolerancePermille',
+      'splitBleedSharePermille',
+      'sizeFloorPermille',
+    ]) {
+      const f = settingField('framing', name)
+      expect(f, name).toBeDefined()
+    }
+  })
+
+  it('rend les six défauts sur une base vierge', () => {
+    expect(effectiveSettings(db).framing).toEqual(FRAMING_SETTINGS_DEFAULTS)
+  })
+
+  it('fait l’aller-retour sur un champ de chacun des deux types', () => {
+    const after = applySettings(db, {
+      framing: { splitScreen: false, sizeFloorPermille: 300 },
+    })
+    expect(after.framing.splitScreen).toBe(false)
+    expect(after.framing.sizeFloorPermille).toBe(300)
+    // Un patch partiel ne réinitialise rien de ce qu'il ne touche pas.
+    expect(after.framing.splitMinShotMs).toBe(FRAMING_SETTINGS_DEFAULTS.splitMinShotMs)
+  })
+
+  /**
+   * **`max`, pas `min`**, sur les cinq champs numériques : `validateSetting`
+   * défaute `min` à 0 (`const min = field.min ?? 0`), qui est déjà le plancher
+   * de chacun — retirer leur `min` explicite ne changerait rien. Vérifié par
+   * suppression sur les cinq, un par un (voir le corps de la PR pour le
+   * verdict complet) : la seule borne qui meurt sans qu'un test s'en
+   * aperçoive quand on la retire est `min`, jamais `max`.
+   */
+  it('refuse une valeur hors des bornes de `FRAMING_BOUNDS`', () => {
+    expect(() =>
+      applySettings(db, { framing: { splitMinShotMs: FRAMING_BOUNDS.splitMinShotMs.max + 1 } }),
+    ).toThrow(InvalidSettingError)
+    expect(() =>
+      applySettings(db, {
+        framing: { splitMinCellWidthPermille: FRAMING_BOUNDS.splitMinCellWidthPermille.max + 1 },
+      }),
+    ).toThrow(InvalidSettingError)
+    expect(() =>
+      applySettings(db, {
+        framing: { splitBleedTolerancePermille: FRAMING_BOUNDS.splitBleedTolerancePermille.max + 1 },
+      }),
+    ).toThrow(InvalidSettingError)
+    expect(() =>
+      applySettings(db, {
+        framing: { splitBleedSharePermille: FRAMING_BOUNDS.splitBleedSharePermille.max + 1 },
+      }),
+    ).toThrow(InvalidSettingError)
+    expect(() =>
+      applySettings(db, { framing: { sizeFloorPermille: FRAMING_BOUNDS.sizeFloorPermille.max + 1 } }),
+    ).toThrow(InvalidSettingError)
+  })
+
+  it('ne recalcule rien : changer un défaut du cadrage ne touche aucun clip', () => {
+    upsertProject(db, PROJECT)
+    putClip(db, clip('clip_01', { status: 'kept' }))
+    applySettings(db, { framing: { splitScreen: false } })
+    expect(getClips(db, PROJECT.id).map((c) => c.status)).toEqual(['kept'])
+  })
+})
+
+/**
  * **La grammaire du registre.** Le repérage ne porte que des entiers ; la
  * famille `ai` porte des chaînes, dont certaines contraintes à un ensemble
  * fermé ou tolérantes au vide (voir ci-dessus) ; `ingestion.copySourceLocally`
@@ -689,6 +768,7 @@ describe('appliquerRéglages', () => {
       ingestion: { copySourceLocally: true },
       hook: { ...HOOK_DEFAULTS },
       publication: { instagram: 'auto', facebook: 'auto', tiktok: 'auto', youtube: 'auto' },
+      framing: { ...FRAMING_SETTINGS_DEFAULTS },
     })
   })
 })

@@ -15,7 +15,7 @@ import {
   type PublicationRecord,
 } from '@/core/publication'
 import { RENDER_NATIVE } from '@/core/render-flags'
-import { getPublications, upsertPublication, type PublicationRow } from '@/server/db'
+import { effectiveSettings, getPublications, upsertPublication, type PublicationRow } from '@/server/db'
 import { isAAbsence } from '@/server/bytes'
 import { clipFraming } from '@/server/clip-framing'
 import { messageSafe } from '@/server/errors'
@@ -255,7 +255,7 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
   const exportEligibility = clipEligibilityFromStatus(clip.status)
   if (!exportEligibility.eligible) throw requestInvalid(exportEligibility.reason)
 
-  const framing = clipFraming(clip)
+  const framing = clipFraming(clip, effectiveSettings(db).framing)
   if (!deliveryToDay(clip, framing)) {
     throw requestInvalid('Le rendu de ce clip est périmé ou absent : exporter avant de publier.')
   }

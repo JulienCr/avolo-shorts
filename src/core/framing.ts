@@ -452,6 +452,57 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
 })
 
 /**
+ * Les six réglages `framing` globaux (issue #180), tels que le registre
+ * (`src/server/db.ts`) et l'écran des paramètres les persistent.
+ *
+ * **Ici, pas dans `src/lib/api.ts`, comme `HookSettings`** : la PR suivante
+ * ajoute `framingStyle` à `Clip`, et `src/core/**` ne peut importer que de
+ * lui-même (`tests/core/purete.test.ts`) — `lib/api.ts` réexporte, il n'authore
+ * pas. Entiers et booléens, jamais de fraction : la conversion vers
+ * `FramingOptions` vit dans `src/server/clip-framing.ts`.
+ */
+export type FramingSettings = {
+  splitScreen: boolean
+  splitMinShotMs: number
+  splitMinCellWidthPermille: number
+  splitBleedTolerancePermille: number
+  splitBleedSharePermille: number
+  sizeFloorPermille: number
+}
+
+/**
+ * Les défauts de la famille `framing`, **dérivés de `FRAMING_DEFAULTS`** plutôt
+ * que recopiés en littéraux : un défaut de `FRAMING_DEFAULTS` qui bougerait
+ * sans que celui-ci ne suive redonnerait exactement la divergence que
+ * `HOOK_FIELD_SHAPES` évite déjà en lisant `HOOK_DEFAULTS`.
+ */
+export const FRAMING_SETTINGS_DEFAULTS: Readonly<FramingSettings> = Object.freeze({
+  splitScreen: FRAMING_DEFAULTS.splitScreen,
+  splitMinShotMs: Math.trunc(FRAMING_DEFAULTS.splitMinShot * 1000),
+  splitMinCellWidthPermille: Math.trunc(FRAMING_DEFAULTS.splitMinCellWidth * 1000),
+  splitBleedTolerancePermille: Math.trunc(FRAMING_DEFAULTS.splitBleedTolerance * 1000),
+  splitBleedSharePermille: Math.trunc(FRAMING_DEFAULTS.splitBleedShare * 1000),
+  sizeFloorPermille: Math.trunc(FRAMING_DEFAULTS.sizeFloor * 1000),
+})
+
+/**
+ * Les bornes des cinq réglages numériques de la famille `framing`, sur le
+ * modèle de `HOOK_BOUNDS` (`@/core/hook`) : une seule source pour le registre.
+ *
+ * `splitMinShotMs` n'a pas de plafond interne, d'où 60 000 (60 s) plutôt qu'un
+ * infini implicite. Les quatre autres sont déjà bornées à `[0, 1]` une fois
+ * converties (`computeShotSplit`, `clampedSizeFloor`) : 0 à 1000 est leur
+ * domaine complet, pas une restriction ajoutée.
+ */
+export const FRAMING_BOUNDS = {
+  splitMinShotMs: { min: 0, max: 60_000 },
+  splitMinCellWidthPermille: { min: 0, max: 1000 },
+  splitBleedTolerancePermille: { min: 0, max: 1000 },
+  splitBleedSharePermille: { min: 0, max: 1000 },
+  sizeFloorPermille: { min: 0, max: 1000 },
+} as const
+
+/**
  * La fraction de la largeur source qu'un crop pleine hauteur de ce ratio couvre.
  *
  * C'est la grandeur qui rend la table de la spec §2 lisible : dans une image

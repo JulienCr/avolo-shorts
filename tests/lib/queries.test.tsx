@@ -15,7 +15,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { HOOK_DEFAULTS } from '@/lib/api'
+import { FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
 import type { ClipDetail, ExportResult, PatchClipResult, RunPlan, Settings } from '@/lib/api'
 import {
   keys,
@@ -396,6 +396,7 @@ describe('les réglages', () => {
     ingestion: { copySourceLocally: true },
     hook: { ...HOOK_DEFAULTS },
     publication: { instagram: 'auto', facebook: 'auto', tiktok: 'auto', youtube: 'auto' },
+    framing: { ...FRAMING_SETTINGS_DEFAULTS },
   }
 
   it('se lisent sans interrogation en boucle', async () => {
@@ -421,6 +422,7 @@ describe('les réglages', () => {
       ingestion: { ...settings.ingestion },
       hook: { ...settings.hook },
       publication: { ...settings.publication },
+      framing: { ...settings.framing },
     }
     vi.stubGlobal('fetch', vi.fn(async () => response(after)))
     const { client, invalid, envelope } = harness()

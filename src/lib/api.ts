@@ -46,7 +46,7 @@
  */
 
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
-import type { ClipFraming, ShotFraming } from '@/core/framing'
+import type { ClipFraming, FramingSettings, ShotFraming } from '@/core/framing'
 import type { StepName } from '@/core/graph'
 import type { HookSettings } from '@/core/hook'
 import type { Platform, PlatformAvailability, PublicationRow } from '@/core/publication'
@@ -64,6 +64,17 @@ export type { Clip, ClipStatus, Ratio, Segment }
  * l'importent déjà pour `cropRect` et `outputSize`.
  */
 export type { ClipFraming, ShotFraming }
+
+/**
+ * Les réglages `framing`, **importés de `@/core/framing` plutôt que redits
+ * ici**, pour la raison qu'`HookSettings` documente juste en dessous : la PR
+ * qui ajoute `framingStyle` à `Clip` (issue #180, seconde moitié) a besoin de
+ * `FramingSettings` dans `src/core/edl.ts`, donc ce type ne peut pas être
+ * authored ici sans que `src/core/**` finisse par importer `lib/api.ts` —
+ * exactement le cycle que la frontière de pureté interdit.
+ */
+export { FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS } from '@/core/framing'
+export type { FramingSettings } from '@/core/framing'
 
 /**
  * Le hook, **importé de `@/core/hook` plutôt que redit ici**, pour la même
@@ -1090,6 +1101,7 @@ export type Settings = {
   ingestion: IngestionSettings
   hook: HookSettings
   publication: PublicationSettings
+  framing: FramingSettings
 }
 
 /** Un patch : les familles et les champs qu'on veut changer, pas les autres. */
@@ -1099,6 +1111,7 @@ export type SettingsPatch = {
   ingestion?: Partial<IngestionSettings>
   hook?: Partial<HookSettings>
   publication?: Partial<PublicationSettings>
+  framing?: Partial<FramingSettings>
 }
 
 /**

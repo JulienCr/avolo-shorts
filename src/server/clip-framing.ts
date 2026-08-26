@@ -1,10 +1,11 @@
 import fs from 'node:fs'
 
 import type { Clip } from '@/core/edl'
-import { computeFraming, resolveRatio } from '@/core/framing'
-import type { ClipFraming } from '@/core/framing'
+import { computeFraming, FRAMING_SETTINGS_DEFAULTS, resolveRatio } from '@/core/framing'
+import type { ClipFraming, FramingSettings } from '@/core/framing'
 import type { PersonBox, Shot } from '@/core/shots'
 import { isAAbsence } from '@/server/bytes'
+import { effectiveSettings, getDb } from '@/server/db'
 import { analysisPath } from '@/server/paths'
 import { lireAnalysis, type Analysis } from '@/server/steps/analysis'
 import type { PublishedFraming, FramingOrigin } from '@/lib/api'
@@ -205,21 +206,33 @@ export function projectAnalysis(projectId: string): FramingSource {
  * Le cadrage de ce clip : le ratio, un crop par plan, et d'où tout cela vient.
  *
  * **Sur les segments du clip qu'on lui passe**, jamais sur ceux qu'il porte en
- * base : le `PATCH` a besoin du cadrage d'avant l'écriture pour savoir quels
- * fichiers écarter, et de celui d'après pour le publier.
+ * base : le `PATCH` en a besoin d'avant l'écriture pour savoir quoi écarter.
+ *
+ * **`framingGlobals` se lit sur la base par défaut**, comme `hookGlobals`
+ * (`renders.ts`) : cette fonction touche déjà le disque. Les deux routes de
+ * `/api/clips/:id` la passent explicitement, pour ne lire les réglages qu'une
+ * fois.
  */
-export function clipFraming(clip: Clip): ResolvedFraming {
-  return framingWith(clip, projectAnalysis(clip.projectId))
+export function clipFraming(
+  clip: Clip,
+  framingGlobals: FramingSettings = effectiveSettings(getDb()).framing,
+): ResolvedFraming {
+  return framingWith(clip, projectAnalysis(clip.projectId), framingGlobals)
 }
 
 /**
  * Le même cadrage, sur une analyse **déjà lue**. Pure : aucun accès au disque,
- * donc rien qui puisse lever.
+ * donc rien qui puisse lever — voir `FramingSource` pour ce que ça protège.
  *
- * C'est la moitié que `PATCH /api/clips/:id` appelle après avoir écrit en base —
- * voir `FramingSource` pour ce que la séparation protège.
+ * **`framingGlobals` défaut sur la constante, jamais sur la base** : un
+ * défaut qui appellerait `getDb()` casserait cette garantie et couplerait
+ * chaque appelant à la connexion partagée de `db.ts` sans le dire.
  */
-export function framingWith(clip: Clip, source: FramingSource): ResolvedFraming {
+export function framingWith(
+  clip: Clip,
+  source: FramingSource,
+  framingGlobals: FramingSettings = FRAMING_SETTINGS_DEFAULTS,
+): ResolvedFraming {
   const { analysis, origin } = source
   if (analysis === null) return fallback(clip, origin === 'computed' ? 'no-analysis' : origin)
 
@@ -233,6 +246,15 @@ export function framingWith(clip: Clip, source: FramingSource): ResolvedFraming 
     srcH: analysis.source.h,
     ratio: clip.ratio,
     cropMode: CROP_MODE,
+    // **La seule conversion millièmes/ms → fractions/secondes du dépôt** :
+    // une deuxième, ici ou à l'écran, diverge en silence — voir
+    // `tests/server/clip-framing.test.ts` pour le test qui l'épingle.
+    splitScreen: framingGlobals.splitScreen,
+    splitMinShot: framingGlobals.splitMinShotMs / 1000,
+    splitMinCellWidth: framingGlobals.splitMinCellWidthPermille / 1000,
+    splitBleedTolerance: framingGlobals.splitBleedTolerancePermille / 1000,
+    splitBleedShare: framingGlobals.splitBleedSharePermille / 1000,
+    sizeFloor: framingGlobals.sizeFloorPermille / 1000,
   })
 
   // **Un clip dont aucun segment ne rencontre un plan n'a rien à cadrer.** Le

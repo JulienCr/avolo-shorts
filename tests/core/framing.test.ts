@@ -2488,3 +2488,131 @@ describe('le split-screen dans computeFraming', () => {
     expect(manual.shots[0].cropX).toBe(0.42)
   })
 })
+
+/**
+ * Issue #180 : les six réglages doivent chacun bouger `RenderedFraming`, sans
+ * quoi un export se croirait à jour sur un cadrage qui a changé.
+ *
+ * **Démontré sur `ClipFraming.shots[]`, jamais sur `RenderedFraming`** :
+ * `renderedFraming()` n'est qu'une projection de `ratio`/`cropX`/`cropXNative`/
+ * `split`, et l'importer exigerait `better-sqlite3` dans un fichier qui ne
+ * porte que du calcul pur. Aucun champ neuf n'est donc nécessaire : les six
+ * passent déjà par l'un de ces quatre.
+ */
+describe('les six réglages de la famille `framing` bougent RenderedFraming', () => {
+  it('`splitScreen` : présence de `split`', () => {
+    const request = {
+      segments: [seg(0, 10)],
+      shots: [shot(0, 10)],
+      people: splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY),
+      srcW: SRC_W,
+      srcH: SRC_H,
+      ratio: '1:1' as const,
+      cropMode: 'auto' as const,
+      ...RAW_BOUNDS,
+    }
+    expect(computeFraming({ ...request, splitScreen: false }).shots[0].split).toBeUndefined()
+    expect(computeFraming({ ...request, splitScreen: true }).shots[0].split).toBeDefined()
+  })
+
+  it('`splitMinShotMs` (`splitMinShot` en secondes) : un plan de 3 s refuse à 4 s, accepte à 2 s', () => {
+    const request = {
+      segments: [seg(0, 3)],
+      shots: [shot(0, 3)],
+      people: splitFrames(0, 3, LEFT_GEOMETRY, RIGHT_GEOMETRY),
+      srcW: SRC_W,
+      srcH: SRC_H,
+      ratio: '1:1' as const,
+      cropMode: 'auto' as const,
+      ...RAW_BOUNDS,
+    }
+    expect(computeFraming({ ...request, splitMinShot: 4 }).shots[0].split).toBeUndefined()
+    expect(computeFraming({ ...request, splitMinShot: 2 }).shots[0].split).toBeDefined()
+  })
+
+  it('`splitMinCellWidthPermille` (`splitMinCellWidth`) : une cellule plus large à 0,5 qu’au défaut 0,38', () => {
+    const request = {
+      segments: [seg(0, 10)],
+      shots: [shot(0, 10)],
+      people: splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY),
+      srcW: SRC_W,
+      srcH: SRC_H,
+      ratio: '1:1' as const,
+      cropMode: 'auto' as const,
+      ...RAW_BOUNDS,
+    }
+    const narrow = computeFraming({ ...request, splitMinCellWidth: 0.38 }).shots[0].split
+    const wide = computeFraming({ ...request, splitMinCellWidth: 0.5 }).shots[0].split
+    expect(narrow).toBeDefined()
+    expect(wide).toBeDefined()
+    expect(wide![0].x1 - wide![0].x0).toBeGreaterThan(narrow![0].x1 - narrow![0].x0)
+  })
+
+  it('`splitBleedTolerancePermille` (`splitBleedTolerance`) : un débordement constant de 0,20 refuse à 0,08, accepte à 0,25', () => {
+    // Un débordement délibérément grand et constant sur toutes les images,
+    // pour isoler la tolérance de la part exigée (`splitBleedShare`, testé à
+    // part) : ici, aucune image n'est jamais « conforme ».
+    const left: SplitGeometry = { x0: 0.2, x1: 0.3, y0: 0.2, y1: 0.9, eyeY: 0.3, side: 0 }
+    const right: SplitGeometry = { x0: 0.1, x1: 0.3, y0: 0.25, y1: 0.85, eyeY: 0.35, side: 0 }
+    const request = {
+      segments: [seg(0, 10)],
+      shots: [shot(0, 10)],
+      people: splitFrames(0, 10, left, right),
+      srcW: SRC_W,
+      srcH: SRC_H,
+      ratio: '1:1' as const,
+      cropMode: 'auto' as const,
+      ...RAW_BOUNDS,
+    }
+    expect(computeFraming({ ...request, splitBleedTolerance: 0.08 }).shots[0].split).toBeUndefined()
+    expect(computeFraming({ ...request, splitBleedTolerance: 0.25 }).shots[0].split).toBeDefined()
+  })
+
+  it('`splitBleedSharePermille` (`splitBleedShare`) : neuf images conformes sur dix acceptent à 90 %, refusent à 95 %', () => {
+    // Une seule image, sur dix, déborde largement ; les neuf autres ne
+    // débordent pas du tout. La médiane qui fixe la cellule ignore cette
+    // minorité, donc seule la part exigée décide du verdict.
+    const left: SplitGeometry = { x0: 0.2, x1: 0.3, y0: 0.2, y1: 0.9, eyeY: 0.3, side: 0 }
+    const people: PersonBox[] = []
+    for (let i = 0; i < 10; i += 1) {
+      const t = i * 0.5
+      people.push(splitPerson(t, left.x0, left.x1, left.y0, left.y1, left.eyeY, left.side))
+      people.push(
+        i === 0
+          ? splitPerson(t, 0.1, 0.3, 0.25, 0.85, 0.35, 0) // la seule image qui dépasse la tolérance
+          : splitPerson(t, 0.6, 0.68, 0.25, 0.85, 0.35, 0),
+      )
+    }
+    const request = {
+      segments: [seg(0, 5)],
+      shots: [shot(0, 5)],
+      people,
+      srcW: SRC_W,
+      srcH: SRC_H,
+      ratio: '1:1' as const,
+      cropMode: 'auto' as const,
+      ...RAW_BOUNDS,
+    }
+    expect(computeFraming({ ...request, splitBleedShare: 0.9 }).shots[0].split).toBeDefined()
+    expect(computeFraming({ ...request, splitBleedShare: 0.95 }).shots[0].split).toBeUndefined()
+  })
+
+  it('`sizeFloorPermille` (`sizeFloor`) : une image imprimée plus petite que le plancher retire le split (reprend la PR #177)', () => {
+    const pair = splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const printed = Array.from({ length: 20 }, (_, i) => splitPerson(i * 0.5, 0.42, 0.48, 0.4, 0.42, 0.41, 0))
+    const request = {
+      segments: [seg(0, 10)],
+      shots: [shot(0, 10)],
+      people: [...pair, ...printed],
+      srcW: SRC_W,
+      srcH: SRC_H,
+      ratio: '1:1' as const,
+      cropMode: 'auto' as const,
+      ...RAW_BOUNDS,
+    }
+    // Sans plancher, l'image imprimée compte comme une troisième personne :
+    // la médiane n'est plus deux, et le split se refuse.
+    expect(computeFraming({ ...request, sizeFloor: 0 }).shots[0].split).toBeUndefined()
+    expect(computeFraming({ ...request, sizeFloor: FRAMING_DEFAULTS.sizeFloor }).shots[0].split).toBeDefined()
+  })
+})

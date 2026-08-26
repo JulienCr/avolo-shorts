@@ -556,10 +556,14 @@ export function useSettings() {
  *
  * **Rien d'autre ne s'invalide, et c'est la règle qui compte** : changer un
  * réglage ne recalcule aucune émission (retour d'usage §6.1). Invalider les
- * projets ou les candidats laisserait croire le contraire. La disponibilité de
- * publication fait exception : depuis que `publication.<plateforme>` choisit le
- * connecteur, l'état affiché dépend du réglage — sans invalidation il resterait
- * celui de l'ancien connecteur jusqu'aux 30 s de `staleTime`.
+ * projets ou les candidats laisserait croire le contraire. Deux exceptions.
+ * La disponibilité de publication : depuis que `publication.<plateforme>`
+ * choisit le connecteur, l'état affiché dépend du réglage — sans invalidation
+ * il resterait celui de l'ancien connecteur jusqu'aux 30 s de `staleTime`.
+ * Et `framing` : `GET /api/clips/:id` calcule désormais `ClipDetail.framing`
+ * et `outputs` sur ces réglages (issue #180) — sans invalidation, rouvrir un
+ * clip déjà en cache dans les 30 s montre l'ancien split ou une URL déjà
+ * périmée côté serveur.
  */
 export function useSaveSettings() {
   const client = useQueryClient()
@@ -570,6 +574,9 @@ export function useSaveSettings() {
       client.setQueryData(keys.settings, settings)
       if (patch.publication !== undefined) {
         void client.invalidateQueries({ queryKey: keys.publicationAvailability })
+      }
+      if (patch.framing !== undefined) {
+        void client.invalidateQueries({ queryKey: ['clip'] })
       }
     },
   })

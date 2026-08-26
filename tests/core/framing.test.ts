@@ -6,11 +6,13 @@ import {
   RATIOS,
   chooseRatio,
   computeFraming,
+  computeShotHeadInstrument,
   computeShotSplit,
   cropRect,
   gridCount,
   gridInstants,
   headBounds,
+  headContainment,
   isForeground,
   orientationOf,
   outputSize,
@@ -21,6 +23,7 @@ import {
   personBounds,
   torsoBounds,
   trimmedBounds,
+  type Cell,
 } from '@/core/framing'
 import type { Ratio, Segment } from '@/core/edl'
 import { POINT, POINT_COUNT, shotStartMs } from '@/core/shots'
@@ -1724,6 +1727,117 @@ describe('headBounds', () => {
   })
 })
 
+/** Une boîte de personne dont les cinq points de tête sont posés explicitement, le reste à zéro. */
+function headPerson(
+  t: number,
+  points: Partial<
+    Record<'NOSE' | 'LEFT_EYE' | 'RIGHT_EYE' | 'LEFT_EAR' | 'RIGHT_EAR', [number, number, number]>
+  >,
+): PersonBox {
+  const k = Array.from({ length: POINT_COUNT * 3 }, () => 0)
+  for (const [name, [x, y, score]] of Object.entries(points)) {
+    const index = POINT[name as keyof typeof POINT]
+    k[index * 3] = x
+    k[index * 3 + 1] = y
+    k[index * 3 + 2] = score
+  }
+  return { t, x0: 0, x1: 1, y0: 0, y1: 1, score: 0.9, k }
+}
+
+describe('headContainment', () => {
+  const cell: Cell = { x0: 0.2, y0: 0.1, x1: 0.6, y1: 0.7 }
+
+  it('rend null quand la tête est absente — jamais 0 (issue #190)', () => {
+    expect(headContainment(box(0, 0.3, 0.5, 0.9), cell)).toBeNull()
+  })
+
+  it('rend null sur une boîte de version 1, sans `k`', () => {
+    const v1: PersonBox = { t: 0, x0: 0.3, x1: 0.5, y0: 0.1, y1: 0.9, score: 0.9 }
+    expect(headContainment(v1, cell)).toBeNull()
+  })
+
+  it('rend 1 quand la tête tient entièrement dans la cellule', () => {
+    const b = headPerson(0, {
+      LEFT_EYE: [0.35, 0.3, 0.9],
+      RIGHT_EYE: [0.45, 0.3, 0.9],
+      NOSE: [0.4, 0.35, 0.9],
+    })
+    expect(headContainment(b, cell)).toBeCloseTo(1, 10)
+  })
+
+  it('rend 0 quand la tête tombe entièrement hors de la cellule', () => {
+    const b = headPerson(0, {
+      LEFT_EYE: [0.8, 0.3, 0.9],
+      RIGHT_EYE: [0.9, 0.3, 0.9],
+      NOSE: [0.85, 0.35, 0.9],
+    })
+    expect(headContainment(b, cell)).toBe(0)
+  })
+
+  // Les quatre bords, un par test : la tête déborde exactement de moitié sur
+  // chacun, pour une valeur de containment prévisible (0,5) et non ambiguë.
+  it('rend moins de 1 quand la tête déborde le bord gauche', () => {
+    const b = headPerson(0, {
+      LEFT_EYE: [0.1, 0.2, 0.9],
+      RIGHT_EYE: [0.3, 0.2, 0.9],
+      NOSE: [0.2, 0.3, 0.9],
+    })
+    expect(headContainment(b, cell)).toBeCloseTo(0.5, 10)
+  })
+
+  it('rend moins de 1 quand la tête déborde le bord droit', () => {
+    const b = headPerson(0, {
+      LEFT_EYE: [0.5, 0.2, 0.9],
+      RIGHT_EYE: [0.7, 0.2, 0.9],
+      NOSE: [0.6, 0.3, 0.9],
+    })
+    expect(headContainment(b, cell)).toBeCloseTo(0.5, 10)
+  })
+
+  it('rend moins de 1 quand la tête déborde le bord haut', () => {
+    const b = headPerson(0, {
+      LEFT_EYE: [0.3, 0.0, 0.9],
+      RIGHT_EYE: [0.5, 0.0, 0.9],
+      NOSE: [0.4, 0.2, 0.9],
+    })
+    expect(headContainment(b, cell)).toBeCloseTo(0.5, 10)
+  })
+
+  it('rend moins de 1 quand la tête déborde le bord bas', () => {
+    const b = headPerson(0, {
+      LEFT_EYE: [0.3, 0.6, 0.9],
+      RIGHT_EYE: [0.5, 0.6, 0.9],
+      NOSE: [0.4, 0.8, 0.9],
+    })
+    expect(headContainment(b, cell)).toBeCloseTo(0.5, 10)
+  })
+
+  // Piège n°1 de la skill `cadrage` : un point de pose hors de [0, 1] doit se
+  // clamper aux deux extrémités, jamais produire une largeur négative qui
+  // traverserait le calcul en silence.
+  it('clampe les points de tête aux deux extrémités de [0, 1]', () => {
+    const b = headPerson(0, {
+      LEFT_EYE: [-0.1, 0.3, 0.9],
+      RIGHT_EYE: [1.2, 0.3, 0.9],
+      NOSE: [0.5, 0.35, 0.9],
+    })
+    const value = headContainment(b, cell)
+    expect(value).not.toBeNull()
+    expect(value as number).toBeGreaterThanOrEqual(0)
+    expect(value as number).toBeLessThanOrEqual(1)
+    // Tête clampée à [0, 1] × [0.3, 0.35] : l'intersection avec la cellule
+    // vaut [0.2, 0.6] × [0.3, 0.35], donc 0,4 de l'aire de tête.
+    expect(value).toBeCloseTo(0.4, 10)
+  })
+
+  it('lit une tête réduite à un seul point comme une appartenance, pas une aire', () => {
+    const inside = headPerson(0, { NOSE: [0.4, 0.4, 0.9] })
+    const outside = headPerson(0, { NOSE: [0.9, 0.4, 0.9] })
+    expect(headContainment(inside, cell)).toBe(1)
+    expect(headContainment(outside, cell)).toBe(0)
+  })
+})
+
 // ---------------------------------------------------------------------------
 
 /** Une boîte de personne qui porte un squelette complet, donné brut. */
@@ -2423,6 +2537,82 @@ describe('computeShotSplit', () => {
     expect(FRAMING_DEFAULTS.splitMinCellWidth).toBe(0.38)
     expect(FRAMING_DEFAULTS.splitBleedTolerance).toBe(0.08)
     expect(FRAMING_DEFAULTS.splitBleedShare).toBe(0.9)
+  })
+})
+
+/** Comme `splitPerson`, mais sans aucun point de tête confiant — un dos tourné. */
+function splitPersonHeadless(t: number, x0: number, x1: number, y0: number, y1: number): PersonBox {
+  return { t, x0, x1, y0, y1, score: 0.9, k: Array.from({ length: POINT_COUNT * 3 }, () => 0) }
+}
+
+/** Comme `splitFrames`, la personne de gauche sans aucun point de tête. */
+function splitFramesLeftHeadless(
+  from: number,
+  to: number,
+  left: SplitGeometry,
+  right: SplitGeometry,
+): PersonBox[] {
+  const out: PersonBox[] = []
+  for (let t = from; t < to - 1e-9; t += 0.5) {
+    const at = Number(t.toFixed(3))
+    out.push(splitPersonHeadless(at, left.x0, left.x1, left.y0, left.y1))
+    out.push(splitPerson(at, right.x0, right.x1, right.y0, right.y1, right.eyeY, right.side))
+  }
+  return out
+}
+
+describe('computeShotHeadInstrument', () => {
+  it("rend `cells` null quand le plan ne split pas — même refus que `computeShotSplit`", () => {
+    const boxes = splitFrames(0, 3, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const instrument = computeShotHeadInstrument(boxes, shot(0, 3), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(instrument.cells).toBeNull()
+  })
+
+  it('rend une part nulle et un containment plein quand les deux têtes sont lisibles et cadrées', () => {
+    const boxes = splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const instrument = computeShotHeadInstrument(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(instrument.cells).not.toBeNull()
+    const [top, bottom] = instrument.cells!
+    expect(top.headAbsenceShare).toBe(0)
+    expect(top.headContainmentMedian).toBeCloseTo(1, 6)
+    expect(bottom.headAbsenceShare).toBe(0)
+    expect(bottom.headContainmentMedian).toBeCloseTo(1, 6)
+  })
+
+  it("porte l'absence de tête sur la cellule de la personne concernée, jamais l'autre", () => {
+    const boxes = splitFramesLeftHeadless(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const instrument = computeShotHeadInstrument(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(instrument.cells).not.toBeNull()
+    const [top, bottom] = instrument.cells!
+    // La gauche va en haut par défaut (les deux `side` valent 0, cas `cqlp`
+    // de `computeShotSplit`) : c'est donc `top` qui porte l'absence.
+    expect(top.headAbsenceShare).toBe(1)
+    expect(top.headContainmentMedian).toBeNull()
+    expect(bottom.headAbsenceShare).toBe(0)
+    expect(bottom.headContainmentMedian).not.toBeNull()
+  })
+
+  it("refuse exactement quand `computeShotSplit` refuse — même population, aucune seconde dérivation", () => {
+    const scenarios: [PersonBox[], Shot, Ratio][] = [
+      [splitFrames(0, 3, LEFT_GEOMETRY, RIGHT_GEOMETRY), shot(0, 3), '1:1'],
+      [splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY), shot(0, 10), '9:16'],
+      [splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY), shot(0, 10), '1:1'],
+    ]
+    for (const [boxes, s, ratio] of scenarios) {
+      const split = computeShotSplit(boxes, s, ratio, SRC_W, SRC_H, RAW_BOUNDS)
+      const instrument = computeShotHeadInstrument(boxes, s, ratio, SRC_W, SRC_H, RAW_BOUNDS)
+      expect(instrument.cells === null).toBe(split.cells === null)
+    }
+  })
+
+  it("refuse aussi sur un débordement qui mord dans la boîte de l'autre — même seuil que `computeShotSplit`", () => {
+    const left: SplitGeometry = { x0: 0.2, x1: 0.4, y0: 0.2, y1: 0.9, eyeY: 0.3, side: 0 }
+    const right: SplitGeometry = { x0: 0.4, x1: 0.48, y0: 0.25, y1: 0.85, eyeY: 0.35, side: 0 }
+    const boxes = splitFrames(0, 10, left, right)
+    const split = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    const instrument = computeShotHeadInstrument(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(split.rejection).toBe('bleedsIntoOther')
+    expect(instrument.cells).toBeNull()
   })
 })
 

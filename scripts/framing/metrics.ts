@@ -1,7 +1,8 @@
 /**
- * Six instruments de mesure sur un `ShotSample` (issue #191 lot 5, § « Le
- * tamis »). **Descriptifs, jamais des règles candidates** — c'est
- * l'arbitrage de l'issue : #191 livre le tamis, #190 apportera les mailles.
+ * Huit instruments de mesure sur un `ShotSample` (issue #191 lot 5, § « Le
+ * tamis » ; `head-absence-worst` et `head-containment-worst` ajoutés par
+ * #190). **Descriptifs, jamais des règles candidates** — c'est l'arbitrage de
+ * l'issue : #191 livre le tamis, #190 apporte les mailles.
  *
  * `null` n'est pas 0 : une métrique qui ne se définit pas sur un plan (pas de
  * paire, pas de squelette) doit **sortir de la distribution**, pas en
@@ -10,10 +11,13 @@
  */
 
 import {
+  type Cell,
+  computeShotHeadInstrument,
   computeShotSplit,
   FRAMING_DEFAULTS,
   hasValidGeometry,
   headBounds,
+  headContainment,
   isForeground,
   orientationOf,
   requiredWidths,
@@ -99,6 +103,66 @@ function pairMinFrontality(f: PersonFrame): number | null {
   return Math.min(fa, fb)
 }
 
+/**
+ * L'instrument de tête (#190) que `computeShotSplit` calculerait pour ce plan —
+ * même appariement, mêmes cellules, jamais une seconde dérivation.
+ */
+function headInstrumentOf(s: ShotSample): ReturnType<typeof computeShotHeadInstrument> {
+  return computeShotHeadInstrument(
+    flatten(s),
+    s.shot.shot,
+    s.shot.ratio,
+    s.srcW,
+    s.srcH,
+    FRAMING_DEFAULTS,
+    [s.shot.shot],
+  )
+}
+
+/**
+ * Les deux boîtes retenues d'une image assorties à leurs cellules réelles
+ * (`ShotFraming.split`, posées par la production) — par proximité de centre,
+ * puisque chaque cellule est bâtie autour du tronc de sa propre personne.
+ * `null` si le plan n'a pas splitté, ou si l'image ne porte pas deux boîtes.
+ */
+function pairedWithCells(
+  f: PersonFrame,
+  s: ShotSample,
+): [{ box: PersonBox; cell: Cell }, { box: PersonBox; cell: Cell }] | null {
+  const cells = s.shot.split
+  if (cells === undefined) return null
+  const retained = retainedInFrame(f, FRAMING_DEFAULTS)
+  if (retained.length !== 2) return null
+  const centerXOf = (b: PersonBox) => (b.x0 + b.x1) / 2
+  const centerOfCell = (c: Cell) => (c.x0 + c.x1) / 2
+  const [c0, c1] = cells
+  const assign = (b: PersonBox): Cell =>
+    Math.abs(centerXOf(b) - centerOfCell(c0)) <= Math.abs(centerXOf(b) - centerOfCell(c1)) ? c0 : c1
+  return [
+    { box: retained[0], cell: assign(retained[0]) },
+    { box: retained[1], cell: assign(retained[1]) },
+  ]
+}
+
+/** Le pire (le plus haut) des deux indicateurs d'absence de tête, sur une image appariée. */
+function perFrameHeadAbsenceWorst(f: PersonFrame, s: ShotSample): number | null {
+  const paired = pairedWithCells(f, s)
+  if (paired === null) return null
+  return Math.max(
+    ...paired.map(({ box, cell }) => (headContainment(box, cell) === null ? 1 : 0)),
+  )
+}
+
+/** La pire (la plus basse) des deux valeurs de containment, sur une image appariée. */
+function perFrameHeadContainmentWorst(f: PersonFrame, s: ShotSample): number | null {
+  const paired = pairedWithCells(f, s)
+  if (paired === null) return null
+  const values = paired
+    .map(({ box, cell }) => headContainment(box, cell))
+    .filter((v): v is number => v !== null)
+  return values.length === 0 ? null : Math.min(...values)
+}
+
 export const METRICS = {
   'shot-duration': {
     name: 'shot-duration',
@@ -169,6 +233,31 @@ export const METRICS = {
       return median(values)
     },
     perFrame: (f) => pairMinFrontality(f),
+  },
+  'head-absence-worst': {
+    name: 'head-absence-worst',
+    what: "la pire part d'images sans tête, entre les deux cellules du split (#190)",
+    unit: 'part (0 à 1)',
+    of: (s) => {
+      const cells = headInstrumentOf(s).cells
+      if (cells === null) return null
+      return Math.max(cells[0].headAbsenceShare, cells[1].headAbsenceShare)
+    },
+    perFrame: (f, s) => perFrameHeadAbsenceWorst(f, s),
+  },
+  'head-containment-worst': {
+    name: 'head-containment-worst',
+    what: 'la pire médiane de containment de tête, entre les deux cellules du split (#190)',
+    unit: 'part (0 à 1)',
+    of: (s) => {
+      const cells = headInstrumentOf(s).cells
+      if (cells === null) return null
+      const values = [cells[0].headContainmentMedian, cells[1].headContainmentMedian].filter(
+        (v): v is number => v !== null,
+      )
+      return values.length === 0 ? null : Math.min(...values)
+    },
+    perFrame: (f, s) => perFrameHeadContainmentWorst(f, s),
   },
 } as const satisfies Record<string, ShotMetric>
 

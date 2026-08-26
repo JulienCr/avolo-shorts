@@ -13,7 +13,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import type { FramingSettings } from '@/core/framing'
+import { retainedBoxes, type FramingSettings } from '@/core/framing'
 import { encoderName } from '@/server/ffmpeg'
 import { forgetAnalyses } from '@/server/clip-framing'
 import { buildCard, type Board, type BoardCard, type BoardImage } from './card'
@@ -153,9 +153,13 @@ export async function buildBoard(
       spec.variants.map((variant) => [variant.id, resolveVariant({ input, case: boardCase, variant })]),
     )
 
+    // Le classifieur ne sait lire que « exactement deux personnes retenues » :
+    // lui passer la grille brute laisse une détection de faible score, en
+    // premier plan ou trop petite compter comme une troisième, et rendre le
+    // plan inclassable (relevé par chatgpt-codex-connector sur la #192).
     const partition = partitionShot({
       shot,
-      boxes: input.analysis.boxes,
+      boxes: retainedBoxes(input.analysis.boxes),
       analysisFps: input.analysis.fps,
       classifier,
     })
@@ -205,17 +209,6 @@ export async function buildBoard(
     }
   }
 
-  const totalBytes = weighed.reduce((sum, w) => sum + w.bytes, 0)
-  if (totalBytes > maxBytes) {
-    const heaviest = [...weighed].sort((a, b) => b.bytes - a.bytes).slice(0, 3)
-    throw new Error(
-      `buildBoard : ${(totalBytes / (1024 * 1024)).toFixed(1)} Mo dépasse le plafond de ` +
-        `${(maxBytes / (1024 * 1024)).toFixed(0)} Mo. Les trois images les plus lourdes : ` +
-        heaviest.map((h) => `${h.label} (${(h.bytes / 1024).toFixed(0)} Kio)`).join(', ') +
-        '.',
-    )
-  }
-
   const band = reproducibilityBand({ spec, inputs: [...inputsByProject.values()] })
   const specWithBand: BoardSpec = { ...spec, settled: [...band, ...spec.settled] }
 
@@ -227,6 +220,21 @@ export async function buildBoard(
   }
 
   const html = renderBoardPage(board)
+  // Le plafond porte sur le HTML rendu, jamais sur la somme des JPEG : le
+  // base64 les gonfle d'un tiers, avant même le balisage de la page — vérifié
+  // sur le fichier écrit, pas déduit (relevé par chatgpt-codex-connector sur
+  // la #192).
+  const htmlBytes = Buffer.byteLength(html, 'utf8')
+  if (htmlBytes > maxBytes) {
+    const heaviest = [...weighed].sort((a, b) => b.bytes - a.bytes).slice(0, 3)
+    throw new Error(
+      `buildBoard : ${(htmlBytes / (1024 * 1024)).toFixed(1)} Mo de HTML dépasse le plafond de ` +
+        `${(maxBytes / (1024 * 1024)).toFixed(0)} Mo. Les trois images les plus lourdes : ` +
+        heaviest.map((h) => `${h.label} (${(h.bytes / 1024).toFixed(0)} Kio)`).join(', ') +
+        '.',
+    )
+  }
+
   fs.mkdirSync(path.dirname(o.out), { recursive: true })
   fs.writeFileSync(o.out, html, 'utf8')
   const bytes = fs.statSync(o.out).size

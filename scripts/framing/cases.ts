@@ -112,7 +112,9 @@ const KEYWORDS = ['all', 'active', 'labelled', 'unlabelled', 'keep', 'drop', 'un
 type Keyword = (typeof KEYWORDS)[number]
 
 function isShowName(token: string): token is ShowName {
-  return token in PROJECTS
+  // `in` remonte le prototype : `'hasOwnProperty'` s'y lirait comme un nom
+  // d'émission valide (relevé par Aristarque sur la #192).
+  return Object.hasOwn(PROJECTS, token)
 }
 
 function matchesToken(c: FramingCase, token: Keyword | ShowName | string): boolean {

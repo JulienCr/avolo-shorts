@@ -1610,7 +1610,7 @@ async function main(): Promise<number> {
 
   const iCas = arguments_.indexOf('--cas')
   let casSelector: string | null = null
-  let casProjectIds: string[] = []
+  let caseProjectIds: string[] = []
   if (iCas >= 0) {
     const raw = arguments_[iCas + 1]
     if (raw === undefined || raw.startsWith('--')) {
@@ -1619,7 +1619,7 @@ async function main(): Promise<number> {
     }
     casSelector = raw
     try {
-      casProjectIds = [...new Set(selectCases(casSelector).map(projectOfCase))]
+      caseProjectIds = [...new Set(selectCases(casSelector).map(projectOfCase))]
     } catch (e) {
       console.error(e instanceof Error ? e.message : String(e))
       return 1
@@ -1628,15 +1628,15 @@ async function main(): Promise<number> {
     // planche qui prétendrait mesurer un projet différent de celui de ses
     // légendes est exactement le défaut de forme qui a fait diverger la skill
     // et l'issue #78.
-    if (ids.length > 0 && (ids.length !== casProjectIds.length || !ids.every((id) => casProjectIds.includes(id)))) {
+    if (ids.length > 0 && (ids.length !== caseProjectIds.length || !ids.every((id) => caseProjectIds.includes(id)))) {
       console.error(
-        `--cas ${casSelector} désigne ${casProjectIds.join(', ')} ; positionnels donnés en contradiction : ` +
+        `--cas ${casSelector} désigne ${caseProjectIds.join(', ')} ; positionnels donnés en contradiction : ` +
           `${ids.join(', ')}.`,
       )
       return 1
     }
   }
-  const finalIds = casSelector !== null ? casProjectIds : ids
+  const finalIds = casSelector !== null ? caseProjectIds : ids
 
   if (finalIds.length === 0) {
     console.error(

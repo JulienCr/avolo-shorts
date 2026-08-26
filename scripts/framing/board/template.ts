@@ -245,6 +245,15 @@ export const BOARD_CSS = `/* ===== additive: board-specific classes (issue 191) 
 `
 
 /**
+ * `JSON.stringify` puis échappe `<` — sans quoi une valeur portant `</script>`
+ * (une note libre, un `probes`) fermerait la balise et exécuterait le reste
+ * comme du HTML (relevé par Aristarque sur la #192).
+ */
+function jsonForScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c')
+}
+
+/**
  * Le script du squelette, gelé, avec la seule exception documentée en tête de
  * fichier. `KEY`, `SETTLED`, `T` et `COMMIT` sont composés par
  * l'appelant (`page.ts`) via `JSON.stringify`, jamais par un remplacement de
@@ -268,8 +277,8 @@ export function renderScript(o: {
 }): string {
   return `(function () {
   'use strict';
-  var KEY = ${JSON.stringify(o.key)};
-  var COMMIT = ${JSON.stringify(o.commit)};
+  var KEY = ${jsonForScript(o.key)};
+  var COMMIT = ${jsonForScript(o.commit)};
   var sections = Array.prototype.slice.call(document.querySelectorAll('.q'));
   var preview = document.getElementById('preview');
   var remarks = document.getElementById('remarks');
@@ -277,9 +286,9 @@ export function renderScript(o: {
   var fill = document.getElementById('fill');
   var prog = document.getElementById('prog');
 
-  var SETTLED = ${JSON.stringify(o.settled)};
+  var SETTLED = ${jsonForScript(o.settled)};
 
-  var T = ${JSON.stringify(o.strings)};
+  var T = ${jsonForScript(o.strings)};
 
   function answerOf(n) {
     var el = document.querySelector('input[name="q' + n + '"]:checked');

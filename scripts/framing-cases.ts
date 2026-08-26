@@ -12,8 +12,10 @@
  *
  * `verify` est la commande de régression : elle doit tourner en quelques
  * secondes, imprime la dérive de chaque cas (information, pas un échec en
- * soi), et sort en 1 sous `--strict` si un cas a dérivé — un cas absent,
- * introuvable, ou dont le plan ou le split a changé depuis l'étiquetage.
+ * soi), et sort en 1 sous `--strict` si un cas est absent ou introuvable, ou
+ * si son plan a bougé depuis l'étiquetage. Un split ou un ratio qui a changé
+ * se lit dans la ligne imprimée (`split=…`), mais ne fait pas encore sortir
+ * `--strict` en 1 — voir issue #193.
  *
  * `ingest` lit le bloc à copier-coller d'une planche (`board/verdicts.ts`) et
  * imprime les lignes à coller dans `scripts/framing/cases.ts` — jamais

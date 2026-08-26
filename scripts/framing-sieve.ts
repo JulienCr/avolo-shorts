@@ -110,6 +110,11 @@ function today(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+/** Un littéral TS sûr même quand la valeur porte une apostrophe — "l'autre personne" en a cassé un (relevé par Aristarque sur la #192). */
+function tsString(s: string): string {
+  return JSON.stringify(s)
+}
+
 function formatCas(metric: ShotMetric, family: Family, picks: readonly SievePick[]): string {
   const commit = commitHash()
   const date = today()
@@ -126,16 +131,17 @@ function formatCas(metric: ShotMetric, family: Family, picks: readonly SievePick
       console.error(`${p.id} : projet ${p.project} sans nom d'émission connu, pas de cas généré.`)
       continue
     }
+    const probes = `${metric.what} (${familyText}) : ${p.side} = ${p.value.toFixed(4)} ${metric.unit}`
     lines.push(
       '{\n' +
-        `  id: '${p.id}',\n` +
-        `  show: '${show}',\n` +
+        `  id: ${tsString(p.id)},\n` +
+        `  show: ${tsString(show)},\n` +
         `  scope: { over: 'shot' },\n` +
         `  anchor: { at: 'shot', shot: { start: ${p.shot.start}, end: ${p.shot.end} }, instants: [${p.instants[0]}] },\n` +
-        `  probes: '${metric.what} (${familyText}) : ${p.side} = ${p.value.toFixed(4)} ${metric.unit}',\n` +
+        `  probes: ${tsString(probes)},\n` +
         '  label: null,\n' +
-        `  tags: [{ rule: '${metric.name}', outcome: '${String(p.value)}', at: '${commit}', on: '${date}' }],\n` +
-        `  origin: '${origin}',\n` +
+        `  tags: [{ rule: ${tsString(metric.name)}, outcome: ${tsString(String(p.value))}, at: ${tsString(commit)}, on: ${tsString(date)} }],\n` +
+        `  origin: ${tsString(origin)},\n` +
         '  retired: null,\n' +
         '},',
     )
@@ -167,9 +173,9 @@ async function main(): Promise<number> {
   }
   const metric: ShotMetric = METRICS[rawMetric]
 
-  const rawFamille = value('--famille')
-  if (rawFamille !== 'extremes' && rawFamille !== 'autour') {
-    console.error(`--famille attend extremes ou autour, reçu « ${String(rawFamille)} ».\n${USAGE}`)
+  const rawFamily = value('--famille')
+  if (rawFamily !== 'extremes' && rawFamily !== 'autour') {
+    console.error(`--famille attend extremes ou autour, reçu « ${String(rawFamily)} ».\n${USAGE}`)
     return 1
   }
 
@@ -184,23 +190,23 @@ async function main(): Promise<number> {
   const brut = arguments_.includes('--brut')
 
   let family: Family
-  if (rawFamille === 'extremes') {
+  if (rawFamily === 'extremes') {
     family = { kind: 'extremes', n, spread: !brut }
   } else {
-    const rawSeuil = value('--seuil')
-    const rawLargeur = value('--largeur')
-    if (rawSeuil === undefined || rawLargeur === undefined) {
+    const rawThreshold = value('--seuil')
+    const rawWidth = value('--largeur')
+    if (rawThreshold === undefined || rawWidth === undefined) {
       console.error("--famille autour exige --seuil et --largeur, tous deux obligatoires.")
       return 1
     }
-    const threshold = Number(rawSeuil)
-    const width = Number(rawLargeur)
+    const threshold = Number(rawThreshold)
+    const width = Number(rawWidth)
     if (!Number.isFinite(threshold)) {
-      console.error(`--seuil attend un nombre, reçu « ${rawSeuil} ».`)
+      console.error(`--seuil attend un nombre, reçu « ${rawThreshold} ».`)
       return 1
     }
     if (!Number.isFinite(width) || width < 0) {
-      console.error(`--largeur attend un nombre ≥ 0, reçu « ${rawLargeur} ».`)
+      console.error(`--largeur attend un nombre ≥ 0, reçu « ${rawWidth} ».`)
       return 1
     }
     family = { kind: 'around', threshold, width, n }
@@ -213,12 +219,15 @@ async function main(): Promise<number> {
   }
   const population: CorpusOptions['population'] = rawPopulation === 'splits' ? 'splits' : 'shots'
 
-  const rawProjets = value('--projets')
+  const rawProjects = value('--projets')
   let projects: ProjectId[] | undefined
-  if (rawProjets !== undefined) {
+  if (rawProjects !== undefined) {
     projects = []
-    for (const token of rawProjets.split(',').map((t) => t.trim()).filter((t) => t.length > 0)) {
-      const id = (PROJECTS as Record<string, string>)[token]
+    for (const token of rawProjects.split(',').map((t) => t.trim()).filter((t) => t.length > 0)) {
+      // `Object.hasOwn`, pas `[token]` : un jeton comme `__proto__` remonterait
+      // sinon un objet hérité au lieu de `undefined` (relevé par Aristarque
+      // sur la #192).
+      const id = Object.hasOwn(PROJECTS, token) ? (PROJECTS as Record<string, string>)[token] : undefined
       if (id === undefined) {
         console.error(
           `--projets : « ${token} » inconnu. Attendu : ${Object.keys(PROJECTS).join(', ')}.`,

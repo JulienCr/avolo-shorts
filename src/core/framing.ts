@@ -1284,6 +1284,21 @@ export function retainedCountByFrame(
 }
 
 /**
+ * Les boîtes retenues, toutes images confondues — score, géométrie, premier
+ * plan et plancher de taille, la même retenue que `spans` applique par
+ * image. Aplatie pour un appelant qui reclasse lui-même par instant (les
+ * planches de comparaison, notamment) : compter des boîtes non retenues y
+ * ferait passer une détection bruitée pour une troisième personne.
+ */
+export function retainedBoxes(boxes: PersonBox[], options: FramingOptions = {}): PersonBox[] {
+  const floor = clampedSizeFloor(options)
+  const byImage = retainedByFrame(boxes, options)
+  return [...byImage.values()].flatMap(({ boxes: frameBoxes }) =>
+    afterSizeFloor(frameBoxes, floor).map((f) => f.box),
+  )
+}
+
+/**
  * Les boîtes retenues d'une image, dans les seules images à **exactement**
  * `count` survivantes — ce que la géométrie du split apparie.
  */

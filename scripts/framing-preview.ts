@@ -269,11 +269,20 @@ function serveProxy(req: IncomingMessage, res: ServerResponse, filePath: string)
   stream.pipe(res)
 }
 
+/**
+ * `JSON.stringify` puis échappe `<` — sans quoi un `probes` portant
+ * `</script>` fermerait la balise et exécuterait le reste comme du HTML
+ * (relevé par Aristarque sur la #192).
+ */
+function jsonForScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c')
+}
+
 /** Fixé par `--cas` en ligne de commande (`main`) — voir `renderPage`. */
-let cliInitialCas: string | null = null
+let cliInitialCase: string | null = null
 
 /**
- * La page HTML, régénérée à chaque requête pour porter `cliInitialCas` — un
+ * La page HTML, régénérée à chaque requête pour porter `cliInitialCase` — un
  * `--cas` passé après coup (le process ne redémarre pas entre deux appels de
  * `pnpm framing-preview:stop` / relance) doit se voir au prochain
  * rechargement, pas seulement au premier.
@@ -337,8 +346,8 @@ function renderPage(): string {
 </p>
 
 <script>
-const CASES = ${JSON.stringify(casesForClient)};
-const INITIAL_CAS = ${JSON.stringify(cliInitialCas)};
+const CASES = ${jsonForScript(casesForClient)};
+const INITIAL_CASE = ${jsonForScript(cliInitialCase)};
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
 const ctx = canvas.getContext('2d');
@@ -635,6 +644,10 @@ async function selectCase(id) {
   const c = CASES.find((x) => x.id === id);
   if (!c) return;
   casSel.value = id;
+  // \`selectProject\` ne touche jamais \`projectSel.value\` : sans cette ligne,
+  // une sélection de clip qui suit relit encore l'ancien projet (relevé par
+  // chatgpt-codex-connector sur la #192).
+  projectSel.value = c.project;
   await selectProject(c.project);
   clipSel.value = '';
   await loadCaseFraming(id);
@@ -651,7 +664,7 @@ video.addEventListener('loadedmetadata', () => {
 
 loadProjects().then(() => {
   const urlCas = new URLSearchParams(location.search).get('cas');
-  const initialCas = urlCas || INITIAL_CAS;
+  const initialCas = urlCas || INITIAL_CASE;
   if (initialCas) selectCase(initialCas);
 });
 requestAnimationFrame(draw);
@@ -674,18 +687,18 @@ async function main(): Promise<number> {
 
   const casIndex = arguments_.indexOf('--cas')
   if (casIndex >= 0) {
-    const rawCas = arguments_[casIndex + 1]
+    const rawCaseId = arguments_[casIndex + 1]
     // Refusé, pas remplacé par « aucun cas » : un identifiant qui ne
     // désigne rien ouvrirait la page sans le dire, même doctrine que
     // `--marge` de `framing-thumbnails.ts`.
-    if (rawCas === undefined || findCase(rawCas) === undefined) {
+    if (rawCaseId === undefined || findCase(rawCaseId) === undefined) {
       console.error(
         `--cas attend un identifiant de cas connu (voir « pnpm tsx scripts/framing-cases.ts list »), ` +
-          `reçu « ${String(rawCas)} ».`,
+          `reçu « ${String(rawCaseId)} ».`,
       )
       return 1
     }
-    cliInitialCas = rawCas
+    cliInitialCase = rawCaseId
   }
 
   const server = createServer((req, res) => {

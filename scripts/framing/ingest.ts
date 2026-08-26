@@ -126,22 +126,39 @@ function shotAnchor(c: FramingCase): { start: number; end: number } | undefined 
   return c.anchor.at === 'shot' ? c.anchor.shot : undefined
 }
 
+function instantAnchor(c: FramingCase): number | undefined {
+  return c.anchor.at === 'instant' ? c.anchor.instants[0] : undefined
+}
+
 export type MatchResult =
   | { outcome: 'matched'; case: FramingCase }
   | { outcome: 'mismatch'; case: FramingCase; why: string }
   | { outcome: 'noCase' }
 
+/**
+ * Un cas ancré `at: 'shot'` se retrouve par le début de plan enregistré ;
+ * un cas ancré `at: 'instant'` n'a pas de plan à comparer, donc se retrouve
+ * par son instant tombant dans l'intervalle résolu du bloc (relevé par
+ * chatgpt-codex-connector sur la #192 : sinon `entre-nous-2973000` et les
+ * autres cas `instant` sont systématiquement rapportés comme nouveaux).
+ */
 function matchCase(header: CardHeader, key: CardKey, cases: readonly FramingCase[]): MatchResult {
   const show = PROJECT_TO_SHOW[header.projectId]
   if (show === undefined) return { outcome: 'noCase' }
-  const candidate = cases.find((c) => {
+  const byShot = cases.find((c) => {
     const shot = shotAnchor(c)
     return c.show === show && shot !== undefined && shotStartMs(shot) === key.shotStartMs
   })
+  const candidate =
+    byShot ??
+    cases.find((c) => {
+      const instant = instantAnchor(c)
+      return c.show === show && instant !== undefined && instant >= header.shotStart && instant < header.shotEnd
+    })
   if (candidate === undefined) return { outcome: 'noCase' }
   const shot = shotAnchor(candidate)
+  if (shot === undefined) return { outcome: 'matched', case: candidate }
   if (
-    shot === undefined ||
     Math.abs(shot.start - header.shotStart) > INTERVAL_TOLERANCE_S ||
     Math.abs(shot.end - header.shotEnd) > INTERVAL_TOLERANCE_S
   ) {
@@ -150,7 +167,7 @@ function matchCase(header: CardHeader, key: CardKey, cases: readonly FramingCase
       case: candidate,
       why:
         `l'intervalle du bloc [${header.shotStart}; ${header.shotEnd}] ne correspond pas au plan ` +
-        `enregistré de ${candidate.id} [${shot?.start}; ${shot?.end}]`,
+        `enregistré de ${candidate.id} [${shot.start}; ${shot.end}]`,
     }
   }
   return { outcome: 'matched', case: candidate }

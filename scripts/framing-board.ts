@@ -153,10 +153,10 @@ async function main(): Promise<number> {
     return 1
   }
 
-  const rawLargeur = value(args, '--largeur')
-  const displayWidth = rawLargeur === undefined ? undefined : Number(rawLargeur)
+  const rawWidth = value(args, '--largeur')
+  const displayWidth = rawWidth === undefined ? undefined : Number(rawWidth)
   if (displayWidth !== undefined && (!Number.isInteger(displayWidth) || displayWidth <= 0)) {
-    console.error(`--largeur attend un entier > 0, reçu « ${rawLargeur} ».`)
+    console.error(`--largeur attend un entier > 0, reçu « ${rawWidth} ».`)
     return 1
   }
 

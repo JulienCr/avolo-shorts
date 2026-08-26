@@ -588,4 +588,34 @@ describe('launchPublish — ignoreStaleRender (spec §5.4)', () => {
     const rows = getPublications(getDb(), CLIP_ID)
     expect(rows.find((r) => r.platform === 'facebook')).toMatchObject({ status: 'published' })
   })
+
+  it('une ligne `planned` reste refusée à la modale manuelle même avec `force: true`', async () => {
+    // Rendu frais, à la différence des cas ci-dessus : `canTargetPlatform`
+    // traite `planned` comme `published` sans les distinguer, donc `force`
+    // ne doit jamais traverser `planned` sans `ignoreStaleRender`.
+    await exportClip()
+    upsertPublication(getDb(), {
+      clipId: CLIP_ID,
+      platform: 'instagram',
+      status: 'planned',
+      remoteId: null,
+      remoteUrl: null,
+      requestId: null,
+      error: null,
+      publishedFingerprint: null,
+      createdAt: 1,
+      updatedAt: 1,
+      scheduledAt: Date.now() + 1000,
+    })
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+
+    expect(() =>
+      launchPublish({ db: getDb(), clip, platforms: ['instagram'], force: true, ignoreStaleRender: false }),
+    ).toThrow(/déjà publié/)
+
+    expect(getPublications(getDb(), CLIP_ID).find((r) => r.platform === 'instagram')).toMatchObject({
+      status: 'planned',
+    })
+  })
 })

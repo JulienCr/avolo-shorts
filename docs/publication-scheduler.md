@@ -87,9 +87,27 @@ C'est le point que la conception laisse ouvert et que seul un essai tranche
 (spec §5.4, §7) : `wsl.exe`, invoqué par une tâche planifiée, se comporte-t-il
 pareil quand la session Windows est verrouillée, puis quand elle est fermée ?
 
-**Avant de commencer**, poser une échéance de test proche (une à deux minutes
-dans le futur) sur un clip exporté jetable, depuis l'écran `/planning`, pour
-avoir quelque chose à observer sans attendre une vraie publication.
+**Avant de commencer, résoudre les secrets une fois pour toutes** :
+
+```
+pnpm generate-env:local
+```
+
+`chargerEnv()` (`scripts/dev-common.ts`) résout toute adresse `op://` restée
+dans `.env` **à chaque réveil de cinq minutes**, et `src/server/secrets.ts` le
+dit sans détour : une lecture 1Password peut bloquer sur une approbation quand
+l'application de bureau est verrouillée — tenable une fois au démarrage,
+jamais à chaque appel. Sans cette étape, l'essai « session verrouillée »
+peut réussir une première fois pendant que 1Password est encore déverrouillé,
+puis se bloquer en silence à un réveil suivant, sans qu'aucune ligne
+n'apparaisse dans le journal pour le dire. `generate-env:local` écrit les
+références déjà résolues dans `.env.local`, prioritaire sur `.env` — vérifier
+après coup qu'aucune valeur de `.env.local` ne commence encore par `op://`
+avant de poser la tâche.
+
+**Ensuite**, poser une échéance de test proche (une à deux minutes dans le
+futur) sur un clip exporté jetable, depuis l'écran `/planning`, pour avoir
+quelque chose à observer sans attendre une vraie publication.
 
 ### Essai 1 — session verrouillée
 

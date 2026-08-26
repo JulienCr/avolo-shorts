@@ -305,11 +305,12 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
   const byPlatform = new Map(existing.map((r) => [r.platform, r]))
   for (const platform of platforms) {
     const record = toRecord(byPlatform.get(platform))
-    // `canTargetPlatform` traite `planned` comme `published` et le refuse sans
-    // `force` — or `planned` n'a encore rien publié : c'est la ligne même que
-    // ce passage doit honorer, sans emprunter `force` (spec §5.4).
-    const scheduledEntry = ignoreStaleRender && record?.status === 'planned'
-    if (!scheduledEntry && !canTargetPlatform(record, force)) {
+    // Une ligne `planned` n'appartient qu'au chemin ordonnancé (spec §5.4) :
+    // `force` républie un `published`, un geste différent, et ne la débloque
+    // donc jamais — sinon la modale manuelle pourrait tirer une échéance.
+    if (record?.status === 'planned') {
+      if (!ignoreStaleRender) throw new PublicationAlreadyPublishedError(platform)
+    } else if (!canTargetPlatform(record, force)) {
       throw new PublicationAlreadyPublishedError(platform)
     }
   }

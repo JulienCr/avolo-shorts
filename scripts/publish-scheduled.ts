@@ -47,10 +47,15 @@ async function main(): Promise<number> {
     { dryRun },
   )
 
-  console.log(describe(outcome))
-  if (outcome.kind === 'done' || outcome.kind === 'abandoned') {
-    for (const [platform, status] of Object.entries(outcome.statuses)) {
-      console.log(`  ${platform.padEnd(10)}: ${status}`)
+  // `runOnePass` imprime déjà le clip et ses plateformes en `dryRun` (elle
+  // rend toujours `idle`, faute d'un genre dédié) — `describe` afficherait
+  // « Rien à publier. » juste en dessous et se contredirait.
+  if (!dryRun) {
+    console.log(describe(outcome))
+    if (outcome.kind === 'done' || outcome.kind === 'abandoned') {
+      for (const [platform, status] of Object.entries(outcome.statuses)) {
+        console.log(`  ${platform.padEnd(10)}: ${status}`)
+      }
     }
   }
 

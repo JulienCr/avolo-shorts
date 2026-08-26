@@ -663,11 +663,20 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
 
   /**
    * Les cinq épingles ci-dessus, rejouées avec le réglage porté par
-   * `clip.framingStyle` plutôt que par la base — le global reste
-   * `FRAMING_SETTINGS_DEFAULTS`. Sans ces cinq-là, un merge qui n'étalerait
-   * que `splitScreen` (ou une autre clé) laisserait les quatre conversions
-   * numériques rester inertes depuis une surcharge par clip : tous les tests
-   * ci-dessus resteraient verts, câblés qu'ils sont sur `withSettings`.
+   * `clip.framingStyle` plutôt que par la base. Sans ces cinq-là, un merge
+   * qui n'étalerait que `splitScreen` (ou une autre clé) laisserait les
+   * quatre conversions numériques rester inertes depuis une surcharge par
+   * clip : tous les tests ci-dessus resteraient verts, câblés qu'ils sont sur
+   * `withSettings`.
+   *
+   * **Le global n'est pas partout `FRAMING_SETTINGS_DEFAULTS`.** Pour la
+   * tolérance, la part et le plancher, la revue de Copilot sur cette PR a
+   * montré que le global par défaut donnait déjà, seul, le verdict attendu —
+   * la surcharge n'était alors testée par rien. Ces trois-là passent un
+   * global contradictoire (`withSettings({...})`), choisi pour donner le
+   * verdict inverse sans la surcharge ; les deux autres gardent le défaut
+   * parce que leur assertion en dépend déjà (durée du plan trop courte au
+   * défaut ; largeur de cellule vérifiée à la valeur exacte de la surcharge).
    */
   describe('les mêmes épingles, câblées par `clip.framingStyle`', () => {
     it('`splitMinShotMs` en surcharge par clip', () => {

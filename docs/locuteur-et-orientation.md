@@ -526,7 +526,7 @@ large note à 1,00.
 
 ---
 
-## 27 août 2026 — `shoulderRatio` seul, contre les cas nommés par #190
+## 26 août 2026 — `shoulderRatio` seul, contre les cas nommés par #190
 
 L'issue #190 nomme cette mesure comme **la première à faire**, sur des
 données déjà collectées : `shoulderRatio` seul, un des trois termes dont
@@ -629,7 +629,7 @@ découverte — exactement l'avertissement que #190 formule déjà pour
 
 ### La population mesurée, et ses réserves
 
-**499 plans splittés le 27 août 2026**, pas 489 : la figure citée par #190
+**499 plans splittés le 26 août 2026**, pas 489 : la figure citée par #190
 avait déjà bougé au 26 août (`docs/lessons.md:281-297`) et continue de bouger
 d'un jour sur l'autre — remesurée ici plutôt que recopiée.
 `2025-12-14-handicap` est ignoré, faute d'`analysis.json` sur le disque ; les

@@ -1,28 +1,14 @@
 /**
- * **La première mesure demandée par l'issue #190** : `shoulderRatio` seul,
- * pas la moyenne `frontality` dont il est un terme, sépare-t-il un profil
- * franc (gardé) d'un trois-quarts dos (écarté) ?
+ * La première mesure de l'issue #190 : `shoulderRatio` seul, un terme
+ * d'`orientationOf`, sépare-t-il un profil franc (gardé) d'un trois-quarts
+ * dos (écarté) ? `docs/locuteur-et-orientation.md:179-185` semble déjà le
+ * réfuter — mais cette section répond à la question inverse (détecter un
+ * profil pour l'exclure), pas à celle-ci (le garder). Isole aussi la
+ * branche `unknown`, jamais mesurée séparément de `frontality < 0,2`.
  *
  *     PROJECTS_DIR=projects pnpm tsx scripts/spike/split-orientation-terms.ts
  *
- * Ce script ne change aucun comportement de production — `orientationOf` et
- * `computeShotSplit` restent lus, jamais modifiés. Trois mesures, dans
- * l'ordre du contrat :
- *
- * 1. Les cinq cas nommés par #190 : la distribution de `shoulderRatio` par
- *    personne sur les images du plan, et l'agrégat par plan construit comme
- *    `frontality-min-median` (`scripts/framing/metrics.ts:92-100`) — le
- *    minimum des deux personnes par image, puis la médiane sur le plan.
- * 2. La branche `unknown` isolée : sur la population des plans qui splittent
- *    aujourd'hui, la part de ceux qu'une règle « la personne la moins de
- *    face est `unknown` sur plus de 90 % des images appariées » retirerait
- *    à elle seule.
- * 3. Les déciles de l'agrégat `shoulderRatio` sur cette même population :
- *    une pente ou une falaise ?
- *
- * `null` n'est jamais plié à 0 — voir `docs/locuteur-et-orientation.md` et la
- * doctrine de `CLAUDE.md` sous « Distinguer l'absence d'information de son
- * ambiguïté ».
+ * `null` n'est jamais plié à 0. Mesure seule : `src/core/framing.ts` n'est pas modifié.
  */
 
 import { orientationOf, hasValidGeometry, isForeground, FRAMING_DEFAULTS, type Facing } from '@/core/framing'

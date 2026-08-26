@@ -1761,13 +1761,8 @@ export type ShotHeadInstrument = {
   cells: [CellHeadStats, CellHeadStats] | null
   /**
    * Une entrée par image appariée, même ordre que `cells`, calculée une
-   * seule fois ici. **N'importe quel appelant qui doit lire une image
-   * précise (choisir laquelle rendre) doit lire ce tableau, jamais
-   * redériver l'appariement depuis la proximité d'une cellule** : c'est
-   * exactement ce qui produisait une affectation non bijective — les deux
-   * personnes assignées à la même cellule sur une image où leurs centres se
-   * rapprochent — trouvé au second checkpoint sur `entre-nous-3495867`,
-   * t=3507,5 s. `null` en même temps que `cells`.
+   * seule fois ici — jamais redérivée depuis la proximité d'une cellule.
+   * `null` en même temps que `cells`.
    */
   perFrame: readonly FrameHeadStats[] | null
 }

@@ -278,12 +278,9 @@ describe('sieve — bornage aux deux extrémités', () => {
 describe('sieve — head-absence-worst et head-containment-worst (#190)', () => {
   const K_LEN = 51
 
-  // Chaque boîte ne porte qu'**un seul** point hors de [0, 1] : deux points
-  // évadés aux deux extrémités opposées de l'image élargiraient `torsoBounds`
-  // (qui inclut les points de tête dans son propre empan) au point de refuser
-  // le split sur `tooNarrowForSource` — ce que ce test n'éprouve pas. Le
-  // clampage aux deux bouts est déjà éprouvé isolément par `headContainment`
-  // dans `tests/core/framing.test.ts`.
+  // Chaque boîte ne porte qu'un seul point hors de [0, 1] : deux évadés aux
+  // deux extrémités élargiraient `torsoBounds` jusqu'à refuser le split.
+  // Le clampage lui-même est déjà éprouvé dans `tests/core/framing.test.ts`.
   function wildLeftBox(t: number): PersonBox {
     const k = new Array(K_LEN).fill(0)
     k[0] = -0.05
@@ -401,16 +398,9 @@ describe('sieve — head-absence-worst et head-containment-worst (#190)', () => 
     expect(METRICS['head-absence-worst'].of(sample)).toBe(0)
   })
 
-  /**
-   * Second checkpoint (26 août 2026) : `pairedWithCells` assignait chaque boîte à
-   * sa cellule la plus proche, sans contrainte de bijectivité. Sur une image
-   * où les deux personnes se rapprochent, les deux peuvent tomber plus près
-   * de la même cellule fixe — ici toutes deux plus près du haut (~0,29) que
-   * du bas (~0,71) — et l'ancienne affectation les collait toutes les deux
-   * du même côté. `perFrame` lit maintenant l'appariement réel de
-   * `computeShotHeadInstrument`, trié par centre à l'intérieur de l'image,
-   * jamais comparé à un rectangle fixe : il reste bijectif.
-   */
+  // Second checkpoint : les deux centres tombent plus près du haut (~0,29)
+  // que du bas (~0,71) — une affectation par plus-proche-cellule les
+  // collerait toutes deux du même côté.
   function ambiguousHeadless(t: number): PersonBox {
     const k = new Array(K_LEN).fill(0)
     k[15] = 0.32
@@ -454,10 +444,8 @@ describe('sieve — head-absence-worst et head-containment-worst (#190)', () => 
     }
 
     const absence = METRICS['head-absence-worst'].perFrame(ambiguousFrame, sample)
-    // L'une des deux personnes n'a pas de tête : le pire des deux doit le
-    // voir (1), jamais 0 — ce que l'ancienne affectation non bijective
-    // pouvait manquer en collant les deux du même côté sur une cellule
-    // pendant que l'autre restait vide.
+    // Le pire des deux doit valoir 1, jamais 0 — la non-bijectivité pouvait
+    // le manquer en collant les deux personnes du même côté.
     expect(absence).toBe(1)
 
     // La personne à tête lisible existe bien de l'autre côté — vérifié à la

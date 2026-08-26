@@ -1,18 +1,12 @@
 /**
- * Rapporte les deux barres de présence de tête de l'issue #190 (checkpoints
- * du 26 août 2026) : ce que chacune retire, sur le corpus entier et
- * sur les huit cas de référence. **Descriptif, ne câble aucune des deux.**
+ * Rapporte les deux barres de présence de tête de l'issue #190, sur le
+ * corpus entier et les huit cas de référence. Descriptif, ne câble aucune
+ * des deux.
  *
  *     PROJECTS_DIR=<chemin> pnpm tsx scripts/framing-head-bars.ts
  *
- * La barre à un point est `head-absence-worst`, shippée dans
- * `scripts/framing/metrics.ts`. La barre à deux points n'est câblée nulle
- * part : elle se lit sur `computeShotHeadInstrument(...).perFrame[].{top,
- * bottom}.pointCount`, que l'instrument expose déjà — **jamais une seconde
- * dérivation de l'appariement**. C'est exactement le bug corrigé au
- * second checkpoint : `pairedWithCells` réassignait chaque boîte à sa
- * cellule la plus proche, sans bijectivité, au lieu de lire l'appariement
- * réel que l'instrument porte déjà.
+ * La barre à deux points se lit sur `perFrame[].{top,bottom}.pointCount`,
+ * jamais redérivée.
  */
 
 import { computeShotHeadInstrument, FRAMING_DEFAULTS, type FrameHeadStats } from '@/core/framing'

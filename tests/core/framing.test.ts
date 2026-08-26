@@ -2664,14 +2664,9 @@ describe('computeShotHeadInstrument', () => {
     expect(instrument.cells).toBeNull()
   })
 
-  /**
-   * Second checkpoint (26 août 2026) : sur une image ajoutée où les deux personnes
-   * se rapprochent, leurs deux centres tombent plus près de la cellule du
-   * haut (0,25) que de celle du bas (0,64) — 0,33 et 0,37 contre 0,06–0,44 et
-   * 0,45–0,83. Une affectation par plus-proche-cellule les collerait toutes
-   * les deux en haut. `perFrame` doit rester bijectif : une personne par
-   * cellule, quelle que soit la géométrie de l'image.
-   */
+  // Second checkpoint : les deux centres (0,33 et 0,37) tombent plus près de
+  // la cellule du haut (0,25) que de celle du bas (0,64) — une affectation
+  // par plus-proche-cellule les collerait toutes deux en haut.
   it('reste bijectif sur une image où les deux personnes se rapprochent, même plus près de la même cellule', () => {
     const boxes = [
       ...splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY),

@@ -8,6 +8,21 @@ retirant son milieu, pas en tronquant sa chute — et son ratio est choisi clip 
 clip. Sur trois émissions mesurées, seuls 24 à 33 % du temps tiennent dans un
 9:16, contre 48 % jusqu'au 1:1.
 
+## Fonctionnement
+
+1. Transcription du replay (WhisperX).
+2. Repérage des moments viraux dans le transcript (Gemini).
+3. Génération des clips par segments, avec un ratio et un crop choisis plan par
+   plan — détection de **personnes** (YOLO, pas de visages), split vertical
+   automatique quand plusieurs personnes ne tiennent pas dans un même cadre.
+4. Hook, description et hashtags générés par Gemini.
+5. Export ffmpeg/NVENC, puis publication sur Instagram, TikTok, Facebook et
+   YouTube Shorts.
+
+Stack : Next.js/TypeScript/React pour l'app, Python + YOLO (Ultralytics) pour
+la détection, WhisperX pour la transcription, Gemini pour l'écriture, ffmpeg +
+NVENC pour l'export, SQLite pour le stockage.
+
 ## Ce qui fait autorité
 
 - `docs/superpowers/specs/2026-08-17-avolo-shorts-design.md` — la conception, les

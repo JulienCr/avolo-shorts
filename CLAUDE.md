@@ -159,3 +159,22 @@ Deux règles de portée : **dans l'itération en cours, le tracker est le plan**
 rapport final, et celui qui orchestre tranche. Une exception : au triage d'une
 revue, une trouvaille réelle mais hors du périmètre de la PR se dépose en issue
 avec les labels du dépôt, et son numéro est consigné dans la réponse au relecteur.
+
+## Agent skills
+
+Configuration lue par les skills d'ingénierie. Trois fichiers, une règle chacun.
+
+### Issue tracker
+
+Les issues vivent dans les GitHub Issues du dépôt, pilotées par `gh`. Voir
+[`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
+
+### Triage labels
+
+Les cinq rôles canoniques, chaque libellé égal à son nom. Voir
+[`docs/agents/triage-labels.md`](docs/agents/triage-labels.md).
+
+### Domain docs
+
+Dépôt à contexte unique : `CONTEXT.md` et `docs/adr/` à la racine, créés
+paresseusement. Voir [`docs/agents/domain.md`](docs/agents/domain.md).

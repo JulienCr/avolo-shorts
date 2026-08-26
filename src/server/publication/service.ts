@@ -19,7 +19,7 @@ import { effectiveSettings, getPublications, upsertPublication, type Publication
 import { isAAbsence } from '@/server/bytes'
 import { clipFraming } from '@/server/clip-framing'
 import { messageSafe } from '@/server/errors'
-import { requestInvalid } from '@/server/http'
+import { ErrorHttp, requestInvalid } from '@/server/http'
 import { wait } from '@/server/llm/retry'
 import type { PlatformOutcome, PublicationAdapter, PublicationJob } from '@/server/publication/adapter'
 import { PublicationAlreadyPublishedError } from '@/server/publication/errors'
@@ -318,7 +318,22 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
     // `force` républie un `published`, un geste différent, et ne la débloque
     // donc jamais — sinon la modale manuelle pourrait tirer une échéance.
     if (record?.status === 'planned') {
-      if (!ignoreStaleRender) throw new PublicationAlreadyPublishedError(platform)
+      // Pas `PublicationAlreadyPublishedError` : son message dit « déjà
+      // publié, passer force: true », un remède faux ici — cette branche
+      // refuse justement `force: true` pour une ligne `planned` (relevé en
+      // revue).
+      if (!ignoreStaleRender) {
+        throw new ErrorHttp(409, `${platform} est programmé pour ce clip. Déprogrammer avant de publier manuellement.`)
+      }
+      // `record?.status === 'in_progress'` et le chemin manuel : un envoi est
+      // déjà en vol pour ce couple, peut-être depuis l'ordonnanceur, qui
+      // tourne dans un autre processus — le registre `reserve`/`release`
+      // ci-dessous ne le voit pas (relevé en revue). Le chemin ordonnancé,
+      // lui, cible `in_progress` par construction : c'est son propre essai
+      // précédent, laissé honnêtement non résolu, qu'il reprend
+      // (`outstandingPlatforms`), donc `ignoreStaleRender` le laisse passer.
+    } else if (record?.status === 'in_progress' && !ignoreStaleRender) {
+      throw new ErrorHttp(409, `${platform} est en cours d'envoi pour ce clip. Réessayer une fois l'envoi terminé.`)
     } else if (!canTargetPlatform(record, force)) {
       throw new PublicationAlreadyPublishedError(platform)
     }

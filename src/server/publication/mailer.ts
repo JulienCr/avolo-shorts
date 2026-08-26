@@ -27,6 +27,18 @@ function resendApiKey(env: Environment): string | undefined {
 }
 
 /**
+ * Même garde que `resendApiKey`, sur `RESEND_FROM` : `chargerEnv` résout
+ * normalement toute adresse `op://` avant que ce module ne s'exécute, mais un
+ * cas de bord qui la laisserait telle quelle enverrait un `from` inutilisable
+ * plutôt que de le dire (relevé en revue).
+ */
+function resendFrom(env: Environment): string {
+  const value = env.RESEND_FROM
+  if (value === undefined || value === '' || isReference(value)) return 'avolo-shorts@avolo.fr'
+  return value
+}
+
+/**
  * `env` et `fetchImpl` capturés une fois, comme `createUploadPostAdapter` —
  * les tests injectent un `fetch` qui ne touche jamais le réseau.
  */
@@ -37,7 +49,7 @@ export function createResendMailer(env: Environment = process.env, fetchImpl: ty
       console.error(`RESEND_API_KEY absente ou non résolue : alerte perdue — ${subject}`)
       return
     }
-    const from = env.RESEND_FROM ?? 'avolo-shorts@avolo.fr'
+    const from = resendFrom(env)
     try {
       const response = await fetchImpl(ENDPOINT, {
         method: 'POST',

@@ -405,12 +405,17 @@ describe('runOnePass — déprogrammation pendant la passe', () => {
       return outcomes
     })
     fakeAdapter = adapterAlwaysPublishing(publish)
+    const sendMail = vi.fn(async () => {})
 
-    await runOnePass(deps())
+    const outcome = await runOnePass(deps({ sendMail }))
 
     expect(seen).toEqual([['instagram']])
     expect(getPublications(getDb(), CLIP_ID)).toEqual([
       expect.objectContaining({ platform: 'instagram', status: 'published' }),
     ])
+    // Une annulation réussie n'est pas un abandon : pas de courriel, pas de
+    // code de sortie 1 pour un humain qui a fait exactement ce qu'il voulait.
+    expect(outcome.kind).toBe('done')
+    expect(sendMail).not.toHaveBeenCalled()
   })
 })

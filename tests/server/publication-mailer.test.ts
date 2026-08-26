@@ -60,6 +60,24 @@ describe('createResendMailer', () => {
     error.mockRestore()
   })
 
+  it('retombe sur l’adresse par défaut quand RESEND_FROM est encore une adresse 1Password non résolue', async () => {
+    let seenInit: RequestInit | undefined
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      seenInit = init
+      return jsonResponse(200, { id: 'email_1' })
+    })
+    const mailer = createResendMailer(
+      { RESEND_API_KEY: 'clef_test', RESEND_FROM: 'op://Personal/Avolo-Shorts/RESEND_FROM' },
+      fetchImpl,
+    )
+
+    await mailer('sujet', 'corps')
+
+    if (seenInit === undefined) throw new Error('init manquant')
+    const body = JSON.parse(seenInit.body as string) as { from: string }
+    expect(body.from).toBe('avolo-shorts@avolo.fr')
+  })
+
   it('journalise et résout quand Resend refuse la requête', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(401, { message: 'clef invalide' }))
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})

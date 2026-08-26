@@ -155,10 +155,14 @@ function outstandingPlatforms(db: Database.Database, clipId: string): Platform[]
  * disparu, titre YouTube manquant : un échec permanent, pas un aléa réseau
  * (déjà écrit `failed` par `service.ts` lui-même). Sans ceci, la ligne
  * resterait `planned` et `nextDueSchedule` la reprendrait indéfiniment.
+ *
+ * `now` reçu en paramètre, pas `Date.now()` : c'est `deps.now()` partout
+ * ailleurs dans ce module, et un test qui injecte une horloge factice pour
+ * `runOnePass` veut des horodatages déterministes sur les lignes que celle-ci
+ * écrit aussi (relevé en revue).
  */
-function markFailed(db: Database.Database, clipId: string, platforms: readonly Platform[], message: string): void {
+function markFailed(db: Database.Database, clipId: string, platforms: readonly Platform[], message: string, now: number): void {
   const existing = new Map(getPublications(db, clipId).map((r) => [r.platform, r]))
-  const now = Date.now()
   for (const platform of platforms) {
     const previous = existing.get(platform)
     upsertPublication(db, {
@@ -217,13 +221,13 @@ async function notifyAbandoned(
  * aucun état de reprise ne s'ajoute au-delà de ce que `publications` porte déjà.
  */
 async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: number): Promise<SchedulerOutcome> {
-  const { db, sleep, sendMail } = deps
+  const { db, now, sleep, sendMail } = deps
   const clip = getClip(db, clipId)
   if (clip === undefined) {
     // Sans ceci, les lignes restent `planned` : `nextDueSchedule` reprendrait
     // indéfiniment cette même échéance, empêchant les suivantes de jamais
     // passer (relevé en revue).
-    markFailed(db, clipId, outstandingPlatforms(db, clipId), `Clip programmé introuvable : ${clipId}.`)
+    markFailed(db, clipId, outstandingPlatforms(db, clipId), `Clip programmé introuvable : ${clipId}.`, now())
     console.error(`Clip programmé introuvable : ${clipId}.`)
     await notifyAbandoned(sendMail, db, clipId, clipId, scheduledAt)
     return { kind: 'abandoned', clipId, attempts: 0, statuses: statusesFor(db, clipId) }
@@ -251,7 +255,7 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
         const { settled } = launchPublish({ db, clip, platforms: [platform], force: false, ignoreStaleRender: true, sleep })
         await settled
       } catch (error) {
-        markFailed(db, clipId, [platform], messageSafe(error))
+        markFailed(db, clipId, [platform], messageSafe(error), now())
       }
     }
 
@@ -260,7 +264,13 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
   }
 
   const statuses = statusesFor(db, clipId)
-  const outstanding = PLATFORMS.filter((p) => statuses[p] !== 'published' && statuses[p] !== 'submitted')
+  // `outstandingPlatforms`, pas `statuses !== published/submitted` : ce
+  // dernier lit une ligne absente comme `planned` (le défaut de
+  // `statusesFor`, utile pour l'affichage), donc une plateforme
+  // déprogrammée pendant la passe déclenchait un abandon, un courriel et
+  // un code de sortie 1 — alors que l'annulation avait réussi (relevé en
+  // revue).
+  const outstanding = outstandingPlatforms(db, clipId)
   if (outstanding.length === 0) return { kind: 'done', clipId, attempts, statuses }
 
   await notifyAbandoned(sendMail, db, clipId, clip.title, scheduledAt)

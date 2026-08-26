@@ -618,10 +618,49 @@ describe('launchPublish — ignoreStaleRender (spec §5.4)', () => {
 
     expect(() =>
       launchPublish({ db: getDb(), clip, platforms: ['instagram'], force: true, ignoreStaleRender: false }),
-    ).toThrow(/déjà publié/)
+    ).toThrow(/programmé/)
 
     expect(getPublications(getDb(), CLIP_ID).find((r) => r.platform === 'instagram')).toMatchObject({
       status: 'planned',
+    })
+  })
+
+  it('une ligne `in_progress` refuse le chemin manuel, même avec `force: true` — l’ordonnanceur peut être en train de l’envoyer', async () => {
+    await exportClip()
+    upsertPublication(getDb(), {
+      clipId: CLIP_ID,
+      platform: 'instagram',
+      status: 'in_progress',
+      remoteId: null,
+      remoteUrl: null,
+      requestId: null,
+      error: null,
+      publishedFingerprint: null,
+      createdAt: 1,
+      updatedAt: 1,
+      scheduledAt: null,
+    })
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+
+    expect(() =>
+      launchPublish({ db: getDb(), clip, platforms: ['instagram'], force: true, ignoreStaleRender: false }),
+    ).toThrow(/en cours d.envoi/)
+
+    // Le chemin ordonnancé, lui, doit pouvoir reprendre son propre essai
+    // laissé `in_progress` (spec §5.4, réessais) — `ignoreStaleRender` seul
+    // suffit, `force` n'a pas à intervenir.
+    const { settled } = launchPublish({
+      db: getDb(),
+      clip,
+      platforms: ['instagram'],
+      force: false,
+      ignoreStaleRender: true,
+      sleep: async () => {},
+    })
+    await settled
+    expect(getPublications(getDb(), CLIP_ID).find((r) => r.platform === 'instagram')).toMatchObject({
+      status: 'published',
     })
   })
 

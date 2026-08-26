@@ -15,9 +15,11 @@ import { body, json, requestInvalid, route } from '@/server/http'
  */
 export const GET = route('GET /api/planning/schedule', async (request: Request) => {
   const params = new URL(request.url).searchParams
-  const from = Number(params.get('from'))
-  const to = Number(params.get('to'))
-  if (!Number.isFinite(from) || !Number.isFinite(to)) {
+  const fromParam = params.get('from')
+  const toParam = params.get('to')
+  const from = Number(fromParam)
+  const to = Number(toParam)
+  if (fromParam === null || toParam === null || !Number.isFinite(from) || !Number.isFinite(to)) {
     throw requestInvalid('Paramètres `from` et `to` requis, en millisecondes depuis l’époque.')
   }
 
@@ -71,6 +73,13 @@ const SCHEDULE_REQUEST = z.strictObject({
 export const POST = route('POST /api/planning/schedule', async (request: Request) => {
   const { clipIds, scheduledAt } = await body(request, SCHEDULE_REQUEST)
   const db = getDb()
+  // Un identifiant inconnu heurterait sinon la contrainte de clé étrangère et
+  // remonterait en 500 : on la vérifie ici pour rendre une 400 exploitable.
+  for (const clipId of clipIds) {
+    if (getClip(db, clipId) === undefined) {
+      throw requestInvalid(`Clip inconnu : ${clipId}`)
+    }
+  }
   schedulePublications(db, clipIds, scheduledAt, Date.now())
 
   const entries: ScheduledEntry[] = []

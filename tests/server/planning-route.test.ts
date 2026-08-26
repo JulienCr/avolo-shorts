@@ -134,6 +134,11 @@ describe('GET /api/planning/schedule', () => {
     expect(response.status).toBe(400)
   })
 
+  it('400 si `from` est omis — `Number(null)` vaut 0, un piège à ne pas laisser passer', async () => {
+    const response = await scheduleGetRoute(getRequest('http://test/api/planning/schedule?to=10000'))
+    expect(response.status).toBe(400)
+  })
+
   // Le cas contre-intuitif de la spec (§5.2) : le calendrier lit les
   // publications, jamais le vivier. Un clip reprogrammé qui retombe à `kept`
   // reste sur le calendrier, et son rendu périmé se signale par `stale`.
@@ -175,6 +180,13 @@ describe('POST /api/planning/schedule', () => {
   it('400 sur des identifiants dupliqués', async () => {
     const response = await scheduleRoute(
       postRequest('http://test/api/planning/schedule', { clipIds: ['a', 'a'], scheduledAt: 5000 }),
+    )
+    expect(response.status).toBe(400)
+  })
+
+  it('400 sur un clip inconnu, plutôt qu\'une contrainte de clé étrangère non attrapée', async () => {
+    const response = await scheduleRoute(
+      postRequest('http://test/api/planning/schedule', { clipIds: ['fantome'], scheduledAt: 5000 }),
     )
     expect(response.status).toBe(400)
   })

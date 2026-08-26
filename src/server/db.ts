@@ -1672,8 +1672,8 @@ export function getPublications(db: Database.Database, clipId: string): Publicat
 export function upsertPublication(db: Database.Database, row: PublicationRow): void {
   db.prepare(
     `INSERT INTO publications
-       (clipId, platform, status, remoteId, remoteUrl, requestId, error, publishedFingerprint, createdAt, updatedAt)
-     VALUES (@clipId, @platform, @status, @remoteId, @remoteUrl, @requestId, @error, @publishedFingerprint, @createdAt, @updatedAt)
+       (clipId, platform, status, remoteId, remoteUrl, requestId, error, publishedFingerprint, createdAt, updatedAt, scheduledAt)
+     VALUES (@clipId, @platform, @status, @remoteId, @remoteUrl, @requestId, @error, @publishedFingerprint, @createdAt, @updatedAt, @scheduledAt)
      ON CONFLICT(clipId, platform) DO UPDATE SET
        status               = excluded.status,
        remoteId             = excluded.remoteId,

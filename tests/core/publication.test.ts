@@ -11,10 +11,17 @@ import {
   platformFile,
   platformTexts,
   publicationText,
+  PUBLICATION_STATUS_LABELS,
   selectablePlatforms,
   wordsHash,
   type PublicationRecord,
 } from '@/core/publication'
+
+describe('PUBLICATION_STATUS_LABELS', () => {
+  it("porte le cinquième statut, `planned` (issue #195)", () => {
+    expect(PUBLICATION_STATUS_LABELS.planned).toBe('programmé')
+  })
+})
 
 describe('defaultPlatformAvailability', () => {
   it('rend les quatre plateformes non configurées — rien n’est branché', () => {

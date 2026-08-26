@@ -25,6 +25,10 @@
  * GET   /api/publication/availability        -> Record<Platform, PlatformAvailability>
  * POST  /api/clips/:id/publish { platforms, force? } -> { publications: PublicationRow[] }
  * GET   /api/clips/:id/publications         -> { publications: PublicationRow[] }
+ * GET   /api/planning/pool                  -> { clips: PlanningPoolClip[] }
+ * GET   /api/planning/schedule?from=<ms>&to=<ms>      -> { entries: ScheduledEntry[] }
+ * POST  /api/planning/schedule { clipIds, scheduledAt } -> { entries: ScheduledEntry[] }
+ * POST  /api/planning/unschedule { clipIds } -> { removed: number }
  * ```
  *
  * Les trois `POST` ont vécu sans appelant le temps d'une itération, et la chaîne
@@ -49,7 +53,7 @@ import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import type { ClipFraming, FramingSettings, ShotFraming } from '@/core/framing'
 import type { StepName } from '@/core/graph'
 import type { HookSettings } from '@/core/hook'
-import type { Platform, PlatformAvailability, PublicationRow } from '@/core/publication'
+import type { Platform, PlatformAvailability, PublicationRow, PublicationStatus } from '@/core/publication'
 import type { TranscriptLine, WordCorrection } from '@/lib/editing'
 
 export type { Clip, ClipStatus, Ratio, Segment }
@@ -1362,4 +1366,56 @@ export function publishClip(
 /** L'état de chaque publication d'un clip — `GET /api/clips/:id/publications`. */
 export function getPublications(clipId: string): Promise<{ publications: PublicationRow[] }> {
   return lire<{ publications: PublicationRow[] }>(`/api/clips/${encodeURIComponent(clipId)}/publications`)
+}
+
+// ---------------------------------------------------------------------------
+// Le planning (spec du 26 août 2026)
+// ---------------------------------------------------------------------------
+
+/** Un clip du vivier : exporté, à jour, pas encore programmé. */
+export type PlanningPoolClip = {
+  clipId: string
+  projectId: string
+  title: string
+  /** La durée du montage, en secondes. */
+  duration: number
+}
+
+/** Une échéance posée, telle que le calendrier la lit. */
+export type ScheduledEntry = {
+  clipId: string
+  projectId: string
+  title: string
+  /** L'échéance, en ms depuis l'époque. */
+  scheduledAt: number
+  statuses: Partial<Record<Platform, PublicationStatus>>
+  /** Le rendu sur le disque ne correspond plus au montage courant. */
+  stale: boolean
+}
+
+/** Les clips exportés, à jour, pas encore programmés — `GET /api/planning/pool`. */
+export function listPlanningPool(): Promise<PlanningPoolClip[]> {
+  return lire<{ clips: PlanningPoolClip[] }>('/api/planning/pool').then((r) => r.clips)
+}
+
+/** Le calendrier entre deux bornes (ms, `to` exclu) — `GET /api/planning/schedule`. */
+export function listPlanningSchedule(from: number, to: number): Promise<ScheduledEntry[]> {
+  return lire<{ entries: ScheduledEntry[] }>(`/api/planning/schedule?from=${from}&to=${to}`).then(
+    (r) => r.entries,
+  )
+}
+
+/** Pose une échéance sur les quatre plateformes de chaque clip — `POST /api/planning/schedule`. */
+export function schedulePublication(
+  clipIds: readonly string[],
+  scheduledAt: number,
+): Promise<ScheduledEntry[]> {
+  return post<{ entries: ScheduledEntry[] }>('/api/planning/schedule', { clipIds, scheduledAt }).then(
+    (r) => r.entries,
+  )
+}
+
+/** Retire une échéance encore `planned` — `POST /api/planning/unschedule`. */
+export function unschedulePublication(clipIds: readonly string[]): Promise<number> {
+  return post<{ removed: number }>('/api/planning/unschedule', { clipIds }).then((r) => r.removed)
 }

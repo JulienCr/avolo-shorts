@@ -812,6 +812,44 @@ export function headBounds(
 }
 
 /**
+ * La part de la tête d'une personne qui tombe dans une cellule de split — `1`
+ * pleinement dedans, `0` pleinement dehors, `null` quand `headBounds` ne se
+ * définit pas. **Jamais `0` pour une tête absente** (issue #190) : l'absence
+ * et la troncature sont deux indicateurs distincts, voir `ShotHeadInstrument`.
+ *
+ * Les bornes de tête se clampent aux deux extrémités de `[0, 1]` avant
+ * l'intersection — piège n°1 de la skill `cadrage` : un point de pose hors
+ * cadre produirait sinon une largeur négative qui traverserait le calcul en
+ * silence.
+ *
+ * @returns L'aire d'intersection sur l'aire de tête ; une tête réduite à un
+ *   point (un seul point de pose confiant) se lit comme une appartenance,
+ *   pas une aire.
+ */
+export function headContainment(
+  box: PersonBox,
+  cell: Cell,
+  options: FramingOptions = {},
+): number | null {
+  const head = headBounds(box, options)
+  if (head === null) return null
+  const hx0 = bound(head.x0, 0, 1)
+  const hx1 = bound(head.x1, 0, 1)
+  const hy0 = bound(head.y0, 0, 1)
+  const hy1 = bound(head.y1, 0, 1)
+  const headWidth = hx1 - hx0
+  const headHeight = hy1 - hy0
+
+  if (headWidth <= 0 || headHeight <= 0) {
+    return hx0 >= cell.x0 && hx0 <= cell.x1 && hy0 >= cell.y0 && hy0 <= cell.y1 ? 1 : 0
+  }
+
+  const insideWidth = Math.max(0, Math.min(hx1, cell.x1) - Math.max(hx0, cell.x0))
+  const insideHeight = Math.max(0, Math.min(hy1, cell.y1) - Math.max(hy0, cell.y0))
+  return (insideWidth * insideHeight) / (headWidth * headHeight)
+}
+
+/**
  * À quel point une personne est de face — `1` pleinement de face, `0` pur
  * profil — et `'unknown'` quand on ne sait pas.
  */
@@ -1422,40 +1460,22 @@ export type ShotSplit = {
   worstBleedAt: number | null
 }
 
+/** Une image appariée à deux, gauche et droite par centre — ce que le split partage avec son instrument. */
+type SplitPair = { left: PersonBox; right: PersonBox }
+
 /**
- * Le split-screen d'un plan à deux personnes (spec du 25 août 2026) : deux
- * cellules empilées plutôt qu'un crop unique, posées là où c'est
- * géométriquement utile. Aucun signal de contenu n'y participe — voir le
- * contrat pour les pistes mesurées et écartées.
- *
- * @param boxes Les boîtes du plan, restreintes à lui et aux segments montés.
- * @param ratio Le ratio que ce plan prendrait sans split (condition 3).
- * @param segments Les segments montés, en secondes source — tout le plan par
- *   défaut. Intersectés avec `shot` pour juger le plancher de durée et la
- *   grille de `retainedCountByFrame` sur le recouvrement réel, pas la durée
- *   du plan source.
- * @returns Les deux cellules `[haut, bas]`, ou la cause du refus.
+ * Le déclencheur du split (durée, effectif, ratio) et l'appariement gauche/droite
+ * qui s'ensuit — la première moitié de `computeShotSplit`, extraite pour que
+ * `computeShotHeadInstrument` mesure exactement la même population sans la
+ * recalculer (contrat #190, « pas de seconde dérivation »).
  */
-export function computeShotSplit(
+function splitPairs(
   boxes: PersonBox[],
   shot: Shot,
   ratio: Ratio,
-  srcW: number,
-  srcH: number,
   options: FramingOptions,
-  segments: Segment[] = [shot],
-): ShotSplit {
-  const refuse = (
-    rejection: SplitRejection,
-    bleed: number | null = null,
-    worstBleedAt: number | null = null,
-  ): ShotSplit => ({
-    cells: null,
-    rejection,
-    bleed,
-    worstBleedAt,
-  })
-
+  segments: Segment[],
+): { rejection: SplitRejection } | { rejection: null; pairs: SplitPair[] } {
   const mountedIntervals = segments
     .map((s) => ({ start: Math.max(shot.start, s.start), end: Math.min(shot.end, s.end) }))
     .filter((i) => i.end > i.start)
@@ -1463,15 +1483,17 @@ export function computeShotSplit(
 
   const minShot = setting(options.splitMinShot, FRAMING_DEFAULTS.splitMinShot)
   // `!(durée >= plancher)` et non `<` : une borne non finie doit refuser.
-  if (!(mountedSeconds >= minShot)) return refuse('tooShort')
+  if (!(mountedSeconds >= minShot)) return { rejection: 'tooShort' }
 
   const counts = retainedCountByFrame(boxes, options, mountedIntervals)
-  if (counts.length === 0) return refuse('notTwoPeople')
+  if (counts.length === 0) return { rejection: 'notTwoPeople' }
   // Tronqué, jamais arrondi (`CLAUDE.md`) : 1,5 doit rester « pas deux »,
   // pas se hisser à 2 par arrondi.
-  if (Math.floor(median([...counts].sort((a, b) => a - b))) !== 2) return refuse('notTwoPeople')
+  if (Math.floor(median([...counts].sort((a, b) => a - b))) !== 2) {
+    return { rejection: 'notTwoPeople' }
+  }
 
-  if (!(RATIOS[ratio] > RATIOS['9:16'])) return refuse('ratioNotWide')
+  if (!(RATIOS[ratio] > RATIOS['9:16'])) return { rejection: 'ratioNotWide' }
 
   // Le rang gauche/droite, par image, sans suivre d'identité : deux comédiens
   // qui se croisent échangent leurs rangs, et rien ici ne le corrige (ouvert
@@ -1480,8 +1502,22 @@ export function computeShotSplit(
     const [left, right] = [...l].sort((a, b) => centerOf(a, options) - centerOf(b, options))
     return { left, right }
   })
-  if (pairs.length === 0) return refuse('noPairs')
+  if (pairs.length === 0) return { rejection: 'noPairs' }
 
+  return { rejection: null, pairs }
+}
+
+/**
+ * Les deux cellules géométriques d'une paire — plancher de largeur, cadrage
+ * sur le niveau d'yeux médian — avant l'épreuve du débordement. `null` quand
+ * la largeur clampée à la source ne tient plus la hauteur voulue.
+ */
+function splitCells(
+  pairs: SplitPair[],
+  options: FramingOptions,
+  srcW: number,
+  srcH: number,
+): { leftCell: Cell; rightCell: Cell } | null {
   const pointThreshold = setting(options.torsoMinScore, FRAMING_DEFAULTS.torsoMinScore)
   const geometryOf = (which: 'left' | 'right') => {
     const slotBoxes = pairs.map((p) => p[which])
@@ -1497,19 +1533,6 @@ export function computeShotSplit(
   }
   const left = geometryOf('left')
   const right = geometryOf('right')
-
-  // Le rang haut/bas : celui qui regarde à droite (`side === 1`) sur la
-  // majorité des images qui départagent. Égalité ou silence : la gauche va en
-  // haut — c'est le cas `cqlp`, dont l'homme de droite sort à `side` nul.
-  let leftWins = 0
-  let rightWins = 0
-  for (const { left: l, right: r } of pairs) {
-    const sideLeft = orientationOf(l).side
-    const sideRight = orientationOf(r).side
-    if (sideLeft === 1 && sideRight !== 1) leftWins += 1
-    else if (sideRight === 1 && sideLeft !== 1) rightWins += 1
-  }
-  const leftOnTop = leftWins >= rightWins
 
   const minWidthFrac = bound(
     setting(options.splitMinCellWidth, FRAMING_DEFAULTS.splitMinCellWidth),
@@ -1557,8 +1580,17 @@ export function computeShotSplit(
 
   const leftCell = cellFor(left)
   const rightCell = cellFor(right)
-  if (leftCell === null || rightCell === null) return refuse('tooNarrowForSource')
+  if (leftCell === null || rightCell === null) return null
+  return { leftCell, rightCell }
+}
 
+/** L'épreuve du débordement : la tolérance borne l'ampleur, la part sa fréquence sur le plan. */
+function splitBleed(
+  pairs: SplitPair[],
+  leftCell: Cell,
+  rightCell: Cell,
+  options: FramingOptions,
+): { ok: boolean; bleed: number; worstBleedAt: number | null } {
   // Le recouvrement des cellules est autorisé ; ce qui compte est le
   // débordement dans la **boîte** de l'autre personne, pas son tronc — voir
   // le corps de la PR pour la mesure qui l'a tranché.
@@ -1588,13 +1620,152 @@ export function computeShotSplit(
   // `- 1e-9` absorbe l'arrondi flottant à la frontière, comme partout ailleurs
   // dans ce module : `within / total >= share` peut rater de justesse un cas
   // pile égal.
-  if (!(within >= share * bleedPerFrame.length - 1e-9)) {
-    return refuse('bleedsIntoOther', bleed, worstBleedAt)
+  const ok = within >= share * bleedPerFrame.length - 1e-9
+  return { ok, bleed, worstBleedAt }
+}
+
+/** Le rang haut/bas : celui qui regarde à droite (`side === 1`) sur la majorité des images qui départagent. */
+function splitLeftOnTop(pairs: SplitPair[]): boolean {
+  // Égalité ou silence : la gauche va en haut — c'est le cas `cqlp`, dont
+  // l'homme de droite sort à `side` nul.
+  let leftWins = 0
+  let rightWins = 0
+  for (const { left: l, right: r } of pairs) {
+    const sideLeft = orientationOf(l).side
+    const sideRight = orientationOf(r).side
+    if (sideLeft === 1 && sideRight !== 1) leftWins += 1
+    else if (sideRight === 1 && sideLeft !== 1) rightWins += 1
+  }
+  return leftWins >= rightWins
+}
+
+/**
+ * Le split-screen d'un plan à deux personnes (spec du 25 août 2026) : deux
+ * cellules empilées plutôt qu'un crop unique, posées là où c'est
+ * géométriquement utile. Aucun signal de contenu n'y participe — voir le
+ * contrat pour les pistes mesurées et écartées.
+ *
+ * @param boxes Les boîtes du plan, restreintes à lui et aux segments montés.
+ * @param ratio Le ratio que ce plan prendrait sans split (condition 3).
+ * @param segments Les segments montés, en secondes source — tout le plan par
+ *   défaut. Intersectés avec `shot` pour juger le plancher de durée et la
+ *   grille de `retainedCountByFrame` sur le recouvrement réel, pas la durée
+ *   du plan source.
+ * @returns Les deux cellules `[haut, bas]`, ou la cause du refus.
+ */
+export function computeShotSplit(
+  boxes: PersonBox[],
+  shot: Shot,
+  ratio: Ratio,
+  srcW: number,
+  srcH: number,
+  options: FramingOptions,
+  segments: Segment[] = [shot],
+): ShotSplit {
+  const refuse = (
+    rejection: SplitRejection,
+    bleed: number | null = null,
+    worstBleedAt: number | null = null,
+  ): ShotSplit => ({
+    cells: null,
+    rejection,
+    bleed,
+    worstBleedAt,
+  })
+
+  const paired = splitPairs(boxes, shot, ratio, options, segments)
+  if (paired.rejection !== null) return refuse(paired.rejection)
+  const { pairs } = paired
+
+  const cellsResult = splitCells(pairs, options, srcW, srcH)
+  if (cellsResult === null) return refuse('tooNarrowForSource')
+  const { leftCell, rightCell } = cellsResult
+
+  const bleedResult = splitBleed(pairs, leftCell, rightCell, options)
+  if (!bleedResult.ok) {
+    return refuse('bleedsIntoOther', bleedResult.bleed, bleedResult.worstBleedAt)
   }
 
+  const leftOnTop = splitLeftOnTop(pairs)
   const topCell = leftOnTop ? leftCell : rightCell
   const bottomCell = leftOnTop ? rightCell : leftCell
-  return { cells: [topCell, bottomCell], rejection: null, bleed, worstBleedAt }
+  return {
+    cells: [topCell, bottomCell],
+    rejection: null,
+    bleed: bleedResult.bleed,
+    worstBleedAt: bleedResult.worstBleedAt,
+  }
+}
+
+/**
+ * La part et la médiane de tête d'une cellule, sur les images appariées de son
+ * côté — jamais un verdict par image, puisque la cellule est fixe pour tout le
+ * plan (`ShotHeadInstrument`).
+ */
+export type CellHeadStats = {
+  /** Part des images appariées où `headBounds` ne rend rien pour cette cellule. */
+  headAbsenceShare: number
+  /** Médiane de `headContainment` sur les images où la tête est détectée ; `null` si aucune. */
+  headContainmentMedian: number | null
+}
+
+/**
+ * L'instrument de l'issue #190 : la présence et l'intégrité de la tête dans
+ * chaque cellule d'un split, mesurées sur la même paire d'images et les mêmes
+ * cellules que `computeShotSplit` — jamais recalculées séparément. **Descriptif,
+ * ne pèse sur aucune décision.**
+ */
+export type ShotHeadInstrument = {
+  /** `[haut, bas]`, même ordre que `ShotSplit.cells`. `null` si le plan ne split pas. */
+  cells: [CellHeadStats, CellHeadStats] | null
+}
+
+function headStatsFor(
+  boxes: readonly PersonBox[],
+  cell: Cell,
+  options: FramingOptions,
+): CellHeadStats {
+  if (boxes.length === 0) return { headAbsenceShare: 0, headContainmentMedian: null }
+  const values = boxes.map((b) => headContainment(b, cell, options))
+  const present = values.filter((v): v is number => v !== null).sort((a, b) => a - b)
+  return {
+    headAbsenceShare: (values.length - present.length) / values.length,
+    headContainmentMedian: present.length === 0 ? null : median(present),
+  }
+}
+
+export function computeShotHeadInstrument(
+  boxes: PersonBox[],
+  shot: Shot,
+  ratio: Ratio,
+  srcW: number,
+  srcH: number,
+  options: FramingOptions,
+  segments: Segment[] = [shot],
+): ShotHeadInstrument {
+  const paired = splitPairs(boxes, shot, ratio, options, segments)
+  if (paired.rejection !== null) return { cells: null }
+  const { pairs } = paired
+
+  const cellsResult = splitCells(pairs, options, srcW, srcH)
+  if (cellsResult === null) return { cells: null }
+  const { leftCell, rightCell } = cellsResult
+
+  const bleedResult = splitBleed(pairs, leftCell, rightCell, options)
+  if (!bleedResult.ok) return { cells: null }
+
+  const leftStats = headStatsFor(
+    pairs.map((p) => p.left),
+    leftCell,
+    options,
+  )
+  const rightStats = headStatsFor(
+    pairs.map((p) => p.right),
+    rightCell,
+    options,
+  )
+  const leftOnTop = splitLeftOnTop(pairs)
+  return { cells: leftOnTop ? [leftStats, rightStats] : [rightStats, leftStats] }
 }
 
 

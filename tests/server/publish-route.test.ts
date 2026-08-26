@@ -490,3 +490,102 @@ describe('launchPublish — deux connecteurs', () => {
     expect(rows.find((r) => r.platform === 'tiktok')).toMatchObject({ status: 'published', remoteId: 'u2' })
   })
 })
+
+describe('launchPublish — ignoreStaleRender (spec §5.4)', () => {
+  /** Un clip exporté puis retombé en `kept` : le rendu reste sur le disque, périmé. */
+  async function exportThenRevertToKept(): Promise<void> {
+    await exportClip()
+    putClip(getDb(), baseClip({ status: 'kept' }))
+  }
+
+  it('la voie manuelle refuse toujours un rendu périmé, et le schéma refuse `ignoreStaleRender`', async () => {
+    await exportThenRevertToKept()
+
+    const refused = await publishRoute(postRequest({ platforms: ['instagram'] }), context(CLIP_ID))
+    expect(refused.status).toBe(400)
+
+    const rejectedField = await publishRoute(
+      postRequest({ platforms: ['instagram'], ignoreStaleRender: true }),
+      context(CLIP_ID),
+    )
+    expect(rejectedField.status).toBe(400)
+  })
+
+  it('la voie ordonnancée publie un clip `kept` au rendu périmé', async () => {
+    await exportThenRevertToKept()
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+
+    const { settled } = launchPublish({
+      db: getDb(),
+      clip,
+      platforms: ['instagram'],
+      force: false,
+      ignoreStaleRender: true,
+      sleep: async () => {},
+    })
+    await settled
+
+    const rows = getPublications(getDb(), CLIP_ID)
+    expect(rows).toEqual([expect.objectContaining({ platform: 'instagram', status: 'published' })])
+  })
+
+  it('mais pas sans fichier sur le disque', async () => {
+    await exportThenRevertToKept()
+    const paths = pathsRender(PROJECT_ID, CLIP_ID, '1:1', RENDER_NATIVE)
+    fs.rmSync((paths.variant9x16 ?? paths.mp4)!, { force: true })
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+
+    expect(() =>
+      launchPublish({ db: getDb(), clip, platforms: ['instagram'], force: false, ignoreStaleRender: true }),
+    ).toThrow(/Aucun fichier à envoyer/)
+  })
+
+  it('`force` et `ignoreStaleRender` ne se substituent pas l’un à l’autre', async () => {
+    await exportThenRevertToKept()
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+
+    // `force` seul ne lève pas la garde de fraîcheur.
+    expect(() =>
+      launchPublish({ db: getDb(), clip, platforms: ['instagram'], force: true, ignoreStaleRender: false }),
+    ).toThrow(/périmé/)
+
+    // `ignoreStaleRender` seul la lève...
+    const passed = launchPublish({
+      db: getDb(),
+      clip,
+      platforms: ['facebook'],
+      force: false,
+      ignoreStaleRender: true,
+      sleep: async () => {},
+    })
+    await passed.settled
+
+    // ...mais ne republie pas un couple déjà publié sans `force`.
+    expect(() =>
+      launchPublish({
+        db: getDb(),
+        clip,
+        platforms: ['facebook'],
+        force: false,
+        ignoreStaleRender: true,
+        sleep: async () => {},
+      }),
+    ).toThrow(/déjà publié/)
+
+    // Les deux ensemble républient.
+    const forced = launchPublish({
+      db: getDb(),
+      clip,
+      platforms: ['facebook'],
+      force: true,
+      ignoreStaleRender: true,
+      sleep: async () => {},
+    })
+    await forced.settled
+    const rows = getPublications(getDb(), CLIP_ID)
+    expect(rows.find((r) => r.platform === 'facebook')).toMatchObject({ status: 'published' })
+  })
+})

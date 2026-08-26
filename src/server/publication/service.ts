@@ -232,6 +232,8 @@ export type LaunchPublishInput = {
   clip: Clip
   platforms: readonly Platform[]
   force: boolean
+  /** Le chemin ordonnancé publie le fichier qui est sur le disque, périmé ou non (spec §5.4). */
+  ignoreStaleRender?: boolean
   /** Le délai entre deux sondages d'un envoi resté `in_progress` — les tests y passent un délai nul. */
   sleep?: (ms: number) => Promise<void>
 }
@@ -253,13 +255,18 @@ export type LaunchPublishResult = {
  * n'ait posé sa réservation.
  */
 export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
-  const { db, clip, platforms, force, sleep = wait } = input
+  const { db, clip, platforms, force, ignoreStaleRender = false, sleep = wait } = input
 
-  const exportEligibility = clipEligibilityFromStatus(clip.status)
-  if (!exportEligibility.eligible) throw requestInvalid(exportEligibility.reason)
+  // Les deux gardes que le chemin ordonnancé traverse (spec §5.4). La modale
+  // manuelle garde son refus : aucune route ne pose ce champ, personne devant
+  // l'écran pour ré-exporter.
+  if (!ignoreStaleRender) {
+    const exportEligibility = clipEligibilityFromStatus(clip.status)
+    if (!exportEligibility.eligible) throw requestInvalid(exportEligibility.reason)
+  }
 
   const framing = clipFraming(clip, effectiveSettings(db).framing)
-  if (!deliveryToDay(clip, framing)) {
+  if (!ignoreStaleRender && !deliveryToDay(clip, framing)) {
     throw requestInvalid('Le rendu de ce clip est périmé ou absent : exporter avant de publier.')
   }
 
@@ -297,7 +304,12 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
   const existing = getPublications(db, clip.id)
   const byPlatform = new Map(existing.map((r) => [r.platform, r]))
   for (const platform of platforms) {
-    if (!canTargetPlatform(toRecord(byPlatform.get(platform)), force)) {
+    const record = toRecord(byPlatform.get(platform))
+    // `canTargetPlatform` traite `planned` comme `published` et le refuse sans
+    // `force` — or `planned` n'a encore rien publié : c'est la ligne même que
+    // ce passage doit honorer, sans emprunter `force` (spec §5.4).
+    const scheduledEntry = ignoreStaleRender && record?.status === 'planned'
+    if (!scheduledEntry && !canTargetPlatform(record, force)) {
       throw new PublicationAlreadyPublishedError(platform)
     }
   }

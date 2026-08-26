@@ -17,8 +17,8 @@ huit cas de référence.
 **Ce document mesure, il ne décide pas.** Les indicateurs qu'il présente ne
 sont câblés dans aucune règle : `computeShotSplit` n'a pas changé de
 comportement, `pnpm tsx scripts/framing-cases.ts verify` le confirme (dernière
-section). Le seuil, et la barre de présence à retenir, sont une arbitration
-humaine sur planche, prévue pour une PR ultérieure (PR-D).
+section). Le seuil, et la barre de présence à retenir, sont un arbitrage
+humain sur planche, prévu pour une PR ultérieure (PR-D).
 
 ## L'instrument
 
@@ -325,8 +325,8 @@ des trois `keep` n'a pas eu besoin du défaut pour tenir.
 
 `headBounds` déclare une tête présente dès qu'**un seul** des cinq points du
 visage passe `torsoMinScore` (0,5 par défaut). Sur `entre-nous-3495867`, la
-personne de dos (Baba) ne montre jamais son visage de face, mais un point
-unique — son oreille visible — franchit ce seuil sur une partie des images :
+personne de dos ne montre jamais son visage de face, mais un point unique —
+son oreille visible — franchit ce seuil sur une partie des images :
 
 ```
 box x[0.0003, 0.2598] head { x0: 0.1961, y0: 0.6505, x1: 0.1961, y1: 0.6505 }
@@ -371,7 +371,7 @@ de référence ; le choix n'est pas fait ici.
 $ pnpm lint && pnpm type-check && pnpm test
 # tout vert, 3203 tests
 
-$ PROJECTS_DIR=/home/julien/dev/avolo-shorts/projects pnpm tsx scripts/framing-cases.ts verify
+$ PROJECTS_DIR=<chemin> pnpm tsx scripts/framing-cases.ts verify
 # identique avant/après cette PR, les deux checkpoints compris :
 13 cas vérifiés — 2 en dérive, 8 ancrés sur une frontière (sans conséquence), 0 absents.
 ```

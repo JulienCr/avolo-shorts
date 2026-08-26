@@ -1733,8 +1733,8 @@ export type CellHeadStats = {
 
 /**
  * Ce qu'une cellule porte à une image précise — le grain que `CellHeadStats`
- * agrège, et ce qu'un rapport (`scripts/framing/head-bars-report.ts`) lit
- * pour mesurer une barre de présence différente sans redériver l'appariement.
+ * agrège, et ce qu'un rapport (`scripts/framing-head-bars.ts`) lit pour
+ * mesurer une barre de présence différente sans redériver l'appariement.
  */
 export type FrameSideStats = {
   absent: boolean

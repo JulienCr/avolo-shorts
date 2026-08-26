@@ -329,7 +329,7 @@ describe('sieve — head-absence-worst et head-containment-worst (#190)', () => 
     srcH: 1080,
   }
 
-  it('restent bornés à [0, 1] sur un keypoint à -0,3 et un à 1,4', () => {
+  it('restent bornés à [0, 1] sur un keypoint à -0,05 et un à 1,05', () => {
     const absence = METRICS['head-absence-worst'].of(SPLITTING_SAMPLE)
     expect(absence).not.toBeNull()
     expect(Number.isFinite(absence as number)).toBe(true)

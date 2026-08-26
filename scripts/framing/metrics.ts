@@ -103,25 +103,51 @@ function pairMinFrontality(f: PersonFrame): number | null {
 }
 
 /**
- * L'instrument de tête (#190) que `computeShotSplit` calculerait pour ce plan —
- * même appariement, mêmes cellules, jamais une seconde dérivation.
+ * Mémorisé par `ShotSample` : `sieve.ts` appelle `perFrame` une fois par
+ * image du plan, et chaque appel redérivait tout l'instrument avant ce
+ * cache — O(F²) sur un plan de F images (relevé par
+ * copilot-pull-request-reviewer sur la #199). `byInstant` évite en plus la
+ * recherche linéaire répétée dans `perFrame`.
  */
-function headInstrumentOf(s: ShotSample): ReturnType<typeof computeShotHeadInstrument> {
-  return computeShotHeadInstrument(
+const headInstrumentCache = new WeakMap<
+  ShotSample,
+  { instrument: ReturnType<typeof computeShotHeadInstrument>; byInstant: Map<number, FrameHeadStats> }
+>()
+
+/**
+ * L'instrument de tête (#190) que `computeShotSplit` calculerait pour ce plan —
+ * même appariement, mêmes cellules, jamais une seconde dérivation. `fps`
+ * vient de `s.analysisFps`, jamais du défaut — même doctrine que
+ * `caseFramingRequest` (`scripts/framing/case-registry.ts:62-65`).
+ */
+function headInstrumentEntryOf(s: ShotSample): {
+  instrument: ReturnType<typeof computeShotHeadInstrument>
+  byInstant: Map<number, FrameHeadStats>
+} {
+  const cached = headInstrumentCache.get(s)
+  if (cached !== undefined) return cached
+  const instrument = computeShotHeadInstrument(
     flatten(s),
     s.shot.shot,
     s.shot.ratio,
     s.srcW,
     s.srcH,
-    FRAMING_DEFAULTS,
+    { ...FRAMING_DEFAULTS, fps: s.analysisFps },
     [s.shot.shot],
   )
+  const byInstant = new Map((instrument.perFrame ?? []).map((entry) => [entry.t, entry]))
+  const result = { instrument, byInstant }
+  headInstrumentCache.set(s, result)
+  return result
+}
+
+function headInstrumentOf(s: ShotSample): ReturnType<typeof computeShotHeadInstrument> {
+  return headInstrumentEntryOf(s).instrument
 }
 
 /** L'entrée de `headInstrumentOf(s).perFrame` pour l'instant de `f` — jamais redérivée depuis la proximité d'une cellule. */
 function frameHeadStatsAt(f: PersonFrame, s: ShotSample): FrameHeadStats | undefined {
-  const frames = headInstrumentOf(s).perFrame
-  return frames?.find((entry) => entry.t === f.t)
+  return headInstrumentEntryOf(s).byInstant.get(f.t)
 }
 
 /** Le pire (le plus haut) des deux indicateurs d'absence de tête, sur une image appariée. */

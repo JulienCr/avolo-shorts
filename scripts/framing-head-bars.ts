@@ -21,7 +21,7 @@ function flatten(s: ShotSample): PersonBox[] {
   return s.frames.flatMap((f) => f.boxes)
 }
 
-/** Le même appel que `metrics.ts`'s `headInstrumentOf` — jamais une seconde dérivation. */
+/** Le même appel que celui de `headInstrumentOf` dans `metrics.ts` — jamais une seconde dérivation. */
 function instrumentOf(s: ShotSample): ReturnType<typeof computeShotHeadInstrument> {
   return computeShotHeadInstrument(
     flatten(s),
@@ -29,7 +29,7 @@ function instrumentOf(s: ShotSample): ReturnType<typeof computeShotHeadInstrumen
     s.shot.ratio,
     s.srcW,
     s.srcH,
-    FRAMING_DEFAULTS,
+    { ...FRAMING_DEFAULTS, fps: s.analysisFps },
     [s.shot.shot],
   )
 }
@@ -64,11 +64,17 @@ function deciles(values: readonly number[]): number[] {
 
 function reportCorpus(): void {
   const { samples, skipped } = sweepCorpus({ population: 'splits' })
-  for (const s of skipped) console.log(`ignoré : ${s.project} — ${s.why}`)
+  // `s.why` porte le chemin absolu de l'analyse manquante — utile en debug
+  // local, jamais dans une sortie qu'on pourrait recopier ailleurs.
+  for (const s of skipped) console.log(`ignoré : ${s.project} — analyse absente`)
   console.log(`\npopulation (splits) : ${samples.length}`)
 
   const bar1 = samples.map((s) => METRICS['head-absence-worst'].of(s)).filter((v): v is number => v !== null)
   const bar2 = samples.map(bar2WorstOf).filter((v): v is number => v !== null)
+  const containment = samples
+    .map((s) => METRICS['head-containment-worst'].of(s))
+    .filter((v): v is number => v !== null)
+  const containmentNullCount = samples.length - containment.length
 
   console.log(`\nbarre ≥ 1 point (head-absence-worst, shippée)`)
   console.log(`  ${bar1.length}/${samples.length} défini, se déclenche (> 0) sur ${bar1.filter((v) => v > 0).length}`)
@@ -77,6 +83,30 @@ function reportCorpus(): void {
   console.log(`\nbarre ≥ 2 points (mesurée, non câblée)`)
   console.log(`  ${bar2.length}/${samples.length} défini, se déclenche (> 0) sur ${bar2.filter((v) => v > 0).length}`)
   console.log(`  déciles [${deciles(bar2).map((d) => d.toFixed(4)).join(', ')}]`)
+
+  console.log(`\nhead-containment-worst`)
+  console.log(`  ${containment.length}/${samples.length} défini — ${containmentNullCount} plan(s) rendent null`)
+  console.log(`  déciles [${deciles(containment).map((d) => d.toFixed(4)).join(', ')}]`)
+
+  console.log(`\nseuils sur l'absence (barre ≥ 1 point), retire seul`)
+  for (const t of [0, 0.1, 0.3, 0.5]) {
+    console.log(`  > ${t} : ${bar1.filter((v) => v > t).length}`)
+  }
+
+  console.log(`\nseuils sur le containment, retire seul`)
+  console.log(`  = null (dégénéré) : ${containmentNullCount}`)
+  for (const t of [1, 0.95, 0.9]) {
+    console.log(`  < ${t} (mesuré) : ${containment.filter((v) => v < t).length}`)
+  }
+
+  const combinedCount = samples.filter((s) => {
+    const absence = METRICS['head-absence-worst'].of(s)
+    const cellContainment = METRICS['head-containment-worst'].of(s)
+    return (absence !== null && absence > 0) || cellContainment === null || cellContainment < 1
+  }).length
+  console.log(
+    `\ncombiné (absence > 0, ou containment null, ou containment mesuré < 1) : ${combinedCount}/${samples.length}`,
+  )
 }
 
 function reportLabelledCases(): void {
@@ -92,7 +122,7 @@ function reportLabelledCases(): void {
       r.shot.ratio,
       r.analysis.source.w,
       r.analysis.source.h,
-      FRAMING_DEFAULTS,
+      { ...FRAMING_DEFAULTS, fps: r.analysis.fps },
     )
     const verdict = c.label?.call ?? 'sans étiquette'
     if (instrument.cells === null || instrument.perFrame === null) {

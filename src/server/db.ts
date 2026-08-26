@@ -455,10 +455,10 @@ export type SettingField = {
   /**
    * Le plus petit entier acceptable. **Entiers seulement**, et absent ailleurs.
    *
-   * Un seul champ y met zéro, et c'est là sa valeur signifiante :
-   * `maximumClips` à zéro veut dire « aucun plafond ». Partout ailleurs zéro est
-   * une saisie ratée — une durée nulle par clip diviserait par zéro, un ratio
-   * nul viderait la présélection.
+   * Deux lectures de zéro coexistent selon le champ. Sur `maximumClips`, zéro
+   * est une valeur signifiante : « aucun plafond ». Sur les cinq champs de la
+   * famille `framing`, zéro est le plancher réel du domaine — pas une
+   * sentinelle. Ailleurs, zéro est une saisie ratée.
    */
   min?: number
   /**

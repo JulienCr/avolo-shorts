@@ -1,7 +1,8 @@
 /**
- * Six instruments de mesure sur un `ShotSample` (issue #191 lot 5, § « Le
- * tamis »). **Descriptifs, jamais des règles candidates** — c'est
- * l'arbitrage de l'issue : #191 livre le tamis, #190 apportera les mailles.
+ * Huit instruments de mesure sur un `ShotSample` (issue #191 lot 5, § « Le
+ * tamis » ; `head-absence-worst` et `head-containment-worst` ajoutés par
+ * #190). **Descriptifs, jamais des règles candidates** — c'est l'arbitrage de
+ * l'issue : #191 livre le tamis, #190 apporte les mailles.
  *
  * `null` n'est pas 0 : une métrique qui ne se définit pas sur un plan (pas de
  * paire, pas de squelette) doit **sortir de la distribution**, pas en
@@ -10,8 +11,10 @@
  */
 
 import {
+  computeShotHeadInstrument,
   computeShotSplit,
   FRAMING_DEFAULTS,
+  type FrameHeadStats,
   hasValidGeometry,
   headBounds,
   isForeground,
@@ -99,6 +102,76 @@ function pairMinFrontality(f: PersonFrame): number | null {
   return Math.min(fa, fb)
 }
 
+/**
+ * Mémorisé par `ShotSample` : `sieve.ts` appelle `perFrame` une fois par
+ * image du plan, et chaque appel redérivait tout l'instrument avant ce
+ * cache — O(F²) sur un plan de F images (relevé par
+ * copilot-pull-request-reviewer sur la #199). `byInstant` évite en plus la
+ * recherche linéaire répétée dans `perFrame`.
+ */
+const headInstrumentCache = new WeakMap<
+  ShotSample,
+  { instrument: ReturnType<typeof computeShotHeadInstrument>; byInstant: Map<number, FrameHeadStats> }
+>()
+
+/**
+ * L'instrument de tête (#190) que `computeShotSplit` calculerait pour ce plan —
+ * même appariement, mêmes cellules, jamais une seconde dérivation. `fps`
+ * vient de `s.analysisFps`, jamais du défaut — même doctrine que
+ * `caseFramingRequest` (`scripts/framing/case-registry.ts:62-65`).
+ */
+function headInstrumentEntryOf(s: ShotSample): {
+  instrument: ReturnType<typeof computeShotHeadInstrument>
+  byInstant: Map<number, FrameHeadStats>
+} {
+  const cached = headInstrumentCache.get(s)
+  if (cached !== undefined) return cached
+  const instrument = computeShotHeadInstrument(
+    flatten(s),
+    s.shot.shot,
+    s.shot.ratio,
+    s.srcW,
+    s.srcH,
+    { ...FRAMING_DEFAULTS, fps: s.analysisFps },
+    [s.shot.shot],
+  )
+  const byInstant = new Map((instrument.perFrame ?? []).map((entry) => [entry.t, entry]))
+  const result = { instrument, byInstant }
+  headInstrumentCache.set(s, result)
+  return result
+}
+
+function headInstrumentOf(s: ShotSample): ReturnType<typeof computeShotHeadInstrument> {
+  return headInstrumentEntryOf(s).instrument
+}
+
+/** L'entrée de `headInstrumentOf(s).perFrame` pour l'instant de `f` — jamais redérivée depuis la proximité d'une cellule. */
+function frameHeadStatsAt(f: PersonFrame, s: ShotSample): FrameHeadStats | undefined {
+  return headInstrumentEntryOf(s).byInstant.get(f.t)
+}
+
+/** Le pire (le plus haut) des deux indicateurs d'absence de tête, sur une image appariée. */
+function perFrameHeadAbsenceWorst(f: PersonFrame, s: ShotSample): number | null {
+  const entry = frameHeadStatsAt(f, s)
+  if (entry === undefined) return null
+  return Math.max(entry.top.absent ? 1 : 0, entry.bottom.absent ? 1 : 0)
+}
+
+/**
+ * La pire (la plus basse) des deux valeurs de containment, sur une image
+ * appariée — `null` dès qu'une des deux ne se définit pas, pour la même
+ * raison que l'agrégat `head-containment-worst` : une cellule dégénérée ne
+ * doit jamais se faire remplacer par l'autre, qui pourrait être bonne.
+ */
+function perFrameHeadContainmentWorst(f: PersonFrame, s: ShotSample): number | null {
+  const entry = frameHeadStatsAt(f, s)
+  if (entry === undefined) return null
+  const { top, bottom } = entry
+  return top.containment === null || bottom.containment === null
+    ? null
+    : Math.min(top.containment, bottom.containment)
+}
+
 export const METRICS = {
   'shot-duration': {
     name: 'shot-duration',
@@ -169,6 +242,33 @@ export const METRICS = {
       return median(values)
     },
     perFrame: (f) => pairMinFrontality(f),
+  },
+  'head-absence-worst': {
+    name: 'head-absence-worst',
+    what: "la pire part d'images sans tête, entre les deux cellules du split (#190)",
+    unit: 'part (0 à 1)',
+    of: (s) => {
+      const cells = headInstrumentOf(s).cells
+      if (cells === null) return null
+      return Math.max(cells[0].headAbsenceShare, cells[1].headAbsenceShare)
+    },
+    perFrame: (f, s) => perFrameHeadAbsenceWorst(f, s),
+  },
+  'head-containment-worst': {
+    name: 'head-containment-worst',
+    what: 'la pire médiane de containment de tête, entre les deux cellules du split (#190)',
+    unit: 'part (0 à 1)',
+    of: (s) => {
+      const cells = headInstrumentOf(s).cells
+      if (cells === null) return null
+      const [a, b] = cells
+      // Une cellule dégénérée (`headContainmentMedian` null) rend le
+      // « pire des deux » indéfini : la faire disparaître silencieusement
+      // laisserait l'autre cellule répondre à sa place (checkpoint 26 août).
+      if (a.headContainmentMedian === null || b.headContainmentMedian === null) return null
+      return Math.min(a.headContainmentMedian, b.headContainmentMedian)
+    },
+    perFrame: (f, s) => perFrameHeadContainmentWorst(f, s),
   },
 } as const satisfies Record<string, ShotMetric>
 

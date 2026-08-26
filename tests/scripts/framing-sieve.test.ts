@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ESLint } from 'eslint'
-import type { ShotFraming } from '@/core/framing'
+import { headBounds, type ShotFraming } from '@/core/framing'
 import type { PersonBox } from '@/core/shots'
 import type { ProjectId } from '../../scripts/framing/cases'
 import type { PersonFrame, ShotSample } from '../../scripts/framing/corpus'
@@ -272,6 +272,188 @@ describe('sieve — bornage aux deux extrémités', () => {
     expect(headHeight).not.toBeNull()
     expect(Number.isFinite(headHeight as number)).toBe(true)
     expect(headHeight as number).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe('sieve — head-absence-worst et head-containment-worst (#190)', () => {
+  const K_LEN = 51
+
+  // Chaque boîte ne porte qu'un seul point hors de [0, 1] : deux évadés aux
+  // deux extrémités élargiraient `torsoBounds` jusqu'à refuser le split.
+  // Le clampage lui-même est déjà éprouvé dans `tests/core/framing.test.ts`.
+  function wildLeftBox(t: number): PersonBox {
+    const k = new Array(K_LEN).fill(0)
+    k[0] = -0.05
+    k[1] = 0.2
+    k[2] = 0.9 // NOSE, juste sous 0
+    k[3] = 0.1
+    k[4] = 0.19
+    k[5] = 0.9 // LEFT_EYE, valide
+    k[15] = 0.05
+    k[16] = 0.4
+    k[17] = 0.9 // LEFT_SHOULDER
+    k[18] = 0.15
+    k[19] = 0.4
+    k[20] = 0.9 // RIGHT_SHOULDER
+    return { t, x0: 0, x1: 0.2, y0: 0.1, y1: 0.9, score: 0.9, k }
+  }
+
+  function wildRightBox(t: number): PersonBox {
+    const k = new Array(K_LEN).fill(0)
+    k[0] = 0.9
+    k[1] = 0.2
+    k[2] = 0.9 // NOSE, valide
+    k[3] = 1.05
+    k[4] = 0.19
+    k[5] = 0.9 // LEFT_EYE, juste au-dessus de 1
+    k[15] = 0.85
+    k[16] = 0.4
+    k[17] = 0.9 // LEFT_SHOULDER
+    k[18] = 0.95
+    k[19] = 0.4
+    k[20] = 0.9 // RIGHT_SHOULDER
+    return { t, x0: 0.8, x1: 1, y0: 0.1, y1: 0.9, score: 0.9, k }
+  }
+
+  const SPLITTING_FRAMES: PersonFrame[] = Array.from({ length: 16 }, (_, i) => {
+    const t = i * 0.5
+    return { t, boxes: [wildLeftBox(t), wildRightBox(t)] }
+  })
+
+  const SPLITTING_SAMPLE: ShotSample = {
+    project: 'projet-a' as ProjectId,
+    shot: { shot: { start: 0, end: 8 }, key: 0, ratio: '1:1', cropX: 0.5, cropXNative: 0.5, source: 'auto' },
+    frames: SPLITTING_FRAMES,
+    analysisFps: 2,
+    srcW: 1920,
+    srcH: 1080,
+  }
+
+  it('restent bornés à [0, 1] sur un keypoint à -0,05 et un à 1,05', () => {
+    const absence = METRICS['head-absence-worst'].of(SPLITTING_SAMPLE)
+    expect(absence).not.toBeNull()
+    expect(Number.isFinite(absence as number)).toBe(true)
+    expect(absence as number).toBeGreaterThanOrEqual(0)
+    expect(absence as number).toBeLessThanOrEqual(1)
+
+    const containment = METRICS['head-containment-worst'].of(SPLITTING_SAMPLE)
+    expect(containment).not.toBeNull()
+    expect(Number.isFinite(containment as number)).toBe(true)
+    expect(containment as number).toBeGreaterThanOrEqual(0)
+    expect(containment as number).toBeLessThanOrEqual(1)
+
+    const perFrameAbsence = METRICS['head-absence-worst'].perFrame(SPLITTING_FRAMES[0], SPLITTING_SAMPLE)
+    expect(perFrameAbsence === null || (perFrameAbsence >= 0 && perFrameAbsence <= 1)).toBe(true)
+  })
+
+  it("un plan qui ne split pas sort de la distribution, jamais compté pour 0", () => {
+    // Trop court pour le déclencheur du split (`splitMinShot` = 4 s) : les deux
+    // métriques doivent rendre `null`, comme `computeShotHeadInstrument`.
+    const tooShort: ShotSample = {
+      ...SPLITTING_SAMPLE,
+      shot: { ...SPLITTING_SAMPLE.shot, shot: { start: 0, end: 3 } },
+      frames: SPLITTING_FRAMES.filter((f) => f.t < 3),
+    }
+    expect(METRICS['head-absence-worst'].of(tooShort)).toBeNull()
+    expect(METRICS['head-containment-worst'].of(tooShort)).toBeNull()
+
+    const family: Family = { kind: 'extremes', n: 10, spread: false }
+    const result = sieve([SPLITTING_SAMPLE, tooShort], METRICS['head-absence-worst'], family, 'avolo')
+    expect(result.total).toBe(2)
+    expect(result.defined).toBe(1)
+    expect(result.undefinedCount).toBe(1)
+  })
+
+  // Checkpoint du 26 août 2026 : une tête réduite à un seul point (une
+  // oreille aperçue de dos) ne doit ni compter comme absente ni se faire
+  // masquer par l'autre cellule, qui peut très bien être bonne.
+  function degenerateLeftBox(t: number): PersonBox {
+    const k = new Array(K_LEN).fill(0)
+    k[0] = 0.1
+    k[1] = 0.2
+    k[2] = 0.9 // NOSE seul : une tête à un point, aire nulle
+    k[15] = 0.05
+    k[16] = 0.4
+    k[17] = 0.9 // LEFT_SHOULDER
+    k[18] = 0.15
+    k[19] = 0.4
+    k[20] = 0.9 // RIGHT_SHOULDER
+    return { t, x0: 0, x1: 0.2, y0: 0.1, y1: 0.9, score: 0.9, k }
+  }
+
+  it("head-containment-worst ne se fait jamais remplacer par l'autre cellule", () => {
+    const degenerateFrames: PersonFrame[] = Array.from({ length: 16 }, (_, i) => {
+      const t = i * 0.5
+      return { t, boxes: [degenerateLeftBox(t), wildRightBox(t)] }
+    })
+    const sample: ShotSample = { ...SPLITTING_SAMPLE, frames: degenerateFrames }
+
+    // La cellule de droite est parfaitement mesurable (`wildRightBox` a deux
+    // points formant une aire) ; si elle répondait à la place de la gauche
+    // dégénérée, la métrique rendrait un nombre au lieu de `null`.
+    expect(METRICS['head-containment-worst'].of(sample)).toBeNull()
+    // `headBounds` exige un seul point : l'absence, elle, reste à 0 — c'est
+    // exactement le défaut que la seconde barre de présence (documentée dans
+    // `docs/tete-dans-la-cellule.md`, non câblée) répare.
+    expect(METRICS['head-absence-worst'].of(sample)).toBe(0)
+  })
+
+  // Second checkpoint : les deux centres tombent plus près du haut (~0,29)
+  // que du bas (~0,71) — une affectation par plus-proche-cellule les
+  // collerait toutes deux du même côté.
+  function ambiguousHeadless(t: number): PersonBox {
+    const k = new Array(K_LEN).fill(0)
+    k[15] = 0.32
+    k[16] = 0.4
+    k[17] = 0.9 // LEFT_SHOULDER
+    k[18] = 0.38
+    k[19] = 0.4
+    k[20] = 0.9 // RIGHT_SHOULDER
+    return { t, x0: 0.3, x1: 0.4, y0: 0.1, y1: 0.9, score: 0.9, k }
+  }
+
+  function ambiguousWithHead(t: number): PersonBox {
+    const k = new Array(K_LEN).fill(0)
+    k[0] = 0.37
+    k[1] = 0.2
+    k[2] = 0.9 // NOSE
+    k[3] = 0.36
+    k[4] = 0.19
+    k[5] = 0.9 // LEFT_EYE
+    k[6] = 0.38
+    k[7] = 0.19
+    k[8] = 0.9 // RIGHT_EYE
+    k[15] = 0.35
+    k[16] = 0.4
+    k[17] = 0.9 // LEFT_SHOULDER
+    k[18] = 0.41
+    k[19] = 0.4
+    k[20] = 0.9 // RIGHT_SHOULDER
+    return { t, x0: 0.33, x1: 0.43, y0: 0.1, y1: 0.9, score: 0.9, k }
+  }
+
+  it('reste bijectif sur une image où les deux personnes se rapprochent — second checkpoint', () => {
+    const ambiguousFrame: PersonFrame = {
+      t: 8,
+      boxes: [ambiguousHeadless(8), ambiguousWithHead(8)],
+    }
+    const sample: ShotSample = {
+      ...SPLITTING_SAMPLE,
+      shot: { ...SPLITTING_SAMPLE.shot, shot: { start: 0, end: 8.5 } },
+      frames: [...SPLITTING_FRAMES, ambiguousFrame],
+    }
+
+    const absence = METRICS['head-absence-worst'].perFrame(ambiguousFrame, sample)
+    // Le pire des deux doit valoir 1, jamais 0 — la non-bijectivité pouvait
+    // le manquer en collant les deux personnes du même côté.
+    expect(absence).toBe(1)
+
+    // La personne à tête lisible existe bien de l'autre côté — vérifié à la
+    // source, pas via `head-containment-worst` (qui rend `null` dès qu'un
+    // côté est dégénéré, ce qui est le cas ici par construction).
+    const [headless, headed] = ambiguousFrame.boxes
+    expect(headBounds(headless)).toBeNull()
+    expect(headBounds(headed)).not.toBeNull()
   })
 })
 

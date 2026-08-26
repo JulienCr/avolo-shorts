@@ -181,6 +181,8 @@ CREATE TABLE IF NOT EXISTS publications (
   scheduledAt          INTEGER,
   PRIMARY KEY (clipId, platform)
 );
+-- Pas d'index sur \`scheduledAt\` : quelques centaines de lignes par an,
+-- un index serait spéculatif.
 `
 
 /** Le fichier par défaut : dans `PROJECTS_DIR`, que `.gitignore` couvre déjà. */

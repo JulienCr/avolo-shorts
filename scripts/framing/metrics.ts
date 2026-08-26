@@ -144,23 +144,32 @@ function pairedWithCells(
   ]
 }
 
-/** Le pire (le plus haut) des deux indicateurs d'absence de tête, sur une image appariée. */
+/**
+ * Le pire (le plus haut) des deux indicateurs d'absence de tête, sur une
+ * image appariée. Sur `headBounds`, jamais sur `headContainment` : ce
+ * dernier rend aussi `null` sur une tête dégénérée (checkpoint du 26 août),
+ * une question différente de l'absence que l'agrégat `head-absence-worst`
+ * ne pose pas.
+ */
 function perFrameHeadAbsenceWorst(f: PersonFrame, s: ShotSample): number | null {
   const paired = pairedWithCells(f, s)
   if (paired === null) return null
-  return Math.max(
-    ...paired.map(({ box, cell }) => (headContainment(box, cell) === null ? 1 : 0)),
-  )
+  return Math.max(...paired.map(({ box }) => (headBounds(box) === null ? 1 : 0)))
 }
 
-/** La pire (la plus basse) des deux valeurs de containment, sur une image appariée. */
+/**
+ * La pire (la plus basse) des deux valeurs de containment, sur une image
+ * appariée — `null` dès qu'une des deux ne se définit pas, pour la même
+ * raison que l'agrégat `head-containment-worst` : une cellule dégénérée ne
+ * doit jamais se faire remplacer par l'autre, qui pourrait être bonne.
+ */
 function perFrameHeadContainmentWorst(f: PersonFrame, s: ShotSample): number | null {
   const paired = pairedWithCells(f, s)
   if (paired === null) return null
-  const values = paired
-    .map(({ box, cell }) => headContainment(box, cell))
-    .filter((v): v is number => v !== null)
-  return values.length === 0 ? null : Math.min(...values)
+  const [a, b] = paired
+  const va = headContainment(a.box, a.cell)
+  const vb = headContainment(b.box, b.cell)
+  return va === null || vb === null ? null : Math.min(va, vb)
 }
 
 export const METRICS = {
@@ -252,10 +261,12 @@ export const METRICS = {
     of: (s) => {
       const cells = headInstrumentOf(s).cells
       if (cells === null) return null
-      const values = [cells[0].headContainmentMedian, cells[1].headContainmentMedian].filter(
-        (v): v is number => v !== null,
-      )
-      return values.length === 0 ? null : Math.min(...values)
+      const [a, b] = cells
+      // Une cellule dégénérée (`headContainmentMedian` null) rend le
+      // « pire des deux » indéfini : la faire disparaître silencieusement
+      // laisserait l'autre cellule répondre à sa place (checkpoint 26 août).
+      if (a.headContainmentMedian === null || b.headContainmentMedian === null) return null
+      return Math.min(a.headContainmentMedian, b.headContainmentMedian)
     },
     perFrame: (f, s) => perFrameHeadContainmentWorst(f, s),
   },

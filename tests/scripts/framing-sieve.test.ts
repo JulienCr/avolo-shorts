@@ -366,6 +366,40 @@ describe('sieve — head-absence-worst et head-containment-worst (#190)', () => 
     expect(result.defined).toBe(1)
     expect(result.undefinedCount).toBe(1)
   })
+
+  // Checkpoint du 26 août 2026 : une tête réduite à un seul point (une
+  // oreille aperçue de dos) ne doit ni compter comme absente ni se faire
+  // masquer par l'autre cellule, qui peut très bien être bonne.
+  function degenerateLeftBox(t: number): PersonBox {
+    const k = new Array(K_LEN).fill(0)
+    k[0] = 0.1
+    k[1] = 0.2
+    k[2] = 0.9 // NOSE seul : une tête à un point, aire nulle
+    k[15] = 0.05
+    k[16] = 0.4
+    k[17] = 0.9 // LEFT_SHOULDER
+    k[18] = 0.15
+    k[19] = 0.4
+    k[20] = 0.9 // RIGHT_SHOULDER
+    return { t, x0: 0, x1: 0.2, y0: 0.1, y1: 0.9, score: 0.9, k }
+  }
+
+  it("head-containment-worst ne se fait jamais remplacer par l'autre cellule", () => {
+    const degenerateFrames: PersonFrame[] = Array.from({ length: 16 }, (_, i) => {
+      const t = i * 0.5
+      return { t, boxes: [degenerateLeftBox(t), wildRightBox(t)] }
+    })
+    const sample: ShotSample = { ...SPLITTING_SAMPLE, frames: degenerateFrames }
+
+    // La cellule de droite est parfaitement mesurable (`wildRightBox` a deux
+    // points formant une aire) ; si elle répondait à la place de la gauche
+    // dégénérée, la métrique rendrait un nombre au lieu de `null`.
+    expect(METRICS['head-containment-worst'].of(sample)).toBeNull()
+    // `headBounds` exige un seul point : l'absence, elle, reste à 0 — c'est
+    // exactement le défaut que la seconde barre de présence (documentée dans
+    // `docs/tete-dans-la-cellule.md`, non câblée) répare.
+    expect(METRICS['head-absence-worst'].of(sample)).toBe(0)
+  })
 })
 
 describe('sieve — Math.random inatteignable depuis scripts/framing/**', () => {

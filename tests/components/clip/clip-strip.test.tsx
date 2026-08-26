@@ -32,6 +32,7 @@ function candidate(id: string, overrides: Partial<CandidateClip> = {}): Candidat
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
     preview: '',
     thumbnailUrl: null,
     ...overrides,

@@ -51,6 +51,7 @@ function candidate(n: number, status: ClipStatus = 'candidate'): CandidateClip {
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
     preview: `Ce qui se dit dans l’extrait ${n}.`,
     thumbnailUrl: null,
   }

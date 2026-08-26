@@ -59,6 +59,7 @@ function clip(overrides: Partial<Clip> = {}): Clip {
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
     ...overrides,
   }
 }
@@ -401,6 +402,7 @@ describe('le split-screen à travers le registre des réglages', () => {
       hookText: '',
       hookBadge: '',
       hookStyle: {},
+      framingStyle: {},
     }
   }
 
@@ -462,6 +464,7 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
       hookText: '',
       hookBadge: '',
       hookStyle: {},
+      framingStyle: {},
     }
   }
 

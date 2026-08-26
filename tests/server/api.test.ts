@@ -178,6 +178,7 @@ function baseClip(): Clip {
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
   }
 }
 

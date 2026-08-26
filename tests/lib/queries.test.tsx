@@ -66,6 +66,7 @@ const exportComplete: ExportResult = {
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
   },
   mp4: 'c1.mp4',
   variant9x16: 'c1-9x16.mp4',
@@ -176,6 +177,7 @@ describe('useRegenerateHook', () => {
     hookText: 'Une accroche du modèle',
     hookBadge: 'DÉFI 10',
     hookStyle: {},
+    framingStyle: {},
   }
 
   it('fusionne hookText et hookBadge, rien d’autre', async () => {
@@ -243,6 +245,7 @@ describe('usePatchClip', () => {
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
   }
 
   const detail = (framing: ClipDetail['framing']): ClipDetail => ({

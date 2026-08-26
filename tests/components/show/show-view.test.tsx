@@ -68,6 +68,7 @@ function clip(
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
     preview: 'Trois premières phrases.',
     thumbnailUrl: `/api/clips/${id}/thumb`,
     ...partial,

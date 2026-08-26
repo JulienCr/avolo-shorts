@@ -67,6 +67,7 @@ const clip = (id: string, remaining: Partial<Clip> = {}): Clip => ({
   hookText: '',
   hookBadge: '',
   hookStyle: {},
+  framingStyle: {},
   ...remaining,
 })
 
@@ -309,6 +310,7 @@ describe('la famille `ai`', () => {
       hookText: '',
       hookBadge: '',
       hookStyle: {},
+      framingStyle: {},
     })
     applySettings(db, { ai: { correctionProvider: 'openai', hookProvider: 'ollama' } })
     expect(getClips(db, PROJECT.id).map((c) => c.status)).toEqual(['kept'])

@@ -8,15 +8,19 @@
  * raison.
  */
 
-import type { FramingOptions, FramingSettings } from '@/core/framing'
+import { RATIOS, type FramingOptions, type FramingSettings } from '@/core/framing'
+import type { Ratio } from '@/core/edl'
 
 /**
- * Une colonne de la planche : soit les six réglages persistés (`FramingSettings`,
- * ce que la production peut réellement appliquer), soit des `FramingOptions`
- * arbitraires accompagnées de `why` — parce qu'un déplacement de `margin`,
- * `sideTrim` ou `torso` ne passe pas par la conversion de production, et la
- * planche doit le dire d'elle-même plutôt que de laisser croire à un réglage
- * livrable.
+ * Une colonne de la planche : soit les six réglages persistés (`FramingSettings`),
+ * soit des `FramingOptions` arbitraires accompagnées de `why` — l'échappatoire
+ * pour ce que la conversion de production ne couvre pas.
+ *
+ * `kind: 'options'` porte aussi `ratio`/`cropMode`/`cropX`, les trois champs de
+ * `FramingRequest` hors `FramingOptions` (replis d'un split rejeté, #190).
+ * `cropX` est un nombre, ou une table par `BoardCase.id` quand la bonne
+ * position varie selon le cas — jamais par `shotStartMs`, que `resolveVariant`
+ * résout seul. Voir `scripts/framing/crop-x.ts` pour dériver ces valeurs.
  */
 export type FramingVariant =
   | {
@@ -31,6 +35,16 @@ export type FramingVariant =
       label: string
       kind: 'options'
       options: Partial<FramingOptions>
+      /** Ratio épinglé pour toute la variante ; absent laisse `computeFraming` choisir (`'auto'`). */
+      ratio?: Ratio
+      /** `'manual'` exige `cropX` ; absent vaut `'auto'`. */
+      cropMode?: 'auto' | 'manual'
+      /**
+       * Fraction de largeur dans `[0, 1]`. Un nombre s'applique à tous les cas de
+       * la planche ; une table par `BoardCase.id` couvre le cas où la bonne
+       * position varie d'un cas à l'autre.
+       */
+      cropX?: number | Readonly<Record<string, number>>
       why: string
       output?: 'vertical' | 'native'
     }
@@ -81,18 +95,6 @@ export function validateSpec(spec: BoardSpec): void {
   if (!spec.lede) fail('lede', 'vide')
   if (!spec.classifier) fail('classifier', 'vide')
 
-  if (spec.variants.length === 0) fail('variants', 'aucune variante')
-  const variantIds = new Set<string>()
-  for (const v of spec.variants) {
-    if (!v.id) fail('variants[].id', 'vide')
-    if (variantIds.has(v.id)) fail('variants[].id', `doublon "${v.id}"`)
-    variantIds.add(v.id)
-    if (!v.label) fail(`variants["${v.id}"].label`, 'vide')
-    if (v.kind === 'options' && !v.why) {
-      fail(`variants["${v.id}"].why`, 'requis quand kind vaut "options"')
-    }
-  }
-
   if (spec.sections.length === 0) fail('sections', 'aucune section')
   const caseIds = new Set<string>()
   for (const section of spec.sections) {
@@ -104,6 +106,48 @@ export function validateSpec(spec: BoardSpec): void {
       if (!c.projectId) fail(`cases["${c.id}"].projectId`, 'vide')
       if (!Number.isFinite(c.at)) fail(`cases["${c.id}"].at`, 'non fini')
       if (!c.stake) fail(`cases["${c.id}"].stake`, 'vide')
+    }
+  }
+
+  if (spec.variants.length === 0) fail('variants', 'aucune variante')
+  const variantIds = new Set<string>()
+  for (const v of spec.variants) {
+    if (!v.id) fail('variants[].id', 'vide')
+    if (variantIds.has(v.id)) fail('variants[].id', `doublon "${v.id}"`)
+    variantIds.add(v.id)
+    if (!v.label) fail(`variants["${v.id}"].label`, 'vide')
+    if (v.kind === 'options') {
+      if (!v.why) fail(`variants["${v.id}"].why`, 'requis quand kind vaut "options"')
+      if (v.ratio !== undefined && !Object.hasOwn(RATIOS, v.ratio)) {
+        fail(`variants["${v.id}"].ratio`, `inconnu "${v.ratio}"`)
+      }
+      if (v.cropMode === 'manual' && v.cropX === undefined) {
+        fail(`variants["${v.id}"].cropX`, 'requis quand cropMode vaut "manual"')
+      }
+      if (v.cropX !== undefined && v.cropMode !== 'manual') {
+        fail(`variants["${v.id}"].cropX`, 'fourni sans `cropMode: "manual"` — serait ignoré en silence')
+      }
+      if (typeof v.cropX === 'number') {
+        if (!Number.isFinite(v.cropX) || v.cropX < 0 || v.cropX > 1) {
+          fail(`variants["${v.id}"].cropX`, `hors de [0, 1] : ${v.cropX}`)
+        }
+      } else if (v.cropX !== undefined) {
+        for (const [caseId, x] of Object.entries(v.cropX)) {
+          if (!Number.isFinite(x) || x < 0 || x > 1) {
+            fail(`variants["${v.id}"].cropX["${caseId}"]`, `hors de [0, 1] : ${x}`)
+          }
+        }
+        // Une table de crop n'a de sens qu'exhaustive : un cas de la planche
+        // sans entrée basculerait en silence sur un crop `undefined`, donc en
+        // mode automatique malgré `cropMode: 'manual'`.
+        if (v.cropMode === 'manual') {
+          for (const caseId of caseIds) {
+            if (!Object.hasOwn(v.cropX, caseId)) {
+              fail(`variants["${v.id}"].cropX`, `aucune entrée pour le cas "${caseId}"`)
+            }
+          }
+        }
+      }
     }
   }
 

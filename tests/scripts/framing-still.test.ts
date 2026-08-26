@@ -60,16 +60,26 @@ function timingOf(args: string[]): { ss: string[]; t: string[]; iCount: number }
 const SHOT = { start: 0, end: 100 }
 
 describe('stillArgs : invariant 1 — même instant, argv de timing identiques', () => {
-  it("deux variantes qui ne diffèrent que par le cadre produisent le même -ss/-t/-i", () => {
+  it("quatre variantes qui ne diffèrent que par le cadre produisent le même -ss/-t/-i", () => {
+    // Les quatre replis du split rejeté (#190) : split activé, désactivé, un
+    // ratio épinglé plus large, et un crop manuel — ce dernier avec `source:
+    // 'manual'` et sans `split`, comme `applyExceptions` le pose réellement
+    // (`src/core/framing.ts`).
     const splitOn = framing([shotFraming({ shot: SHOT, split: [{ x0: 0, y0: 0, x1: 1, y1: 0.5 }, { x0: 0, y0: 0.5, x1: 1, y1: 1 }] })])
     const splitOff = framing([shotFraming({ shot: SHOT })])
+    const pinnedRatio = framing([shotFraming({ shot: SHOT, ratio: '1:1' })], '1:1')
+    const manualCrop = framing([shotFraming({ shot: SHOT, ratio: '9:16', cropX: 0.7, cropXNative: 0.7, source: 'manual' })])
 
     const base = { input: decodedInput(), instant: 10, shotEnd: SHOT.end, output: 'vertical' as const, dst: 'a.mp4' }
-    const a = stillArgs({ ...base, framing: splitOn })
-    const b = stillArgs({ ...base, framing: splitOff })
+    const variants = [splitOn, splitOff, pinnedRatio, manualCrop].map((f) => stillArgs({ ...base, framing: f }))
 
-    expect(timingOf(a.args)).toEqual(timingOf(b.args))
-    expect(a.window).toEqual(b.window)
+    const [reference, ...rest] = variants.map((v) => timingOf(v.args))
+    for (const timing of rest) {
+      expect(timing).toEqual(reference)
+    }
+    for (const v of variants) {
+      expect(v.window).toEqual(variants[0].window)
+    }
   })
 
   it("une variante qui redécoupe le plan (#190) ne bouge ni -ss ni -t : la frontière tombe hors de la fenêtre", () => {

@@ -11,6 +11,7 @@
 
 import type { Clip } from '@/core/edl'
 import { computeFraming, FRAMING_DEFAULTS } from '@/core/framing'
+import { shotStartMs, type Shot } from '@/core/shots'
 import { getClips, getDb } from '@/server/db'
 import { framingWith, type ResolvedFraming } from '@/server/clip-framing'
 import { shotAt } from '../case-registry'
@@ -39,6 +40,27 @@ function syntheticClip(projectId: string, end: number): Clip {
 }
 
 /**
+ * Le plan de l'analyse qui couvre `at` — la même règle que `build.ts` : le
+ * plan de référence est toujours celui de l'analyse, jamais celui qu'une
+ * variante subdivise.
+ */
+function shotCovering(input: BoardInput, at: number): Shot {
+  const shot = input.analysis.shots.find((s) => s.start <= at && at < s.end)
+  if (shot === undefined) {
+    throw new Error(`resolveVariant : aucun plan de l'analyse ne couvre l'instant ${at}.`)
+  }
+  return shot
+}
+
+/**
+ * Le `cropX` d'une variante pour un cas donné : un nombre s'applique tel
+ * quel, une table par `BoardCase.id` s'y indexe — jamais par `shotStartMs`.
+ */
+function cropXFor(cropX: number | Readonly<Record<string, number>> | undefined, caseId: string): number | undefined {
+  return typeof cropX === 'number' ? cropX : cropX?.[caseId]
+}
+
+/**
  * Le clip que le cas désigne : le vrai via `clipId`, ou un synthétique qui
  * couvre toute la source quand le cas n'en cite aucun.
  */
@@ -61,6 +83,7 @@ export function resolveVariant(o: {
 }): ResolvedFraming {
   const { input, case: boardCase, variant } = o
   const clip = clipFor(input, boardCase)
+  const cropX = variant.kind === 'options' ? cropXFor(variant.cropX, boardCase.id) : undefined
 
   const framing: ResolvedFraming =
     variant.kind === 'settings'
@@ -78,8 +101,15 @@ export function resolveVariant(o: {
             people: input.analysis.boxes,
             srcW: input.analysis.source.w,
             srcH: input.analysis.source.h,
-            ratio: 'auto',
-            cropMode: 'auto',
+            ratio: variant.ratio ?? 'auto',
+            cropMode: variant.cropMode ?? 'auto',
+            // Un `cropX` de variante porte sur le plan du cas, jamais sur
+            // `shotStartMs` — c'est ici, et nulle part dans la spec, qu'il se
+            // résout en dérogation `FramingRequest.crops`.
+            crops:
+              variant.cropMode === 'manual' && cropX !== undefined
+                ? { [shotStartMs(shotCovering(input, boardCase.at))]: cropX }
+                : undefined,
             fps: input.analysis.fps,
           }),
           origin: 'computed' as const,

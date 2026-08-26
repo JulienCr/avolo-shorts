@@ -12,6 +12,7 @@ import { FieldsTexts } from '@/components/clip/text-fields'
 import { ClipPlayer, ClipTransport, togglePlayback, placePlayback } from '@/components/clip/clip-player'
 import { ClipStrip } from '@/components/clip/clip-strip'
 import { CropOverlay, RatioPicker } from '@/components/clip/crop-picker'
+import { FramingFields } from '@/components/clip/framing-fields'
 import { usePlayback } from '@/components/clip/playback'
 import { PanelExport } from '@/components/clip/export-panel'
 import { DialogueShortcuts, useShortcuts } from '@/components/clip/shortcuts'
@@ -138,6 +139,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   // pour distinguer un champ hérité d'un champ surchargé.
   const settings = useSettings()
   const hookGlobals = settings.data?.hook
+  const framingGlobals = settings.data?.framing
   const resolvedHook = resolveHook(hookGlobals ?? HOOK_DEFAULTS, clip)
 
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
@@ -588,6 +590,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               onRatio={editor.chooseRatio}
               cropReasonId={cropReasonId}
             />
+          </div>
+
+          <div className="shrink-0">
+            <FramingFields clip={clip} globals={framingGlobals} onWrite={write} />
           </div>
 
           {/* **Les faits de montage rejoignent la scène** (spec du 23 août,

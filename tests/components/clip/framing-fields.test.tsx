@@ -1,0 +1,128 @@
+// @vitest-environment jsdom
+
+/**
+ * La surcharge de cadrage en zone Image de l'écran Clip.
+ *
+ * Ce que ces tests fixent : `splitScreen` reste visible sans ouvrir le pli,
+ * chaque champ dit s'il est hérité ou surchargé — même à valeur égale —, et
+ * « Réinitialiser » n'apparaît que s'il y a de quoi défaire.
+ */
+
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { FramingFields } from '@/components/clip/framing-fields'
+import { FRAMING_SETTINGS_DEFAULTS, type Clip, type FramingSettings } from '@/lib/api'
+import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
+
+installPointerEventPolyfill()
+
+function clip(fields: Partial<Clip> = {}): Clip {
+  return {
+    id: 'c1',
+    projectId: 'p1',
+    segments: [{ start: 0, end: 20 }],
+    ratio: '1:1',
+    cropX: 0.5,
+    captions: true,
+    branding: true,
+    title: 'La chute',
+    description: 'Une impro',
+    status: 'kept',
+    pass: 1,
+    hookText: '',
+    hookBadge: '',
+    hookStyle: {},
+    framingStyle: {},
+    ...fields,
+  }
+}
+
+function mount(props: Partial<Parameters<typeof FramingFields>[0]> = {}) {
+  const merged = {
+    clip: clip(),
+    globals: FRAMING_SETTINGS_DEFAULTS as FramingSettings | undefined,
+    onWrite: vi.fn(),
+    ...props,
+  }
+  return { onWrite: merged.onWrite, ...render(<FramingFields {...merged} />) }
+}
+
+afterEach(() => cleanup())
+
+/** Le pli des cinq réglages numériques, fermé par défaut. */
+function openPersonalize() {
+  fireEvent.click(screen.getByRole('button', { name: /Personnaliser/ }))
+}
+
+describe('le switch split-screen', () => {
+  it('montre la valeur globale sans qu’il faille ouvrir le pli', () => {
+    mount({ globals: { ...FRAMING_SETTINGS_DEFAULTS, splitScreen: true } })
+    expect(screen.getByRole('checkbox', { name: 'Split-screen' }).getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('écrit une surcharge au clic', () => {
+    const onWrite = vi.fn()
+    mount({ globals: { ...FRAMING_SETTINGS_DEFAULTS, splitScreen: true }, onWrite })
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Split-screen' }))
+    expect(onWrite).toHaveBeenCalledWith({ framingStyle: { splitScreen: false } })
+  })
+
+  it('se dit hérité tant qu’aucune surcharge n’existe', () => {
+    mount({ clip: clip({ framingStyle: {} }) })
+    expect(screen.getByText('— hérité')).toBeTruthy()
+  })
+})
+
+describe('hérité vs surchargé', () => {
+  it('un champ surchargé à la MÊME valeur que le global ne se dit plus hérité', () => {
+    // Le cas central du contrat (voir hook-fields.test.tsx) : `{ splitScreen:
+    // true }` sur un global déjà à `true` doit rester distinguable de `{}`.
+    mount({
+      clip: clip({ framingStyle: { splitScreen: true } }),
+      globals: { ...FRAMING_SETTINGS_DEFAULTS, splitScreen: true },
+    })
+    expect(screen.queryByText('— hérité')).toBeNull()
+    expect(screen.getByRole('button', { name: /revenir à l’héritage/ })).toBeTruthy()
+  })
+
+  it('un champ numérique non surchargé se dit hérité, une fois le pli ouvert', () => {
+    mount({ clip: clip({ framingStyle: {} }) })
+    openPersonalize()
+    expect(screen.getAllByText('— hérité').length).toBeGreaterThan(0)
+  })
+
+  it('« Réinitialiser avec les paramètres globaux » n’apparaît que s’il y a une surcharge', () => {
+    const { rerender } = mount({ clip: clip({ framingStyle: {} }) })
+    openPersonalize()
+    expect(screen.queryByText(/Réinitialiser avec les paramètres globaux/)).toBeNull()
+
+    rerender(
+      <FramingFields
+        clip={clip({ framingStyle: { sizeFloorPermille: 200 } })}
+        globals={FRAMING_SETTINGS_DEFAULTS}
+        onWrite={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/Réinitialiser avec les paramètres globaux/)).toBeTruthy()
+  })
+
+  it('« Réinitialiser » envoie `PATCH { framingStyle: {} }`', () => {
+    const onWrite = vi.fn()
+    mount({ clip: clip({ framingStyle: { sizeFloorPermille: 200 } }), onWrite })
+    openPersonalize()
+
+    fireEvent.click(screen.getByText(/Réinitialiser avec les paramètres globaux/))
+    expect(onWrite).toHaveBeenCalledWith({ framingStyle: {} })
+  })
+})
+
+describe('sans réglages globaux chargés', () => {
+  it('reste inerte plutôt que de planter', () => {
+    mount({ globals: undefined })
+    expect(
+      screen.getByRole('checkbox', { name: 'Split-screen' }).getAttribute('aria-disabled'),
+    ).toBe('true')
+  })
+})

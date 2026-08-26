@@ -571,17 +571,19 @@ l'intérieur d'un plan et qu'une seule mauvaise cellule suffit à le disqualifie
 | `nabla-6418667` | **écarter** | 17 | `null` — aucune image n'a `shoulderRatio` défini des deux côtés |
 
 Les trois cas à garder sortent nettement au-dessus du cas à écarter, avec une
-marge plus large que celle déjà mesurée sur `frontality` (0,287 contre 0,029
-dans la mesure d'origine de #190). `nabla-6418667` (une nuque) ne sort aucune
+marge plus large que celle déjà mesurée sur `frontality` — 0,287 sur le plan
+gardé contre 0,029 sur le plan rejeté, chiffres de la mesure d'origine de
+#190, pas de ce tableau. `nabla-6418667` (une nuque) ne sort aucune
 valeur : la personne qui tourne le dos ne présente jamais ses deux épaules à
 un score suffisant sur les 17 images du plan, donc le terme est `null` et non
 `0` — c'est un cas pour la mesure 2, pas pour celle-ci.
 
-Vérifié à l'image (`framing-thumbnails.ts --cas nabla-1798867,nabla-1607967,nabla-2077400,nabla-6418667`) :
-les quatre vignettes confirment les étiquettes. Les deux profils gardés
-montrent un visage lisible de côté — l'un tenant un livre, exactement la
-description de #190 — quand le cas écarté montre un dos tourné à trois quarts,
-un seul œil et une oreille visibles, le visage non lisible.
+Vérifié à l'image (`framing-thumbnails.ts --cas <les cinq id>`) : les cinq
+vignettes confirment les étiquettes. Les trois profils gardés montrent un
+visage lisible de côté — l'un tenant un livre, exactement la description de
+#190 — quand les deux cas écartés montrent, l'un un dos tourné à trois quarts
+stable sans visage lisible, l'autre une nuque sans tête présentée du tout
+(`facing === 'unknown'` sur tout le plan).
 
 **Verdict de la mesure 1 : oui, `shoulderRatio` seul sépare les trois cas à
 garder du cas à écarter, sur ce jeu de cinq.** Le terme fait ce que la
@@ -597,10 +599,17 @@ séparément.
 
 Règle mesurée ici : sur chaque image appariée d'un plan (exactement deux
 personnes retenues), le perdant est la personne la moins de face ; dès que
-l'une des deux a `frontality === null`, elle est le perdant de fait — l'
-invariant de `framing.ts` (`frontality === null` ssi `facing === 'unknown'`)
-rend la comparaison numérique inutile dans ce cas. Un plan est retiré si son
-perdant est `unknown` sur plus de 90 % de ses images appariées.
+l'une des deux a `frontality === null`, elle est le perdant de fait, par
+l'invariant de `framing.ts` (`frontality === null` ssi `facing === 'unknown'`)
+qui rend la comparaison numérique inutile dans ce cas. Un plan est retiré si
+son perdant est `unknown` sur plus de 90 % de ses images appariées.
+
+Limite de cette règle (@chatgpt-codex-connector, PR #198) : rien ici
+n'établit de gagnant par plan sur les images décisives avant de vérifier
+`unknown` côté perdant, contrairement au veto de `addressable.ts`. Vérifié
+sur les 5 plans du résultat ci-dessous : le côté connu y est frontal
+(médiane 0,73 à 0,89 selon le plan), donc c'est bien lui le gagnant — mais
+rien ne le garantit sur une autre population.
 
 **Résultat : 5 plans sur 499 (1,0 %).** Un chiffre proche de zéro, cohérent
 avec le `unknownVeto` à 0,0 % déjà mesuré plus haut dans ce document à une

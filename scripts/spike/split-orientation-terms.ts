@@ -42,12 +42,25 @@ function retainedInFrame(boxes: readonly PersonBox[]): PersonBox[] {
   return survivors.filter((b) => b.y1 - b.y0 >= floor * tallest)
 }
 
-/** Les images d'un plan à exactement deux personnes retenues — l'appariement que `computeShotSplit` exige. */
+/** Le centre horizontal d'une boîte, pour un rang gauche/droite stable — même clé que `computeShotSplit`. */
+function centerX(box: PersonBox): number {
+  return (box.x0 + box.x1) / 2
+}
+
+/**
+ * Les images d'un plan à exactement deux personnes retenues — l'appariement que
+ * `computeShotSplit` exige. Trié gauche/droite par centre, jamais par l'ordre
+ * brut de détection : celui-ci n'est pas un rang stable d'une image à l'autre
+ * (relevé par @copilot-pull-request-reviewer sur PR #198).
+ */
 function pairedFrames(frames: readonly PersonFrame[]): [PersonBox, PersonBox][] {
   const pairs: [PersonBox, PersonBox][] = []
   for (const f of frames) {
     const retained = retainedInFrame(f.boxes)
-    if (retained.length === 2) pairs.push([retained[0], retained[1]])
+    if (retained.length === 2) {
+      const [left, right] = [...retained].sort((a, b) => centerX(a) - centerX(b))
+      pairs.push([left, right])
+    }
   }
   return pairs
 }
@@ -74,6 +87,13 @@ function minShoulderRatio(pair: readonly [PersonBox, PersonBox]): number | null 
  * si et seulement si `facing === 'unknown'` (`framing.ts:1149-1157`), donc dès
  * qu'un des deux camps est `unknown`, il est de fait le perdant — aucune
  * comparaison numérique n'est nécessaire pour le savoir.
+ *
+ * Limite connue (@chatgpt-codex-connector, PR #198) : rien ici n'établit de
+ * gagnant par plan sur les images décisives avant de vérifier `unknown` côté
+ * perdant, contrairement à `addressable.ts`. Vérifié sur les 5 plans mesurés
+ * par la mesure 2 : le côté connu y est frontal (médiane 0,73 à 0,89 sur
+ * chacun), donc c'est bien lui le gagnant dans ce jeu — mais rien ne le
+ * garantit sur une autre population.
  */
 function loserFacing(pair: readonly [PersonBox, PersonBox]): Facing {
   const oa = orientationOf(pair[0])
@@ -99,7 +119,13 @@ function reportNamedCases(): void {
       console.log(`${id} : introuvable dans le registre.`)
       continue
     }
-    const resolved = resolveCase(c)
+    let resolved
+    try {
+      resolved = resolveCase(c)
+    } catch (e) {
+      console.log(`${id} : ${e instanceof Error ? e.message : String(e)}`)
+      continue
+    }
     if (resolved.drift.length > 0) {
       console.log(`${id} : a dérivé depuis son étiquetage — ${JSON.stringify(resolved.drift)}`)
     }
@@ -133,13 +159,13 @@ function reportNamedCases(): void {
 
     console.log(`${id} (${c.label?.call ?? 'sans étiquette'}, ${sample.frames.length} images du plan) :`)
     console.log(
-      `  personne 1 — n=${perPersonA.length}, null=${nullCountA}, ` +
+      `  rang gauche — n=${perPersonA.length}, null=${nullCountA}, ` +
         `min=${perPersonA.length ? Math.min(...perPersonA).toFixed(3) : 'n/a'}, ` +
         `max=${perPersonA.length ? Math.max(...perPersonA).toFixed(3) : 'n/a'}, ` +
         `médiane=${median(perPersonA)?.toFixed(3) ?? 'n/a'}`,
     )
     console.log(
-      `  personne 2 — n=${perPersonB.length}, null=${nullCountB}, ` +
+      `  rang droit — n=${perPersonB.length}, null=${nullCountB}, ` +
         `min=${perPersonB.length ? Math.min(...perPersonB).toFixed(3) : 'n/a'}, ` +
         `max=${perPersonB.length ? Math.max(...perPersonB).toFixed(3) : 'n/a'}, ` +
         `médiane=${median(perPersonB)?.toFixed(3) ?? 'n/a'}`,
@@ -160,6 +186,11 @@ function reportSplitPopulation(): void {
   console.log(`Population mesurée : ${samples.length} plans splittés, ${skipped.length} projet(s) ignoré(s).`)
   for (const s of skipped) console.log(`  ignoré — ${s.project} : ${s.why}`)
   console.log('')
+
+  if (samples.length === 0) {
+    console.log('Aucun plan splitté — projects/ absent ou vide sur cette machine.')
+    return
+  }
 
   let unknownAloneCount = 0
   const aggregates: number[] = []

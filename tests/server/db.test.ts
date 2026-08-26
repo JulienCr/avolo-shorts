@@ -1816,7 +1816,7 @@ describe('listExportedClips', () => {
 
   it('trie par `id` lexicographique, toutes émissions confondues', () => {
     // Un `id` de clip préfixe le `projectId`, qui commence par la date de
-    // tournage : trier par `id` interleave donc naturellement plusieurs
+    // tournage : trier par `id` entrelace donc naturellement plusieurs
     // projets par date, sans qu'il faille joindre `projects`. L'insertion se
     // fait dans un ordre différent de l'ordre attendu, pour ne pas confondre
     // l'ordre de tri avec l'ordre d'écriture.

@@ -42,11 +42,15 @@ export const GET = route('GET /api/planning/schedule', async (request: Request) 
     if (clip === undefined) continue
     const statuses: ScheduledEntry['statuses'] = {}
     for (const row of clipRows) statuses[row.platform] = row.status
+    // Une plateforme déjà publiée garde l'échéance de son envoi, distincte
+    // d'une reprogrammation ultérieure des lignes encore `planned` : l'écran
+    // doit montrer la date qui reste à venir, pas celle d'un envoi passé.
+    const plannedRow = clipRows.find((row) => row.status === 'planned')
     entries.push({
       clipId,
       projectId: clip.projectId,
       title: clip.title,
-      scheduledAt: clipRows[0].scheduledAt ?? 0,
+      scheduledAt: (plannedRow ?? clipRows[0]).scheduledAt ?? 0,
       statuses,
       stale: !deliveryToDay(clip),
     })

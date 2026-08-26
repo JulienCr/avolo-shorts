@@ -76,7 +76,12 @@ beforeEach(() => {
 afterEach(() => {
   closeDb()
   fs.rmSync(root, { recursive: true, force: true })
-  process.env = { ...envStart }
+  // Mutation, jamais réassignation : casserait `process.loadEnvFile` pour le
+  // reste du process (tests/scripts/dev-common.test.ts:39-47).
+  for (const name of Object.keys(process.env)) {
+    if (!(name in envStart)) delete process.env[name]
+  }
+  Object.assign(process.env, envStart)
 })
 
 function getRequest(url: string): Request {
@@ -137,6 +142,33 @@ describe('GET /api/planning/schedule', () => {
   it('400 si `from` est omis — `Number(null)` vaut 0, un piège à ne pas laisser passer', async () => {
     const response = await scheduleGetRoute(getRequest('http://test/api/planning/schedule?to=10000'))
     expect(response.status).toBe(400)
+  })
+
+  // Une plateforme déjà publiée garde l'échéance de son envoi ; les lignes
+  // encore `planned` du même clip peuvent porter une date différente après
+  // reprogrammation. L'entrée doit montrer la date à venir, pas l'ancienne.
+  it("montre l'échéance encore à venir, pas celle d'une plateforme déjà publiée", async () => {
+    putClip(getDb(), baseClip('a'))
+    fresh.add('a')
+    schedulePublications(getDb(), ['a'], 5000, 1000)
+    upsertPublication(getDb(), {
+      clipId: 'a',
+      platform: 'youtube',
+      status: 'published',
+      remoteId: 'p1',
+      remoteUrl: 'https://example.test/p1',
+      requestId: null,
+      error: null,
+      publishedFingerprint: null,
+      createdAt: 1000,
+      updatedAt: 1000,
+      scheduledAt: 5000,
+    })
+    schedulePublications(getDb(), ['a'], 9000, 2000)
+
+    const response = await scheduleGetRoute(getRequest('http://test/api/planning/schedule?from=0&to=10000'))
+    const payload = (await response.json()) as { entries: { clipId: string; scheduledAt: number }[] }
+    expect(payload.entries).toEqual([expect.objectContaining({ clipId: 'a', scheduledAt: 9000 })])
   })
 
   // Le cas contre-intuitif de la spec (§5.2) : le calendrier lit les

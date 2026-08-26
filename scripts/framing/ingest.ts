@@ -294,7 +294,44 @@ export function ingestBlock(
     outcomes.push({ kind: 'change', key: answer.key, case: c, before: c.label.call, after: answer.call, literal })
   }
 
-  return { boardId: parsed.boardId, commit: parsed.commit, on, outcomes }
+  return { boardId: parsed.boardId, commit: parsed.commit, on, outcomes: rejectDivergentVerdicts(outcomes) }
+}
+
+/** L'identité de cas qu'un `IngestOutcome` vise, ou `undefined` s'il n'en vise aucun. */
+function targetOf(o: IngestOutcome): { id: string; call: Call } | undefined {
+  if (o.kind === 'confirmed' || o.kind === 'fill') return { id: o.case.id, call: o.call }
+  if (o.kind === 'change') return { id: o.case.id, call: o.after }
+  if (o.kind === 'new' && o.show !== undefined) return { id: `${o.show}-${headerShotStartMs(o.header)}`, call: o.call }
+  return undefined
+}
+
+/**
+ * Un plan bimodal rend deux cartes du même cas : si l'une garde et l'autre
+ * écarte dans le même bloc, `--change` accepterait un verdict au hasard de
+ * l'ordre du texte plutôt que de refuser la contradiction (relevé par
+ * copilot-pull-request-reviewer sur la #192).
+ */
+function rejectDivergentVerdicts(outcomes: readonly IngestOutcome[]): IngestOutcome[] {
+  const callsById = new Map<string, Set<Call>>()
+  outcomes.forEach((o) => {
+    const t = targetOf(o)
+    if (t === undefined) return
+    const calls = callsById.get(t.id) ?? new Set<Call>()
+    calls.add(t.call)
+    callsById.set(t.id, calls)
+  })
+  return outcomes.map((o) => {
+    const t = targetOf(o)
+    if (t === undefined) return o
+    const calls = callsById.get(t.id)
+    if (calls === undefined || calls.size <= 1) return o
+    return {
+      kind: 'rejected',
+      line: -1,
+      text: 'key' in o ? o.key : t.id,
+      why: `${t.id} : verdicts contradictoires dans ce bloc (${[...calls].join(', ')}) — deux états du même plan divergent`,
+    }
+  })
 }
 
 const CALL_WORD: Record<Call, string> = { keep: 'garder', drop: 'écarter', unsure: 'je ne sais pas' }

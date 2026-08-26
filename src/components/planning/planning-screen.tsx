@@ -65,10 +65,11 @@ export function PlanningScreen() {
       { onSuccess: () => setSelected(new Set()) },
     )
     const hours = settings.data?.publication.scheduleHours ?? ''
-    void saveSettings.mutateAsync({ publication: { scheduleHours: pushScheduleHour(hours, time) } })
+    saveSettings.mutate({ publication: { scheduleHours: pushScheduleHour(hours, time) } })
   }
 
-  const error = pool.error ?? schedule.error ?? schedulePublication.error ?? unschedulePublication.error
+  const error =
+    pool.error ?? schedule.error ?? schedulePublication.error ?? unschedulePublication.error ?? saveSettings.error
   const errorMessage = error instanceof Error ? error.message : 'Le serveur n’a pas répondu.'
 
   return (
@@ -95,6 +96,8 @@ export function PlanningScreen() {
           <ScheduleForm
             count={selectedClips.length}
             scheduleHours={settings.data?.publication.scheduleHours ?? ''}
+            minDate={band.days[0]!}
+            maxDate={band.days[band.days.length - 1]!}
             pending={schedulePublication.isPending}
             onCancel={() => setSelected(new Set())}
             onConfirm={confirm}

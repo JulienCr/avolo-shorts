@@ -16,6 +16,12 @@ describe('composeScheduledAt', () => {
   it('19:00 en hiver (CET, UTC+1)', () => {
     expect(composeScheduledAt('2026-01-15', '19:00')).toBe(Date.UTC(2026, 0, 15, 18, 0))
   })
+
+  it('01:30 le jour de la bascule de printemps reste avant le changement (CET, UTC+1)', () => {
+    // Bascule 2026 : 02:00 CET -> 03:00 CEST, à 01:00 UTC. 01:30 heure de
+    // Paris précède ce changement et doit rester en +1, pas glisser en +2.
+    expect(composeScheduledAt('2026-03-29', '01:30')).toBe(Date.UTC(2026, 2, 29, 0, 30))
+  })
 })
 
 describe('dayKeyFor', () => {

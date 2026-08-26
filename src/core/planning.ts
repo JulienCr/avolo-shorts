@@ -85,7 +85,11 @@ export function composeScheduledAt(dateKey: string, time: string): number {
   const [y, m, d] = dateKey.split('-').map(Number)
   const [hh, mm] = time.split(':').map(Number)
   const naiveUtc = Date.UTC(y, m - 1, d, hh, mm)
-  return naiveUtc - timeZoneOffsetMs(naiveUtc, PARIS_TZ)
+  // L'écart lu à `naiveUtc` peut être celui d'après la bascule alors que
+  // l'heure locale demandée est avant : on relit l'écart au résultat obtenu,
+  // qui retombe sur le bon côté de la bascule pour toute heure non ambiguë.
+  const firstPass = naiveUtc - timeZoneOffsetMs(naiveUtc, PARIS_TZ)
+  return naiveUtc - timeZoneOffsetMs(firstPass, PARIS_TZ)
 }
 
 /** La clé civile Europe/Paris de l'instant `ms` — dans quel jour du bandeau il tombe. */

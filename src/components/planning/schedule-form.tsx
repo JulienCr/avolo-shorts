@@ -19,6 +19,8 @@ import { cn } from '@/lib/utils'
 export function ScheduleForm({
   count,
   scheduleHours,
+  minDate,
+  maxDate,
   pending,
   onCancel,
   onConfirm,
@@ -26,6 +28,10 @@ export function ScheduleForm({
   count: number
   /** `publication.scheduleHours`, brut — jusqu'à quatre `HH:MM`, du plus récent au plus ancien. */
   scheduleHours: string
+  /** Premier et dernier jour du bandeau affiché (`YYYY-MM-DD`) — le calendrier
+   * ne montre que ces cinq semaines, une date hors bornes y serait invisible. */
+  minDate: string
+  maxDate: string
   pending: boolean
   onCancel: () => void
   onConfirm: (dateKey: string, time: string) => void
@@ -35,6 +41,17 @@ export function ScheduleForm({
   const hours = parseScheduleHours(scheduleHours)
   const [date, setDate] = useState(() => dayKeyFor(Date.now()))
   const [time, setTime] = useState(() => hours[0] ?? '19:00')
+  // Tant que l'utilisateur n'a rien choisi, suit le raccourci le plus récent
+  // — au montage, les réglages n'ont pas toujours fini de charger, et
+  // `scheduleHours` arrive après le premier rendu. Ajustement pendant le
+  // rendu (pas d'effet) : le motif React pour « resynchroniser un état
+  // dérivé d'une prop qui change ».
+  const [touched, setTouched] = useState(false)
+  const [lastHour, setLastHour] = useState(hours[0])
+  if (!touched && hours[0] !== lastHour) {
+    setLastHour(hours[0])
+    if (hours[0] !== undefined) setTime(hours[0])
+  }
 
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/40 px-3 py-2">
@@ -50,6 +67,8 @@ export function ScheduleForm({
           id={dateId}
           type="date"
           value={date}
+          min={minDate}
+          max={maxDate}
           onChange={(e) => setDate(e.target.value)}
           className="w-36"
         />
@@ -63,7 +82,10 @@ export function ScheduleForm({
           id={timeId}
           type="time"
           value={time}
-          onChange={(e) => setTime(e.target.value)}
+          onChange={(e) => {
+            setTouched(true)
+            setTime(e.target.value)
+          }}
           className="w-24"
         />
       </div>
@@ -77,7 +99,10 @@ export function ScheduleForm({
               variant={h === time ? 'default' : 'outline'}
               size="sm"
               className={cn('font-mono tabular-nums')}
-              onClick={() => setTime(h)}
+              onClick={() => {
+                setTouched(true)
+                setTime(h)
+              }}
             >
               {h}
             </Button>
@@ -91,7 +116,7 @@ export function ScheduleForm({
         </Button>
         <Button
           size="sm"
-          disabled={pending || date === '' || time === ''}
+          disabled={pending || date === '' || time === '' || date < minDate || date > maxDate}
           onClick={() => onConfirm(date, time)}
         >
           Programmer {count === 1 ? '1 clip' : `${count} clips`}

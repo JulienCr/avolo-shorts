@@ -1725,6 +1725,29 @@ export type CellHeadStats = {
   headAbsenceShare: number
   /** Médiane de `headContainment` sur les images où la tête est détectée ; `null` si aucune. */
   headContainmentMedian: number | null
+  /** Médiane de `headPointCount` sur toutes les images appariées, absence comprise. */
+  headPointCountMedian: number
+  /** Médiane de l'aire de tête (clampée à [0, 1]²) sur les images où elle se mesure ; `null` si aucune. */
+  headAreaMedian: number | null
+}
+
+/**
+ * Ce qu'une cellule porte à une image précise — le grain que `CellHeadStats`
+ * agrège, et ce qu'un rapport (`scripts/framing/head-bars-report.ts`) lit
+ * pour mesurer une barre de présence différente sans redériver l'appariement.
+ */
+export type FrameSideStats = {
+  absent: boolean
+  containment: number | null
+  pointCount: number
+  area: number | null
+}
+
+/** Une image appariée, avec ce que chaque cellule y porte. */
+export type FrameHeadStats = {
+  t: number
+  top: FrameSideStats
+  bottom: FrameSideStats
 }
 
 /**
@@ -1736,25 +1759,68 @@ export type CellHeadStats = {
 export type ShotHeadInstrument = {
   /** `[haut, bas]`, même ordre que `ShotSplit.cells`. `null` si le plan ne split pas. */
   cells: [CellHeadStats, CellHeadStats] | null
+  /**
+   * Une entrée par image appariée, même ordre que `cells`, calculée une
+   * seule fois ici. **N'importe quel appelant qui doit lire une image
+   * précise (choisir laquelle rendre) doit lire ce tableau, jamais
+   * redériver l'appariement depuis la proximité d'une cellule** : c'est
+   * exactement ce qui produisait une affectation non bijective — les deux
+   * personnes assignées à la même cellule sur une image où leurs centres se
+   * rapprochent — trouvé au checkpoint du 27 août sur `entre-nous-3495867`,
+   * t=3507,5 s. `null` en même temps que `cells`.
+   */
+  perFrame: readonly FrameHeadStats[] | null
 }
 
-function headStatsFor(
+/** L'aire de tête clampée à `[0, 1]`, comme `headContainment` la calcule — `null` sans tête détectée. */
+function headAreaOf(box: PersonBox, options: FramingOptions): number | null {
+  const head = headBounds(box, options)
+  if (head === null) return null
+  const w = bound(head.x1, 0, 1) - bound(head.x0, 0, 1)
+  const h = bound(head.y1, 0, 1) - bound(head.y0, 0, 1)
+  return Math.max(0, w) * Math.max(0, h)
+}
+
+function frameStatsFor(
   boxes: readonly PersonBox[],
   cell: Cell,
   options: FramingOptions,
-): CellHeadStats {
-  if (boxes.length === 0) return { headAbsenceShare: 0, headContainmentMedian: null }
+): FrameSideStats[] {
+  return boxes.map((b) => ({
+    absent: headBounds(b, options) === null,
+    containment: headContainment(b, cell, options),
+    pointCount: headPointCount(b, options),
+    area: headAreaOf(b, options),
+  }))
+}
+
+function aggregateHeadStats(frames: readonly FrameSideStats[]): CellHeadStats {
+  if (frames.length === 0) {
+    return {
+      headAbsenceShare: 0,
+      headContainmentMedian: null,
+      headPointCountMedian: 0,
+      headAreaMedian: null,
+    }
+  }
   // Deux questions distinctes, jamais l'une déduite de l'autre : l'absence
   // reste « `headBounds` ne se définit pas » (au moins un point), le
   // containment exclut en plus les têtes dégénérées de sa propre médiane.
-  const absentCount = boxes.filter((b) => headBounds(b, options) === null).length
-  const containments = boxes
-    .map((b) => headContainment(b, cell, options))
+  const absentCount = frames.filter((f) => f.absent).length
+  const containments = frames
+    .map((f) => f.containment)
+    .filter((v): v is number => v !== null)
+    .sort((a, b) => a - b)
+  const pointCounts = [...frames.map((f) => f.pointCount)].sort((a, b) => a - b)
+  const areas = frames
+    .map((f) => f.area)
     .filter((v): v is number => v !== null)
     .sort((a, b) => a - b)
   return {
-    headAbsenceShare: absentCount / boxes.length,
+    headAbsenceShare: absentCount / frames.length,
     headContainmentMedian: containments.length === 0 ? null : median(containments),
+    headPointCountMedian: median(pointCounts),
+    headAreaMedian: areas.length === 0 ? null : median(areas),
   }
 }
 
@@ -1768,28 +1834,34 @@ export function computeShotHeadInstrument(
   segments: Segment[] = [shot],
 ): ShotHeadInstrument {
   const paired = splitPairs(boxes, shot, ratio, options, segments)
-  if (paired.rejection !== null) return { cells: null }
+  if (paired.rejection !== null) return { cells: null, perFrame: null }
   const { pairs } = paired
 
   const cellsResult = splitCells(pairs, options, srcW, srcH)
-  if (cellsResult === null) return { cells: null }
+  if (cellsResult === null) return { cells: null, perFrame: null }
   const { leftCell, rightCell } = cellsResult
 
   const bleedResult = splitBleed(pairs, leftCell, rightCell, options)
-  if (!bleedResult.ok) return { cells: null }
+  if (!bleedResult.ok) return { cells: null, perFrame: null }
 
-  const leftStats = headStatsFor(
+  const leftFrames = frameStatsFor(
     pairs.map((p) => p.left),
     leftCell,
     options,
   )
-  const rightStats = headStatsFor(
+  const rightFrames = frameStatsFor(
     pairs.map((p) => p.right),
     rightCell,
     options,
   )
   const leftOnTop = splitLeftOnTop(pairs)
-  return { cells: leftOnTop ? [leftStats, rightStats] : [rightStats, leftStats] }
+  const topFrames = leftOnTop ? leftFrames : rightFrames
+  const bottomFrames = leftOnTop ? rightFrames : leftFrames
+
+  return {
+    cells: [aggregateHeadStats(topFrames), aggregateHeadStats(bottomFrames)],
+    perFrame: pairs.map((p, i) => ({ t: p.left.t, top: topFrames[i], bottom: bottomFrames[i] })),
+  }
 }
 
 

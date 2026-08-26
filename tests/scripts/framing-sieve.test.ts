@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ESLint } from 'eslint'
-import type { ShotFraming } from '@/core/framing'
+import { headBounds, type ShotFraming } from '@/core/framing'
 import type { PersonBox } from '@/core/shots'
 import type { ProjectId } from '../../scripts/framing/cases'
 import type { PersonFrame, ShotSample } from '../../scripts/framing/corpus'
@@ -399,6 +399,73 @@ describe('sieve — head-absence-worst et head-containment-worst (#190)', () => 
     // exactement le défaut que la seconde barre de présence (documentée dans
     // `docs/tete-dans-la-cellule.md`, non câblée) répare.
     expect(METRICS['head-absence-worst'].of(sample)).toBe(0)
+  })
+
+  /**
+   * Checkpoint du 27 août 2026 : `pairedWithCells` assignait chaque boîte à
+   * sa cellule la plus proche, sans contrainte de bijectivité. Sur une image
+   * où les deux personnes se rapprochent, les deux peuvent tomber plus près
+   * de la même cellule fixe — ici toutes deux plus près du haut (~0,29) que
+   * du bas (~0,71) — et l'ancienne affectation les collait toutes les deux
+   * du même côté. `perFrame` lit maintenant l'appariement réel de
+   * `computeShotHeadInstrument`, trié par centre à l'intérieur de l'image,
+   * jamais comparé à un rectangle fixe : il reste bijectif.
+   */
+  function ambiguousHeadless(t: number): PersonBox {
+    const k = new Array(K_LEN).fill(0)
+    k[15] = 0.32
+    k[16] = 0.4
+    k[17] = 0.9 // LEFT_SHOULDER
+    k[18] = 0.38
+    k[19] = 0.4
+    k[20] = 0.9 // RIGHT_SHOULDER
+    return { t, x0: 0.3, x1: 0.4, y0: 0.1, y1: 0.9, score: 0.9, k }
+  }
+
+  function ambiguousWithHead(t: number): PersonBox {
+    const k = new Array(K_LEN).fill(0)
+    k[0] = 0.37
+    k[1] = 0.2
+    k[2] = 0.9 // NOSE
+    k[3] = 0.36
+    k[4] = 0.19
+    k[5] = 0.9 // LEFT_EYE
+    k[6] = 0.38
+    k[7] = 0.19
+    k[8] = 0.9 // RIGHT_EYE
+    k[15] = 0.35
+    k[16] = 0.4
+    k[17] = 0.9 // LEFT_SHOULDER
+    k[18] = 0.41
+    k[19] = 0.4
+    k[20] = 0.9 // RIGHT_SHOULDER
+    return { t, x0: 0.33, x1: 0.43, y0: 0.1, y1: 0.9, score: 0.9, k }
+  }
+
+  it('reste bijectif sur une image où les deux personnes se rapprochent — checkpoint du 27 août', () => {
+    const ambiguousFrame: PersonFrame = {
+      t: 8,
+      boxes: [ambiguousHeadless(8), ambiguousWithHead(8)],
+    }
+    const sample: ShotSample = {
+      ...SPLITTING_SAMPLE,
+      shot: { ...SPLITTING_SAMPLE.shot, shot: { start: 0, end: 8.5 } },
+      frames: [...SPLITTING_FRAMES, ambiguousFrame],
+    }
+
+    const absence = METRICS['head-absence-worst'].perFrame(ambiguousFrame, sample)
+    // L'une des deux personnes n'a pas de tête : le pire des deux doit le
+    // voir (1), jamais 0 — ce que l'ancienne affectation non bijective
+    // pouvait manquer en collant les deux du même côté sur une cellule
+    // pendant que l'autre restait vide.
+    expect(absence).toBe(1)
+
+    // La personne à tête lisible existe bien de l'autre côté — vérifié à la
+    // source, pas via `head-containment-worst` (qui rend `null` dès qu'un
+    // côté est dégénéré, ce qui est le cas ici par construction).
+    const [headless, headed] = ambiguousFrame.boxes
+    expect(headBounds(headless)).toBeNull()
+    expect(headBounds(headed)).not.toBeNull()
   })
 })
 

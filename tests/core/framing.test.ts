@@ -2663,6 +2663,30 @@ describe('computeShotHeadInstrument', () => {
     expect(split.rejection).toBe('bleedsIntoOther')
     expect(instrument.cells).toBeNull()
   })
+
+  /**
+   * Checkpoint du 27 août 2026 : sur une image ajoutée où les deux personnes
+   * se rapprochent, leurs deux centres tombent plus près de la cellule du
+   * haut (0,25) que de celle du bas (0,64) — 0,33 et 0,37 contre 0,06–0,44 et
+   * 0,45–0,83. Une affectation par plus-proche-cellule les collerait toutes
+   * les deux en haut. `perFrame` doit rester bijectif : une personne par
+   * cellule, quelle que soit la géométrie de l'image.
+   */
+  it('reste bijectif sur une image où les deux personnes se rapprochent, même plus près de la même cellule', () => {
+    const boxes = [
+      ...splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY),
+      box(10, 0.3, 0.36), // sans tête
+      splitPerson(10, 0.34, 0.4, 0.2, 0.9, 0.3, 0), // tête lisible
+    ]
+    const s = shot(0, 10.5)
+    const instrument = computeShotHeadInstrument(boxes, s, '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    const entry = instrument.perFrame?.find((e) => e.t === 10)
+    expect(entry).toBeDefined()
+    // Une cellule porte l'absence, l'autre une tête lisible — jamais les
+    // deux du même côté, jamais aucune des deux.
+    expect(entry!.top.absent).not.toBe(entry!.bottom.absent)
+    expect([entry!.top.pointCount, entry!.bottom.pointCount].sort((a, b) => a - b)).toEqual([0, 4])
+  })
 })
 
 describe('le split-screen dans computeFraming', () => {

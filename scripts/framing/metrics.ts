@@ -11,13 +11,12 @@
  */
 
 import {
-  type Cell,
   computeShotHeadInstrument,
   computeShotSplit,
   FRAMING_DEFAULTS,
+  type FrameHeadStats,
   hasValidGeometry,
   headBounds,
-  headContainment,
   isForeground,
   orientationOf,
   requiredWidths,
@@ -120,41 +119,25 @@ function headInstrumentOf(s: ShotSample): ReturnType<typeof computeShotHeadInstr
 }
 
 /**
- * Les deux boîtes retenues d'une image assorties à leurs cellules réelles
- * (`ShotFraming.split`, posées par la production) — par proximité de centre,
- * puisque chaque cellule est bâtie autour du tronc de sa propre personne.
- * `null` si le plan n'a pas splitté, ou si l'image ne porte pas deux boîtes.
+ * L'entrée de `headInstrumentOf(s).perFrame` pour l'instant de `f` — jamais
+ * redérivée depuis la proximité d'une cellule. C'était le bug du checkpoint
+ * du 27 août : assigner chaque boîte à sa cellule la plus proche n'est pas
+ * bijectif, et sur une image où les deux personnes se rapprochent, les deux
+ * peuvent tomber du même côté pendant que l'autre cellule n'a personne.
+ * `computeShotHeadInstrument` porte l'appariement réel — trié par centre à
+ * l'intérieur de l'image, jamais comparé à un rectangle fixe — donc le lire
+ * ici ne peut pas reproduire ce défaut.
  */
-function pairedWithCells(
-  f: PersonFrame,
-  s: ShotSample,
-): [{ box: PersonBox; cell: Cell }, { box: PersonBox; cell: Cell }] | null {
-  const cells = s.shot.split
-  if (cells === undefined) return null
-  const retained = retainedInFrame(f, FRAMING_DEFAULTS)
-  if (retained.length !== 2) return null
-  const centerXOf = (b: PersonBox) => (b.x0 + b.x1) / 2
-  const centerOfCell = (c: Cell) => (c.x0 + c.x1) / 2
-  const [c0, c1] = cells
-  const assign = (b: PersonBox): Cell =>
-    Math.abs(centerXOf(b) - centerOfCell(c0)) <= Math.abs(centerXOf(b) - centerOfCell(c1)) ? c0 : c1
-  return [
-    { box: retained[0], cell: assign(retained[0]) },
-    { box: retained[1], cell: assign(retained[1]) },
-  ]
+function frameHeadStatsAt(f: PersonFrame, s: ShotSample): FrameHeadStats | undefined {
+  const frames = headInstrumentOf(s).perFrame
+  return frames?.find((entry) => entry.t === f.t)
 }
 
-/**
- * Le pire (le plus haut) des deux indicateurs d'absence de tête, sur une
- * image appariée. Sur `headBounds`, jamais sur `headContainment` : ce
- * dernier rend aussi `null` sur une tête dégénérée (checkpoint du 26 août),
- * une question différente de l'absence que l'agrégat `head-absence-worst`
- * ne pose pas.
- */
+/** Le pire (le plus haut) des deux indicateurs d'absence de tête, sur une image appariée. */
 function perFrameHeadAbsenceWorst(f: PersonFrame, s: ShotSample): number | null {
-  const paired = pairedWithCells(f, s)
-  if (paired === null) return null
-  return Math.max(...paired.map(({ box }) => (headBounds(box) === null ? 1 : 0)))
+  const entry = frameHeadStatsAt(f, s)
+  if (entry === undefined) return null
+  return Math.max(entry.top.absent ? 1 : 0, entry.bottom.absent ? 1 : 0)
 }
 
 /**
@@ -164,12 +147,12 @@ function perFrameHeadAbsenceWorst(f: PersonFrame, s: ShotSample): number | null 
  * doit jamais se faire remplacer par l'autre, qui pourrait être bonne.
  */
 function perFrameHeadContainmentWorst(f: PersonFrame, s: ShotSample): number | null {
-  const paired = pairedWithCells(f, s)
-  if (paired === null) return null
-  const [a, b] = paired
-  const va = headContainment(a.box, a.cell)
-  const vb = headContainment(b.box, b.cell)
-  return va === null || vb === null ? null : Math.min(va, vb)
+  const entry = frameHeadStatsAt(f, s)
+  if (entry === undefined) return null
+  const { top, bottom } = entry
+  return top.containment === null || bottom.containment === null
+    ? null
+    : Math.min(top.containment, bottom.containment)
 }
 
 export const METRICS = {

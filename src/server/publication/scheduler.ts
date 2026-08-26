@@ -208,11 +208,11 @@ export async function runOnePass(deps: SchedulerDeps, options?: { dryRun?: boole
     return { kind: 'dry-run', due: due === undefined ? null : dueSummary(db, due.clipId, due.scheduledAt) }
   }
 
+  // La présentation de `locked` appartient au script (comme `dry-run`,
+  // spec §6, correction) : imprimer ici doublerait la ligne que `describe`
+  // écrit déjà, dans un autre libellé.
   const lock = acquireLock(lockDir, now())
-  if (!lock.acquired) {
-    console.log(`Verrou de publication déjà posé depuis ${new Date(lock.since).toISOString()} : passe ignorée.`)
-    return { kind: 'locked', since: lock.since }
-  }
+  if (!lock.acquired) return { kind: 'locked', since: lock.since }
 
   try {
     const due = nextDueSchedule(db, now())

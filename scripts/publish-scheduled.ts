@@ -17,13 +17,32 @@ import { createResendMailer } from '@/server/publication/mailer'
 import { runOnePass, type SchedulerOutcome } from '@/server/publication/scheduler'
 import { chargerEnv, quit } from './dev-common'
 
+/**
+ * Construit une fois, comme `FORMAT_DATE` dans `src/components/sources/
+ * texts.ts` : Julien programme et lit ce journal depuis Paris, jamais en UTC
+ * — un `Z` ne se lit pas comme une heure de la grille.
+ */
+const FORMAT_PARIS = new Intl.DateTimeFormat('fr-FR', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  timeZone: 'Europe/Paris',
+})
+
+function formatParis(ms: number): string {
+  return FORMAT_PARIS.format(new Date(ms))
+}
+
 /** Les quatre vrais résultats — `dry-run` a sa propre présentation, ci-dessous. */
 function describe(outcome: Exclude<SchedulerOutcome, { kind: 'dry-run' }>): string {
   switch (outcome.kind) {
     case 'idle':
       return 'Rien à publier.'
     case 'locked':
-      return `Verrou déjà posé depuis ${new Date(outcome.since).toISOString()}.`
+      return `Verrou déjà posé depuis ${formatParis(outcome.since)}.`
     case 'done':
       return `Publié : ${outcome.clipId} (${outcome.attempts} essai(s)).`
     case 'abandoned':
@@ -43,7 +62,7 @@ function printDryRun(due: Extract<SchedulerOutcome, { kind: 'dry-run' }>['due'])
     return
   }
   const label = due.title === '' ? due.clipId : due.title
-  console.log(`Échéance due : ${label} (${due.clipId}), prévue le ${new Date(due.scheduledAt).toISOString()}`)
+  console.log(`Échéance due : ${label} (${due.clipId}), prévue le ${formatParis(due.scheduledAt)}`)
   for (const platform of due.platforms) console.log(`  ${platform}`)
 }
 

@@ -275,6 +275,99 @@ describe('sieve — bornage aux deux extrémités', () => {
   })
 })
 
+describe('sieve — head-absence-worst et head-containment-worst (#190)', () => {
+  const K_LEN = 51
+
+  // Chaque boîte ne porte qu'**un seul** point hors de [0, 1] : deux points
+  // évadés aux deux extrémités opposées de l'image élargiraient `torsoBounds`
+  // (qui inclut les points de tête dans son propre empan) au point de refuser
+  // le split sur `tooNarrowForSource` — ce que ce test n'éprouve pas. Le
+  // clampage aux deux bouts est déjà éprouvé isolément par `headContainment`
+  // dans `tests/core/framing.test.ts`.
+  function wildLeftBox(t: number): PersonBox {
+    const k = new Array(K_LEN).fill(0)
+    k[0] = -0.05
+    k[1] = 0.2
+    k[2] = 0.9 // NOSE, juste sous 0
+    k[3] = 0.1
+    k[4] = 0.19
+    k[5] = 0.9 // LEFT_EYE, valide
+    k[15] = 0.05
+    k[16] = 0.4
+    k[17] = 0.9 // LEFT_SHOULDER
+    k[18] = 0.15
+    k[19] = 0.4
+    k[20] = 0.9 // RIGHT_SHOULDER
+    return { t, x0: 0, x1: 0.2, y0: 0.1, y1: 0.9, score: 0.9, k }
+  }
+
+  function wildRightBox(t: number): PersonBox {
+    const k = new Array(K_LEN).fill(0)
+    k[0] = 0.9
+    k[1] = 0.2
+    k[2] = 0.9 // NOSE, valide
+    k[3] = 1.05
+    k[4] = 0.19
+    k[5] = 0.9 // LEFT_EYE, juste au-dessus de 1
+    k[15] = 0.85
+    k[16] = 0.4
+    k[17] = 0.9 // LEFT_SHOULDER
+    k[18] = 0.95
+    k[19] = 0.4
+    k[20] = 0.9 // RIGHT_SHOULDER
+    return { t, x0: 0.8, x1: 1, y0: 0.1, y1: 0.9, score: 0.9, k }
+  }
+
+  const SPLITTING_FRAMES: PersonFrame[] = Array.from({ length: 16 }, (_, i) => {
+    const t = i * 0.5
+    return { t, boxes: [wildLeftBox(t), wildRightBox(t)] }
+  })
+
+  const SPLITTING_SAMPLE: ShotSample = {
+    project: 'projet-a' as ProjectId,
+    shot: { shot: { start: 0, end: 8 }, key: 0, ratio: '1:1', cropX: 0.5, cropXNative: 0.5, source: 'auto' },
+    frames: SPLITTING_FRAMES,
+    analysisFps: 2,
+    srcW: 1920,
+    srcH: 1080,
+  }
+
+  it('restent bornés à [0, 1] sur un keypoint à -0,3 et un à 1,4', () => {
+    const absence = METRICS['head-absence-worst'].of(SPLITTING_SAMPLE)
+    expect(absence).not.toBeNull()
+    expect(Number.isFinite(absence as number)).toBe(true)
+    expect(absence as number).toBeGreaterThanOrEqual(0)
+    expect(absence as number).toBeLessThanOrEqual(1)
+
+    const containment = METRICS['head-containment-worst'].of(SPLITTING_SAMPLE)
+    expect(containment).not.toBeNull()
+    expect(Number.isFinite(containment as number)).toBe(true)
+    expect(containment as number).toBeGreaterThanOrEqual(0)
+    expect(containment as number).toBeLessThanOrEqual(1)
+
+    const perFrameAbsence = METRICS['head-absence-worst'].perFrame(SPLITTING_FRAMES[0], SPLITTING_SAMPLE)
+    expect(perFrameAbsence === null || (perFrameAbsence >= 0 && perFrameAbsence <= 1)).toBe(true)
+  })
+
+  it("un plan qui ne split pas sort de la distribution, jamais compté pour 0", () => {
+    // Trop court pour le déclencheur du split (`splitMinShot` = 4 s) : les deux
+    // métriques doivent rendre `null`, comme `computeShotHeadInstrument`.
+    const tooShort: ShotSample = {
+      ...SPLITTING_SAMPLE,
+      shot: { ...SPLITTING_SAMPLE.shot, shot: { start: 0, end: 3 } },
+      frames: SPLITTING_FRAMES.filter((f) => f.t < 3),
+    }
+    expect(METRICS['head-absence-worst'].of(tooShort)).toBeNull()
+    expect(METRICS['head-containment-worst'].of(tooShort)).toBeNull()
+
+    const family: Family = { kind: 'extremes', n: 10, spread: false }
+    const result = sieve([SPLITTING_SAMPLE, tooShort], METRICS['head-absence-worst'], family, 'avolo')
+    expect(result.total).toBe(2)
+    expect(result.defined).toBe(1)
+    expect(result.undefinedCount).toBe(1)
+  })
+})
+
 describe('sieve — Math.random inatteignable depuis scripts/framing/**', () => {
   const eslint = new ESLint()
 

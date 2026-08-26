@@ -225,7 +225,7 @@ export function clipFraming(
  * donc rien qui puisse lever — voir `FramingSource` pour ce que ça protège.
  *
  * **`framingGlobals` défaut sur la constante, jamais sur la base** : un
- * défaut qui appellerait `getDb()` casserait cette garantie et coupleraient
+ * défaut qui appellerait `getDb()` casserait cette garantie et couplerait
  * chaque appelant à la connexion partagée de `db.ts` sans le dire.
  */
 export function framingWith(

@@ -2579,7 +2579,7 @@ describe('les six réglages de la famille `framing` bougent RenderedFraming', ()
       people.push(splitPerson(t, left.x0, left.x1, left.y0, left.y1, left.eyeY, left.side))
       people.push(
         i === 0
-          ? splitPerson(t, 0.1, 0.3, 0.25, 0.85, 0.35, 0) // la seule image conforme au débordement
+          ? splitPerson(t, 0.1, 0.3, 0.25, 0.85, 0.35, 0) // la seule image qui dépasse la tolérance
           : splitPerson(t, 0.6, 0.68, 0.25, 0.85, 0.35, 0),
       )
     }

@@ -214,7 +214,7 @@ function poserCorrection(): void {
  * par `PATCH` est bien le même que celui que `GET` publie (`CLAUDE.md`, la
  * même règle que `renderIsStale`).
  */
-function poserAnalyseDeuxPersonnes(): void {
+function writeTwoPersonAnalysis(): void {
   const put = (k: number[], point: keyof typeof POINT, x: number, y: number, score: number): void => {
     k[POINT[point] * 3] = x
     k[POINT[point] * 3 + 1] = y
@@ -1462,7 +1462,7 @@ describe('PATCH /api/clips/:id', () => {
  */
 describe('GET et PATCH /api/clips/:id — le même cadrage', () => {
   it('publient le même cadrage pour le même clip sous un réglage non défaut', async () => {
-    poserAnalyseDeuxPersonnes()
+    writeTwoPersonAnalysis()
     putClip(getDb(), { ...baseClip(), ratio: '1:1' })
 
     // Le défaut (`splitScreen: true`) poserait un split sur ce plan à deux

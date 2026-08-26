@@ -38,7 +38,7 @@ import { useLlmAvailability, useSaveSettings, useSettings } from '@/lib/queries'
  * une règle qui souffre une exception n'en est plus une, et c'est ce qui rend
  * l'écran montable en test.
  *
- * **Cinq sections, cinq onglets à gauche.** Empilées, elles demandaient de
+ * **Six sections, six onglets à gauche.** Empilées, elles demandaient de
  * faire défiler l'écran pour atteindre Publication. La primitive démonte le
  * panneau inactif, `Hook` compris — son exception porte sur le squelette et
  * non sur le démontage : ouvert avant que les réglages n'arrivent, il montre

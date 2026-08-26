@@ -544,7 +544,7 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
     expect(framing.shots[0].split).toBeDefined()
   })
 
-  it('`sizeFloorPermille` : une troisième boîte à 0,3 de la plus haute refuse le split à 200 ‰ (0,2)', () => {
+  it('`sizeFloorPermille` : une troisième boîte à 0,5 de la plus haute refuse le split à 200 ‰ (0,2)', () => {
     const id = 'pin-size-floor'
     const boxes: PersonBox[] = []
     for (let t = 0; t < 20; t += 0.5) {

@@ -1678,7 +1678,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   // Quand l'analyse manque, `clipFraming` se rabat sur le réglage manuel du
   // clip et le dit dans `origin` — l'écran l'affiche, et le journal aussi
   // quelques lignes plus bas.
-  const framing = clipFraming(clip)
+  const framing = clipFraming(clip, effectiveSettings(db).framing)
   const ratio = framing.ratio
   const framingSnapshot = renderedFraming(framing)
   const paths = pathsRender(clip.projectId, clipId, ratio, RENDER_NATIVE)
@@ -2368,7 +2368,7 @@ export function markExported(
   // une ligne plus haut, qui lève sur ce cas. Ce contrôle-ci n'en est pas la
   // répétition : il rend la garantie **intrinsèque à la fonction** plutôt que
   // dépendante de l'ordre des appels, et cette fonction est exportée.
-  if (renderIsStale(renderedShape(render, framing), renderedShape(toDay, renderedFraming(clipFraming(toDay))))) {
+  if (renderIsStale(renderedShape(render, framing), renderedShape(toDay, renderedFraming(clipFraming(toDay, effectiveSettings(db).framing))))) {
     console.warn(
       `Clip ${clipId} : le montage a changé pendant l'export. Les fichiers produits décrivent le montage d'avant, le statut n'est pas posé.`,
     )
@@ -2412,7 +2412,7 @@ export function discardRenderStale(
    * sur l'analyse qu'elle a lue **avant** d'écrire, et rien de faillible ne
    * subsiste après le point de non-retour. (relevé par Codex)
    */
-  rereadFraming: (clip: Clip) => RenderedFraming = (clip) => renderedFraming(clipFraming(clip)),
+  rereadFraming: (clip: Clip) => RenderedFraming = (clip) => renderedFraming(clipFraming(clip, effectiveSettings(db).framing)),
 ): boolean {
   const toDay = getClip(db, clipId)
   if (toDay === undefined) return false

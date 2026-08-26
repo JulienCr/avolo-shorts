@@ -478,11 +478,11 @@ export type FramingSettings = {
  */
 export const FRAMING_SETTINGS_DEFAULTS: Readonly<FramingSettings> = Object.freeze({
   splitScreen: FRAMING_DEFAULTS.splitScreen,
-  splitMinShotMs: Math.round(FRAMING_DEFAULTS.splitMinShot * 1000),
-  splitMinCellWidthPermille: Math.round(FRAMING_DEFAULTS.splitMinCellWidth * 1000),
-  splitBleedTolerancePermille: Math.round(FRAMING_DEFAULTS.splitBleedTolerance * 1000),
-  splitBleedSharePermille: Math.round(FRAMING_DEFAULTS.splitBleedShare * 1000),
-  sizeFloorPermille: Math.round(FRAMING_DEFAULTS.sizeFloor * 1000),
+  splitMinShotMs: Math.trunc(FRAMING_DEFAULTS.splitMinShot * 1000),
+  splitMinCellWidthPermille: Math.trunc(FRAMING_DEFAULTS.splitMinCellWidth * 1000),
+  splitBleedTolerancePermille: Math.trunc(FRAMING_DEFAULTS.splitBleedTolerance * 1000),
+  splitBleedSharePermille: Math.trunc(FRAMING_DEFAULTS.splitBleedShare * 1000),
+  sizeFloorPermille: Math.trunc(FRAMING_DEFAULTS.sizeFloor * 1000),
 })
 
 /**

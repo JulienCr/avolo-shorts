@@ -22,50 +22,49 @@ import { FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS, type FramingSettings } from 
 type NumericKey = Exclude<keyof FramingSettings, 'splitScreen'>
 
 type NumericField = {
-  key: NumericKey
   label: string
   help: string
   unit: string
   step: number
 }
 
-const NUMERIC_FIELDS: readonly NumericField[] = [
-  {
-    key: 'splitMinShotMs',
+/**
+ * Indexé par `NumericKey`, plutôt qu'un tableau : un champ ajouté à
+ * `FramingSettings` sans entrée ici est une erreur de type, pas un onglet
+ * silencieusement incomplet.
+ */
+const NUMERIC_FIELDS: Readonly<Record<NumericKey, NumericField>> = {
+  splitMinShotMs: {
     label: 'Durée minimale du plan',
     help: 'En dessous de cette durée, un plan à deux personnes garde un crop unique plutôt qu’un split.',
     unit: 'ms',
     step: 100,
   },
-  {
-    key: 'splitMinCellWidthPermille',
+  splitMinCellWidthPermille: {
     label: 'Largeur minimale d’une cellule',
     help: 'Le plancher qui empêche un tronc étroit de produire un grossissement absurde, en millièmes de la largeur source.',
     unit: '‰ largeur source',
     step: 5,
   },
-  {
-    key: 'splitBleedTolerancePermille',
+  splitBleedTolerancePermille: {
     label: 'Tolérance au débordement',
     help: 'La part de la boîte de l’autre personne qu’une cellule peut recouvrir sans faire refuser le split, en millièmes de la largeur source.',
     unit: '‰ largeur source',
     step: 5,
   },
-  {
-    key: 'splitBleedSharePermille',
+  splitBleedSharePermille: {
     label: 'Part d’images conformes exigée',
     help: 'La part des images appariées qui doivent tenir sous la tolérance ci-dessus pour que le split soit retenu.',
     unit: '‰',
     step: 10,
   },
-  {
-    key: 'sizeFloorPermille',
+  sizeFloorPermille: {
     label: 'Plancher de taille',
     help: 'Une boîte plus petite que cette part de la plus haute boîte retenue de la même image n’est plus quelqu’un à cadrer — exclut par exemple un visage imprimé sur un vêtement.',
     unit: '‰ de la plus haute boîte',
     step: 10,
   },
-]
+}
 
 type OnChange = (patch: Partial<FramingSettings>) => void | Promise<unknown>
 
@@ -109,22 +108,25 @@ export function FramingSection({
           />
         </Row>
 
-        {NUMERIC_FIELDS.map((field) => (
-          <Row key={field.key}>
-            <NumberField
-              label={field.label}
-              help={field.help}
-              value={shown[field.key]}
-              defaultValue={FRAMING_SETTINGS_DEFAULTS[field.key]}
-              unit={field.unit}
-              min={FRAMING_BOUNDS[field.key].min}
-              max={FRAMING_BOUNDS[field.key].max}
-              step={field.step}
-              disabled={inert}
-              onCommit={(value) => onChange({ [field.key]: value })}
-            />
-          </Row>
-        ))}
+        {(Object.keys(NUMERIC_FIELDS) as NumericKey[]).map((key) => {
+          const field = NUMERIC_FIELDS[key]
+          return (
+            <Row key={key}>
+              <NumberField
+                label={field.label}
+                help={field.help}
+                value={shown[key]}
+                defaultValue={FRAMING_SETTINGS_DEFAULTS[key]}
+                unit={field.unit}
+                min={FRAMING_BOUNDS[key].min}
+                max={FRAMING_BOUNDS[key].max}
+                step={field.step}
+                disabled={inert}
+                onCommit={(value) => onChange({ [key]: value })}
+              />
+            </Row>
+          )
+        })}
       </div>
 
       {/* Vrai depuis que le split entre dans l'empreinte (#176). */}
@@ -240,7 +242,7 @@ function NumberField({
   function commit() {
     const parsed = draft.trim() === '' ? Number.NaN : Number(draft)
     if (!Number.isFinite(parsed)) return setDraft(String(value))
-    const bounded = Math.min(max, Math.max(min, Math.round(parsed)))
+    const bounded = Math.min(max, Math.max(min, Math.trunc(parsed)))
     setDraft(String(bounded))
     submit(bounded)
   }

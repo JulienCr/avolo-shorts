@@ -117,6 +117,34 @@ describe('GET /api/planning/pool', () => {
     expect(payload.clips.map((c) => c.clipId)).toEqual(['éligible'])
     expect(payload.clips[0].duration).toBe(20)
   })
+
+  // Le piège que `schedulePublications` pose : son UPSERT ne réécrit jamais
+  // une ligne au résultat déjà arrêté (`WHERE status = 'planned'`). Un clip
+  // dont les quatre lignes portent déjà un résultat n'a donc plus rien à
+  // programmer, et doit sortir du vivier plutôt que produire un succès vide.
+  it("exclut un clip dont les quatre plateformes portent déjà un résultat", async () => {
+    putClip(getDb(), baseClip('épuisé'))
+    fresh.add('épuisé')
+    for (const platform of ['instagram', 'facebook', 'tiktok', 'youtube'] as const) {
+      upsertPublication(getDb(), {
+        clipId: 'épuisé',
+        platform,
+        status: 'published',
+        remoteId: 'p1',
+        remoteUrl: 'https://example.test/p1',
+        requestId: null,
+        error: null,
+        publishedFingerprint: null,
+        createdAt: 1000,
+        updatedAt: 1000,
+        scheduledAt: null,
+      })
+    }
+
+    const response = await poolRoute()
+    const payload = (await response.json()) as { clips: { clipId: string }[] }
+    expect(payload.clips.map((c) => c.clipId)).toEqual([])
+  })
 })
 
 describe('GET /api/planning/schedule', () => {
@@ -141,6 +169,11 @@ describe('GET /api/planning/schedule', () => {
 
   it('400 si `from` est omis — `Number(null)` vaut 0, un piège à ne pas laisser passer', async () => {
     const response = await scheduleGetRoute(getRequest('http://test/api/planning/schedule?to=10000'))
+    expect(response.status).toBe(400)
+  })
+
+  it("400 si `from` est une chaîne vide — `Number('')` vaut aussi 0", async () => {
+    const response = await scheduleGetRoute(getRequest('http://test/api/planning/schedule?from=&to=10000'))
     expect(response.status).toBe(400)
   })
 
@@ -169,6 +202,36 @@ describe('GET /api/planning/schedule', () => {
     const response = await scheduleGetRoute(getRequest('http://test/api/planning/schedule?from=0&to=10000'))
     const payload = (await response.json()) as { entries: { clipId: string; scheduledAt: number }[] }
     expect(payload.entries).toEqual([expect.objectContaining({ clipId: 'a', scheduledAt: 9000 })])
+  })
+
+  // Les statuts affichés lisent toutes les lignes du clip, pas seulement
+  // celles dont l'échéance tombe dans `from`/`to` : une fenêtre étroite ne
+  // doit pas faire disparaître le statut d'une plateforme déjà publiée.
+  it("montre le statut de toutes les plateformes, même hors fenêtre", async () => {
+    putClip(getDb(), baseClip('a'))
+    fresh.add('a')
+    schedulePublications(getDb(), ['a'], 5000, 1000)
+    upsertPublication(getDb(), {
+      clipId: 'a',
+      platform: 'youtube',
+      status: 'published',
+      remoteId: 'p1',
+      remoteUrl: 'https://example.test/p1',
+      requestId: null,
+      error: null,
+      publishedFingerprint: null,
+      createdAt: 1000,
+      updatedAt: 1000,
+      scheduledAt: 5000,
+    })
+    schedulePublications(getDb(), ['a'], 9000, 2000)
+
+    // La fenêtre exclut 5000 (l'ancienne échéance youtube), ne couvre que 9000.
+    const response = await scheduleGetRoute(getRequest('http://test/api/planning/schedule?from=8000&to=10000'))
+    const payload = (await response.json()) as {
+      entries: { clipId: string; statuses: Record<string, string> }[]
+    }
+    expect(payload.entries[0].statuses.youtube).toBe('published')
   })
 
   // Le cas contre-intuitif de la spec (§5.2) : le calendrier lit les
@@ -219,6 +282,30 @@ describe('POST /api/planning/schedule', () => {
   it('400 sur un clip inconnu, plutôt qu\'une contrainte de clé étrangère non attrapée', async () => {
     const response = await scheduleRoute(
       postRequest('http://test/api/planning/schedule', { clipIds: ['fantome'], scheduledAt: 5000 }),
+    )
+    expect(response.status).toBe(400)
+  })
+
+  it('400 sur un clip dont les quatre plateformes portent déjà un résultat', async () => {
+    putClip(getDb(), baseClip('épuisé'))
+    for (const platform of ['instagram', 'facebook', 'tiktok', 'youtube'] as const) {
+      upsertPublication(getDb(), {
+        clipId: 'épuisé',
+        platform,
+        status: 'published',
+        remoteId: 'p1',
+        remoteUrl: 'https://example.test/p1',
+        requestId: null,
+        error: null,
+        publishedFingerprint: null,
+        createdAt: 1000,
+        updatedAt: 1000,
+        scheduledAt: null,
+      })
+    }
+
+    const response = await scheduleRoute(
+      postRequest('http://test/api/planning/schedule', { clipIds: ['épuisé'], scheduledAt: 5000 }),
     )
     expect(response.status).toBe(400)
   })

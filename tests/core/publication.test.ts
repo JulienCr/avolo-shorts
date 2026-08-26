@@ -114,6 +114,14 @@ describe('canTargetPlatform', () => {
   it('autorise la republication explicite', () => {
     expect(canTargetPlatform(record({ status: 'published' }), true)).toBe(true)
   })
+
+  it('refuse de court-circuiter une échéance `planned` sans `force`', () => {
+    expect(canTargetPlatform(record({ status: 'planned' }), false)).toBe(false)
+  })
+
+  it('autorise le déplacement explicite d\'une échéance `planned`', () => {
+    expect(canTargetPlatform(record({ status: 'planned' }), true)).toBe(true)
+  })
 })
 
 describe('platformFile', () => {

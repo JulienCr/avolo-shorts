@@ -84,7 +84,13 @@ function defaultSelection(
   eligible: readonly PublishClipTarget[],
 ): Set<Platform> {
   return new Set(
-    selectable.filter((platform) => !eligible.some((clip) => clip.records?.[platform]?.status === 'published')),
+    selectable.filter(
+      (platform) =>
+        !eligible.some((clip) => {
+          const status = clip.records?.[platform]?.status
+          return status === 'published' || status === 'planned'
+        }),
+    ),
   )
 }
 

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import type { ScheduledEntry } from '@/lib/api'
+import { hasSchedulablePlatform } from '@/core/publication'
 import { deliveryToDay } from '@/server/renders'
 import { getClip, getDb, getPublications, listSchedule, schedulePublications } from '@/server/db'
 import { body, json, requestInvalid, route } from '@/server/http'
@@ -15,11 +16,11 @@ import { body, json, requestInvalid, route } from '@/server/http'
  */
 export const GET = route('GET /api/planning/schedule', async (request: Request) => {
   const params = new URL(request.url).searchParams
-  const fromParam = params.get('from')
-  const toParam = params.get('to')
+  const fromParam = params.get('from')?.trim()
+  const toParam = params.get('to')?.trim()
   const from = Number(fromParam)
   const to = Number(toParam)
-  if (fromParam === null || toParam === null || !Number.isFinite(from) || !Number.isFinite(to)) {
+  if (!fromParam || !toParam || !Number.isFinite(from) || !Number.isFinite(to)) {
     throw requestInvalid('Paramètres `from` et `to` requis, en millisecondes depuis l’époque.')
   }
 
@@ -40,8 +41,10 @@ export const GET = route('GET /api/planning/schedule', async (request: Request) 
   for (const [clipId, clipRows] of byClip) {
     const clip = getClip(db, clipId)
     if (clip === undefined) continue
+    // Toutes les lignes du clip, pas seulement celles dans la fenêtre : les
+    // statuts affichés ne doivent pas dépendre de `from`/`to`.
     const statuses: ScheduledEntry['statuses'] = {}
-    for (const row of clipRows) statuses[row.platform] = row.status
+    for (const row of getPublications(db, clipId)) statuses[row.platform] = row.status
     // Une plateforme déjà publiée garde l'échéance de son envoi, distincte
     // d'une reprogrammation ultérieure des lignes encore `planned` : l'écran
     // doit montrer la date qui reste à venir, pas celle d'un envoi passé.
@@ -78,10 +81,16 @@ export const POST = route('POST /api/planning/schedule', async (request: Request
   const { clipIds, scheduledAt } = await body(request, SCHEDULE_REQUEST)
   const db = getDb()
   // Un identifiant inconnu heurterait sinon la contrainte de clé étrangère et
-  // remonterait en 500 : on la vérifie ici pour rendre une 400 exploitable.
+  // remonterait en 500 ; un clip dont les quatre plateformes portent déjà un
+  // résultat n'a rien à programmer, `schedulePublications` n'y écrirait
+  // aucune ligne. Les deux se vérifient avant la transaction, pour un 400
+  // plutôt qu'un succès qui ne pose aucune échéance.
   for (const clipId of clipIds) {
-    if (getClip(db, clipId) === undefined) {
-      throw requestInvalid(`Clip inconnu : ${clipId}`)
+    const clip = getClip(db, clipId)
+    if (clip === undefined) throw requestInvalid(`Clip inconnu : ${clipId}`)
+    const statuses = Object.fromEntries(getPublications(db, clipId).map((row) => [row.platform, row.status]))
+    if (!hasSchedulablePlatform(statuses)) {
+      throw requestInvalid(`Clip sans plateforme programmable : ${clipId}`)
     }
   }
   schedulePublications(db, clipIds, scheduledAt, Date.now())

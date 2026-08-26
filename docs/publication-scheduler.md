@@ -34,7 +34,7 @@ cette machine.
 Depuis PowerShell, en remplaçant `<Distro>` par le nom trouvé ci-dessus :
 
 ```
-schtasks /Create /F /SC MINUTE /MO 5 /RL LIMITED /TN "AvoloShorts-PublishScheduled" /TR 'wsl.exe -d <Distro> -- /home/julien/dev/avolo-shorts/scripts/publish-scheduled.sh >> projects/publish-scheduled.log 2>&1'
+schtasks /Create /F /SC MINUTE /MO 5 /RL LIMITED /TN "AvoloShorts-PublishScheduled" /TR 'wsl.exe -d <Distro> -- /home/julien/dev/avolo-shorts/scripts/publish-scheduled.sh'
 ```
 
 `/TR` invoque `scripts/publish-scheduled.sh`, un lanceur du dépôt, comme un
@@ -50,9 +50,12 @@ apostrophes PowerShell, pour que PowerShell la transmette telle quelle à
   d'appeler `pnpm tsx` — voir « Pourquoi un lanceur, et pas `bash -lc` »
   ci-dessous.
 - La sortie (`stdout` et `stderr`) part dans `projects/publish-scheduled.log`,
-  à côté de la base et des jetons — ce dossier est déjà hors dépôt. Le lanceur
-  ne redirige rien lui-même : c'est `>> … 2>&1` sur la commande `/TR` qui
-  capture tout, y compris un échec avant même que Node ne démarre.
+  à côté de la base et des jetons — ce dossier est déjà hors dépôt. C'est le
+  **lanceur** qui redirige, pas `/TR` : `schtasks` lance le programme nommé par
+  `CreateProcess`, sans interpréteur de commandes, donc un `>> … 2>&1` posé
+  dans `/TR` ne serait jamais évalué — il finirait en argument nu, transmis
+  tel quel au script `.ts`. Le lanceur capture donc tout dès sa première
+  ligne, y compris un échec avant même que Node ne démarre.
 
 ## Pourquoi un lanceur, et pas `bash -lc`
 

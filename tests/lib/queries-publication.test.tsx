@@ -41,6 +41,7 @@ function row(fields: Partial<PublicationRow> = {}): PublicationRow {
     publishedFingerprint: null,
     createdAt: 1,
     updatedAt: 1,
+    scheduledAt: null,
     ...fields,
   }
 }

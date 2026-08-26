@@ -15,7 +15,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
+import { DEFAULT_SCHEDULE_HOURS, FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
 import type { ClipDetail, ExportResult, PatchClipResult, RunPlan, Settings } from '@/lib/api'
 import {
   keys,
@@ -398,7 +398,13 @@ describe('les réglages', () => {
     },
     ingestion: { copySourceLocally: true },
     hook: { ...HOOK_DEFAULTS },
-    publication: { instagram: 'auto', facebook: 'auto', tiktok: 'auto', youtube: 'auto' },
+    publication: {
+      instagram: 'auto',
+      facebook: 'auto',
+      tiktok: 'auto',
+      youtube: 'auto',
+      scheduleHours: DEFAULT_SCHEDULE_HOURS,
+    },
     framing: { ...FRAMING_SETTINGS_DEFAULTS },
   }
 

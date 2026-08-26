@@ -3,6 +3,7 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import { z } from 'zod'
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
+import { PLATFORMS } from '@/core/publication'
 import type { PublicationRow } from '@/core/publication'
 
 export type { PublicationRow } from '@/core/publication'
@@ -10,6 +11,7 @@ import { DEFAULT_SELECTION_DIMENSIONS, type SelectionDimensions } from '@/core/t
 import {
   DEFAULT_COPY_SOURCE_LOCALLY,
   DEFAULT_PUBLICATION_PREFERENCE,
+  DEFAULT_SCHEDULE_HOURS,
   FRAMING_BOUNDS,
   FRAMING_SETTINGS_DEFAULTS,
   HOOK_ALIGNMENTS,
@@ -176,6 +178,7 @@ CREATE TABLE IF NOT EXISTS publications (
   publishedFingerprint TEXT,
   createdAt            INTEGER NOT NULL,
   updatedAt            INTEGER NOT NULL,
+  scheduledAt          INTEGER,
   PRIMARY KEY (clipId, platform)
 );
 `
@@ -354,6 +357,20 @@ function migrateHookSizeClipColumn(db: Database.Database): void {
 }
 
 /**
+ * Ajoute `scheduledAt` à `publications` sur une base ouverte avant le
+ * planning (issue #195). Même défense que `migrate` pour `clips` : le
+ * contrôle porte sur la colonne, pas sur un numéro de version.
+ */
+function migratePublicationsScheduledAt(db: Database.Database): void {
+  const columns = (db.prepare('PRAGMA table_info(publications)').all() as { name: string }[]).map(
+    (column) => column.name,
+  )
+  if (!columns.includes('scheduledAt')) {
+    db.exec('ALTER TABLE publications ADD COLUMN scheduledAt INTEGER')
+  }
+}
+
+/**
  * Ouvre la base et applique le schéma. `CREATE TABLE IF NOT EXISTS` couvre le
  * cas courant — une base absente —, `migrer` celles qui existaient déjà.
  *
@@ -375,6 +392,7 @@ export function openDb(file: string = defaultDbPath()): Database.Database {
   migrateSelectionSettingKeys(db)
   migrateHookSizeSettingKey(db)
   migrateHookSizeClipColumn(db)
+  migratePublicationsScheduledAt(db)
   return db
 }
 
@@ -722,6 +740,9 @@ const PUBLICATION_FIELD_SHAPES = {
     defaultValue: DEFAULT_PUBLICATION_PREFERENCE,
     enum: PUBLICATION_ADAPTER_CHOICES.youtube,
   },
+  // Pas d'`enum` ici : la forme `HH:MM[,HH:MM]*` n'est pas un ensemble fermé de
+  // littéraux. `sanitizeScheduleHours` la valide à la lecture, plus bas.
+  scheduleHours: { type: 'text', defaultValue: DEFAULT_SCHEDULE_HOURS },
 } satisfies Record<keyof PublicationSettings, Omit<SettingField, 'family' | 'name'>>
 
 const PUBLICATION_FIELDS: readonly SettingField[] = (
@@ -932,6 +953,25 @@ export function validateSetting(
   }
 }
 
+const SCHEDULE_HOUR_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
+
+/**
+ * Filtre `publication.scheduleHours` à ses éléments `HH:MM`, quatre au plus.
+ *
+ * Le registre (`parseSetting`) ne sait valider qu'un texte non vide, pas cette
+ * forme composite — une valeur comme `19:00,bogus` la traverserait donc
+ * intacte. Une entrée mal formée est ignorée plutôt que de faire échouer tout
+ * le champ, et une liste qui ne survit à rien retombe sur le défaut.
+ */
+export function sanitizeScheduleHours(raw: string): string {
+  const kept = raw
+    .split(',')
+    .map((h) => h.trim())
+    .filter((h) => SCHEDULE_HOUR_PATTERN.test(h))
+    .slice(0, 4)
+  return kept.length > 0 ? kept.join(',') : DEFAULT_SCHEDULE_HOURS
+}
+
 /**
  * Les réglages effectifs : ce que porte la base, complété par les défauts.
  *
@@ -980,6 +1020,7 @@ export function effectiveSettings(db: Database.Database): Settings {
     // valeur ici passe par `validateSetting`, qui la contraint au type du champ.
     ;(families[field.family] as Record<string, unknown>)[field.name] = value
   }
+  families.publication.scheduleHours = sanitizeScheduleHours(families.publication.scheduleHours)
   return families
 }
 
@@ -1642,4 +1683,93 @@ export function upsertPublication(db: Database.Database, row: PublicationRow): v
        publishedFingerprint = excluded.publishedFingerprint,
        updatedAt            = excluded.updatedAt`,
   ).run(row)
+}
+
+/**
+ * Les clips exportés, toutes émissions confondues (spec planning §5.3).
+ *
+ * **Sans filtre de projet**, à la différence de `getClips` : le planning est
+ * transversal. L'ordre lexicographique sur `id` suffit — un `clipId` préfixe
+ * celui de son `projectId`, qui commence par la date de tournage — sans qu'il
+ * faille joindre `clips` à `projects` pour trier par date.
+ */
+export function listExportedClips(db: Database.Database): Clip[] {
+  const lines = db.prepare("SELECT * FROM clips WHERE status = 'exported' ORDER BY id").all() as LineClip[]
+  return lines.map(clipSinceLine)
+}
+
+/**
+ * Les échéances entre `from` (inclus) et `to` (exclu), quel que soit leur
+ * statut. **Ne regarde ni le statut du clip ni `deliveryToDay`** : le
+ * calendrier lit les publications, jamais le vivier (spec planning §5.2) — un
+ * clip reprogrammé qui redescend à `kept` reste sur le calendrier.
+ */
+export function listSchedule(db: Database.Database, from: number, to: number): PublicationRow[] {
+  return db
+    .prepare(
+      'SELECT * FROM publications WHERE scheduledAt >= ? AND scheduledAt < ? ORDER BY scheduledAt, platform',
+    )
+    .all(from, to) as PublicationRow[]
+}
+
+/** La plus ancienne échéance encore `planned` et due, ou `undefined` si rien ne l'est. */
+export function nextDueSchedule(
+  db: Database.Database,
+  now: number,
+): { clipId: string; scheduledAt: number } | undefined {
+  const row = db
+    .prepare(
+      `SELECT clipId, scheduledAt FROM publications
+       WHERE status = 'planned' AND scheduledAt IS NOT NULL AND scheduledAt <= ?
+       ORDER BY scheduledAt LIMIT 1`,
+    )
+    .get(now) as { clipId: string; scheduledAt: number } | undefined
+  return row
+}
+
+/**
+ * Pose l'échéance des quatre plateformes pour chaque clip, en une transaction.
+ *
+ * **Reprogrammer un clip déjà `planned` déplace sa date au lieu d'en écrire
+ * une seconde ligne** — la clause `WHERE` du `DO UPDATE` ne touche que les
+ * lignes encore `planned`. Une ligne qui porte déjà un résultat
+ * (`published`, `submitted`, `failed`, `in_progress`) n'est ni mise à jour ni
+ * dupliquée : on n'efface pas l'histoire d'une publication qui a eu lieu.
+ */
+export function schedulePublications(
+  db: Database.Database,
+  clipIds: readonly string[],
+  scheduledAt: number,
+  now: number,
+): void {
+  const upsert = db.prepare(
+    `INSERT INTO publications
+       (clipId, platform, status, remoteId, remoteUrl, requestId, error, publishedFingerprint, createdAt, updatedAt, scheduledAt)
+     VALUES (@clipId, @platform, 'planned', NULL, NULL, NULL, NULL, NULL, @now, @now, @scheduledAt)
+     ON CONFLICT(clipId, platform) DO UPDATE SET
+       scheduledAt = excluded.scheduledAt,
+       updatedAt   = excluded.updatedAt
+     WHERE publications.status = 'planned'`,
+  )
+  db.transaction(() => {
+    for (const clipId of clipIds) {
+      for (const platform of PLATFORMS) {
+        upsert.run({ clipId, platform, now, scheduledAt })
+      }
+    }
+  })()
+}
+
+/**
+ * Retire les lignes encore `planned` des clips donnés, rend le nombre
+ * supprimé. Les lignes qui portent déjà un résultat restent : on ne réécrit
+ * pas l'histoire d'une publication qui a eu lieu.
+ */
+export function unschedulePublications(db: Database.Database, clipIds: readonly string[]): number {
+  if (clipIds.length === 0) return 0
+  const placeholders = clipIds.map(() => '?').join(', ')
+  const result = db
+    .prepare(`DELETE FROM publications WHERE clipId IN (${placeholders}) AND status = 'planned'`)
+    .run(...clipIds)
+  return result.changes
 }

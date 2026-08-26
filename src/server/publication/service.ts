@@ -87,6 +87,9 @@ function upsertFrom(previous: PublicationRow | undefined, patch: Partial<Publica
       patch.publishedFingerprint !== undefined ? patch.publishedFingerprint : (previous?.publishedFingerprint ?? null),
     createdAt: previous?.createdAt ?? now,
     updatedAt: now,
+    // `upsertPublication` ne réécrit pas cette colonne (issue #195) : l'échéance
+    // pose ici ne sert qu'à satisfaire le type, la valeur réelle survit en base.
+    scheduledAt: previous?.scheduledAt ?? null,
   }
 }
 

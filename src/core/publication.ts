@@ -47,9 +47,10 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
  * ensuite depuis l'application. Les confondre ferait annoncer comme publié ce
  * qui attend encore une main.
  */
-export type PublicationStatus = 'in_progress' | 'submitted' | 'published' | 'failed'
+export type PublicationStatus = 'planned' | 'in_progress' | 'submitted' | 'published' | 'failed'
 
 export const PUBLICATION_STATUS_LABELS: Record<PublicationStatus, string> = {
+  planned: 'programmé',
   in_progress: 'en cours',
   submitted: 'déposé',
   published: 'publié',
@@ -159,6 +160,8 @@ export type PublicationRow = {
   publishedFingerprint: string | null
   createdAt: number
   updatedAt: number
+  /** L'échéance de diffusion, en ms depuis l'époque. `NULL` hors ordonnancement. */
+  scheduledAt: number | null
 }
 
 /**

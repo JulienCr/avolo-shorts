@@ -1094,7 +1094,13 @@ export const PUBLICATION_ADAPTER_CHOICES = {
  */
 export type PublicationSettings = {
   [P in Platform]: (typeof PUBLICATION_ADAPTER_CHOICES)[P][number]
+} & {
+  /** Jusqu'à quatre `HH:MM` séparés par des virgules, du plus récemment employé au plus ancien. */
+  scheduleHours: string
 }
+
+/** Le défaut de `publication.scheduleHours` — jamais un autre littéral `'19:00'` récrit à côté. */
+export const DEFAULT_SCHEDULE_HOURS = '19:00'
 
 export type Settings = {
   selection: SelectionSettings

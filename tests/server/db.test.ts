@@ -1048,6 +1048,7 @@ describe('replaceClips', () => {
       publishedFingerprint: 'abc',
       createdAt: 1000,
       updatedAt: 1000,
+      scheduledAt: null,
     })
 
     replaceClips(db, PROJECT.id, [clip('survivant'), clip('neuf')])
@@ -1638,6 +1639,7 @@ describe('la table publications', () => {
       publishedFingerprint: null,
       createdAt: 1000,
       updatedAt: 1000,
+      scheduledAt: null,
       ...remaining,
     }
   }

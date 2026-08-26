@@ -56,13 +56,24 @@ function reclaimGuardPath(lockDir: string): string {
 }
 
 function tryCreateLock(file: string, payload: LockPayload): boolean {
+  let fd: number
   try {
-    const fd = fs.openSync(file, 'wx')
+    fd = fs.openSync(file, 'wx')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
+    throw error
+  }
+  // `wx` a réussi : le fichier est à nous, sans conteste. Si l'écriture ou
+  // la fermeture lève ensuite (disque plein, E/S), le laisser en place
+  // ferait paraître le verrou pris pendant trente minutes sans qu'aucune
+  // passe ne publie — le supprimer avant de relever est sûr, puisque
+  // personne d'autre n'a pu le créer entretemps (relevé en revue).
+  try {
     fs.writeSync(fd, JSON.stringify(payload))
     fs.closeSync(fd)
     return true
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
+    fs.rmSync(file, { force: true })
     throw error
   }
 }
@@ -225,11 +236,20 @@ function releaseLock(lockDir: string, owner: string): void {
  * traiter comme « à faire » republierait après que l'humain a annulé
  * (relevé en revue).
  */
-function outstandingPlatforms(db: Database.Database, clipId: string): Platform[] {
-  const byPlatform = new Map(getPublications(db, clipId).map((r) => [r.platform, r.status]))
+function outstandingPlatforms(db: Database.Database, clipId: string, scheduledAt: number): Platform[] {
+  const byPlatform = new Map(getPublications(db, clipId).map((r) => [r.platform, r]))
   return PLATFORMS.filter((p) => {
-    const status = byPlatform.get(p)
-    return status === 'planned' || status === 'failed' || status === 'in_progress'
+    const row = byPlatform.get(p)
+    // `scheduledAt` filtre les lignes de cette échéance, jamais celles d'un
+    // essai manuel resté `failed`/`in_progress` (`scheduledAt: null`) que
+    // `schedulePublications` laisse intact — sa clause `WHERE status =
+    // 'planned'` ne le réécrit pas. Sans ce filtre, l'ordonnanceur retargette
+    // un envoi manuel encore en vol, jusqu'à le doubler (relevé en revue).
+    return (
+      row !== undefined &&
+      row.scheduledAt === scheduledAt &&
+      (row.status === 'planned' || row.status === 'failed' || row.status === 'in_progress')
+    )
   })
 }
 
@@ -310,7 +330,7 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
     // Sans ceci, les lignes restent `planned` : `nextDueSchedule` reprendrait
     // indéfiniment cette même échéance, empêchant les suivantes de jamais
     // passer (relevé en revue).
-    markFailed(db, clipId, outstandingPlatforms(db, clipId), `Clip programmé introuvable : ${clipId}.`, now())
+    markFailed(db, clipId, outstandingPlatforms(db, clipId, scheduledAt), `Clip programmé introuvable : ${clipId}.`, now())
     console.error(`Clip programmé introuvable : ${clipId}.`)
     await notifyAbandoned(sendMail, db, clipId, clipId, scheduledAt)
     return { kind: 'abandoned', clipId, attempts: 0, statuses: statusesFor(db, clipId) }
@@ -318,7 +338,7 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
 
   let attempts = 0
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
-    const targets = outstandingPlatforms(db, clipId)
+    const targets = outstandingPlatforms(db, clipId, scheduledAt)
     if (targets.length === 0) break
     attempts = attempt
 
@@ -333,7 +353,7 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
       // l'essai : une déprogrammation peut arriver pendant qu'une autre
       // plateforme de la même échéance est encore en train de téléverser —
       // `targets` capturé avant la boucle ne le verrait pas (relevé en revue).
-      if (!outstandingPlatforms(db, clipId).includes(platform)) continue
+      if (!outstandingPlatforms(db, clipId, scheduledAt).includes(platform)) continue
       try {
         const { settled } = launchPublish({ db, clip, platforms: [platform], force: false, ignoreStaleRender: true, sleep })
         await settled
@@ -342,7 +362,7 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
       }
     }
 
-    if (outstandingPlatforms(db, clipId).length === 0) break
+    if (outstandingPlatforms(db, clipId, scheduledAt).length === 0) break
     if (attempt < ATTEMPTS) await sleep(5000 * 2 ** (attempt - 1))
   }
 
@@ -353,7 +373,7 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
   // déprogrammée pendant la passe déclenchait un abandon, un courriel et
   // un code de sortie 1 — alors que l'annulation avait réussi (relevé en
   // revue).
-  const outstanding = outstandingPlatforms(db, clipId)
+  const outstanding = outstandingPlatforms(db, clipId, scheduledAt)
   if (outstanding.length === 0) return { kind: 'done', clipId, attempts, statuses }
 
   await notifyAbandoned(sendMail, db, clipId, clip.title, scheduledAt)
@@ -363,7 +383,7 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
 /** Ce que `--dry-run` rendrait public : lecture seule, aucune écriture, aucune impression. */
 function dueSummary(db: Database.Database, clipId: string, scheduledAt: number): DueSummary {
   const clip = getClip(db, clipId)
-  return { clipId, title: clip?.title ?? '', scheduledAt, platforms: outstandingPlatforms(db, clipId) }
+  return { clipId, title: clip?.title ?? '', scheduledAt, platforms: outstandingPlatforms(db, clipId, scheduledAt) }
 }
 
 /**

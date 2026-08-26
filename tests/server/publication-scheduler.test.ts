@@ -13,6 +13,7 @@ import {
   schedulePublications,
   unschedulePublications,
   upsertProject,
+  upsertPublication,
 } from '@/server/db'
 import type { PlatformOutcome, PublicationAdapter, PublicationJob } from '@/server/publication/adapter'
 import { forgetAll } from '@/server/publication/registry'
@@ -267,6 +268,22 @@ describe('runOnePass — le verrou', () => {
     expect(fs.existsSync(guardFile)).toBe(false)
   })
 
+  it('un échec d’écriture après la création exclusive ne laisse pas un verrou fantôme', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const lockFile = path.join(lockDir, '.publish-scheduled.lock')
+    const writeSync = vi.spyOn(fs, 'writeSync').mockImplementationOnce(() => {
+      throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' })
+    })
+
+    await expect(runOnePass(deps())).rejects.toThrow('ENOSPC')
+
+    // Le fichier créé par le `wx` qui a réussi ne doit pas survivre à
+    // l'échec de l'écriture qui suit : sinon chaque réveil suivant le voit
+    // et attend trente minutes pour rien.
+    expect(fs.existsSync(lockFile)).toBe(false)
+    writeSync.mockRestore()
+  })
+
   it('un verrou au JSON incomplet vieillit sur l’horodatage du fichier, pas sur l’instant de lecture', async () => {
     schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
     const lockFile = path.join(lockDir, '.publish-scheduled.lock')
@@ -470,5 +487,47 @@ describe('runOnePass — déprogrammation pendant la passe', () => {
     // code de sortie 1 pour un humain qui a fait exactement ce qu'il voulait.
     expect(outcome.kind).toBe('done')
     expect(sendMail).not.toHaveBeenCalled()
+  })
+})
+
+describe('runOnePass — contamination par un essai manuel', () => {
+  it('ignore une ligne manuelle laissée en in_progress (scheduledAt: null), même pour le même clip', async () => {
+    // Un envoi manuel encore en vol sur une plateforme, posé **avant** la
+    // programmation : `schedulePublications` ne le réécrit pas (sa clause
+    // `WHERE status = 'planned'` laisse intacte une ligne déjà `in_progress`),
+    // donc son `scheduledAt` reste `null` même après.
+    upsertPublication(getDb(), {
+      clipId: CLIP_ID,
+      platform: 'youtube',
+      status: 'in_progress',
+      remoteId: null,
+      remoteUrl: null,
+      requestId: 'manuel-en-vol',
+      error: null,
+      publishedFingerprint: null,
+      createdAt: 1,
+      updatedAt: 1,
+      scheduledAt: null,
+    })
+    const due = Date.now() - 1000
+    schedulePublications(getDb(), [CLIP_ID], due, Date.now())
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) outcomes[platform] = { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      return outcomes
+    })
+    fakeAdapter = adapterAlwaysPublishing(publish)
+
+    const outcome = await runOnePass(deps())
+
+    expect(outcome.kind).toBe('done')
+    // youtube n'a jamais été ciblé par la passe : la ligne manuelle reste
+    // intacte, sous son propre `requestId`.
+    expect(getPublications(getDb(), CLIP_ID).find((r) => r.platform === 'youtube')).toMatchObject({
+      status: 'in_progress',
+      requestId: 'manuel-en-vol',
+      scheduledAt: null,
+    })
+    expect(publish.mock.calls.every((call) => !(call[1] as readonly Platform[]).includes('youtube'))).toBe(true)
   })
 })

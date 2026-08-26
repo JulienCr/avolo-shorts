@@ -13,7 +13,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CropOverlay, RatioPicker, frozenCropReason } from '@/components/clip/crop-picker'
-import { framing, manualFraming, shot } from '../../fixtures/framing'
+import { framing, manualFraming, shot, splitCells } from '../../fixtures/framing'
 
 afterEach(cleanup)
 
@@ -162,6 +162,63 @@ describe('RatioPicker', () => {
     expect(screen.queryByText(/ne se règle pas ici/i)).toBeNull()
   })
 
+  /**
+   * Le split (spec du 25 août) n'existe que sur la variante : « auto → split »
+   * dit ce que ce plan-là rend, pas un ratio de crop qui n'y correspond plus.
+   */
+  it('dit « split » sur un plan splitté plutôt qu’un ratio de crop', () => {
+    render(
+      <RatioPicker
+        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
+        ratio="auto"
+        onRatio={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/auto → split/)).toBeTruthy()
+  })
+
+  it('dit « split · sur ce plan » quand le ratio est épinglé sur un plan splitté', () => {
+    // Un ratio épinglé vaut « pour tous » (§ ci-dessus) — sauf sur un plan
+    // splitté, où ce n'est justement plus un ratio de crop qui s'applique.
+    render(
+      <RatioPicker
+        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
+        ratio="1:1"
+        onRatio={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/split · sur ce plan/)).toBeTruthy()
+  })
+
+  it('signale le split dans la ligne qui nomme les deux fichiers', () => {
+    render(
+      <RatioPicker
+        framing={framing({
+          shots: [shot(0, 50, '16:9', 0.5, 'auto', splitCells()), shot(50, 100, '1:1', 0.5)],
+        })}
+        ratio="auto"
+        onRatio={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/en split sur certains plans/)).toBeTruthy()
+  })
+
+  it('ne signale aucun split quand aucun plan n’en pose', () => {
+    render(<RatioPicker framing={framing()} ratio="auto" onRatio={vi.fn()} />)
+    expect(screen.queryByText(/en split sur certains plans/)).toBeNull()
+  })
+
+  it('détaille le split-screen dans le dépliant de comportement', () => {
+    render(
+      <RatioPicker
+        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
+        ratio="auto"
+        onRatio={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/deux cellules empilées, sans fond/)).toBeTruthy()
+  })
+
   it('nomme le cadre pris dans la source, pas « le ratio de sortie »', () => {
     // Il y a deux sorties, et ce sélecteur n'en règle qu'une directement :
     // « ratio de sortie » était le mot qui autorisait la confusion.
@@ -191,6 +248,12 @@ describe('frozenCropReason', () => {
     // entièrement, et c'est le cadrage de l'itération 0 — il n'a jamais été
     // jetable.
     expect(frozenCropReason(manualFraming('1:1'), '1:1')).toBeNull()
+  })
+
+  it('dit qu’un plan splitté n’a pas un seul crop à déplacer', () => {
+    // Prime sur les deux autres causes : même en 16:9 ou en réglage manuel, un
+    // plan à deux cellules n'a rien qu'un curseur horizontal puisse désigner.
+    expect(frozenCropReason(manualFraming('1:1'), '1:1', true)).toContain('cellules empilées')
   })
 })
 
@@ -229,5 +292,39 @@ describe('CropOverlay', () => {
     const slider = screen.getByRole('slider')
     expect(slider.getAttribute('aria-describedby')).toBeNull()
     expect(slider.getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('rend les deux cellules plutôt qu’un slider, sur un plan splitté', () => {
+    // Pas de crop unique à situer : un `slider` mentirait sur les deux
+    // (`aria-valuenow` d'une position qui n'existe pas).
+    render(
+      <CropOverlay
+        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
+        ratio="auto"
+        cropX={0.5}
+        onCropX={vi.fn()}
+        describedBy="raison-cadrage"
+      />,
+    )
+    expect(screen.queryByRole('slider')).toBeNull()
+    const group = screen.getByRole('group')
+    expect(group.getAttribute('aria-describedby')).toBe('raison-cadrage')
+    expect(group.querySelectorAll('[aria-hidden="true"]')).toHaveLength(2)
+  })
+
+  it('ne rend pas les cellules quand le ratio épinglé supprime le split', () => {
+    // Épingler 9:16 supprime la variante et le split avec elle, avant même le
+    // retour du `PATCH` (`activeSplit`, addendum #178).
+    render(
+      <CropOverlay
+        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
+        ratio="9:16"
+        cropX={0.5}
+        onCropX={vi.fn()}
+        describedBy="raison-cadrage"
+      />,
+    )
+    expect(screen.queryByRole('group')).toBeNull()
+    expect(screen.getByRole('slider')).toBeTruthy()
   })
 })

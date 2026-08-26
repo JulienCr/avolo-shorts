@@ -1,4 +1,5 @@
 import type { PublishedFraming, FramingOrigin, ShotFraming } from '@/lib/api'
+import type { Cell } from '@/core/framing'
 import type { Ratio } from '@/core/edl'
 
 /**
@@ -26,6 +27,7 @@ export function shot(
   ratio: Ratio,
   cropX: number,
   source: ShotFraming['source'] = 'auto',
+  split?: [Cell, Cell],
 ): ShotFraming {
   return {
     shot: { start, end },
@@ -36,7 +38,16 @@ export function shot(
     // ratio natif, et ces tests-ci ne mesurent pas la différence.
     cropXNative: cropX,
     source,
+    split,
   }
+}
+
+/** Une paire de cellules de test, comme `computeShotSplit` en poserait. */
+export function splitCells(): [Cell, Cell] {
+  return [
+    { x0: 0, y0: 0, x1: 0.5, y1: 1 },
+    { x0: 0.5, y0: 0, x1: 1, y1: 1 },
+  ]
 }
 
 /**

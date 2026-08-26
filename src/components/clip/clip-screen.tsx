@@ -20,7 +20,12 @@ import { TranscriptDrawer } from '@/components/clip/transcript-drawer'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
+import {
+  isComputedFraming,
+  effectiveRatio,
+  activeSplit,
+  useCurrentShot,
+} from '@/components/clip/framing'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
@@ -604,7 +609,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
             <dt className="text-muted-foreground">Segments</dt>
             <dd className="font-mono tabular-nums">{segments.length}</dd>
 
-            <dt className="text-muted-foreground">Cadre</dt>
+            {/* Lit `shot.cropX`, jamais `cropXNative` : c'est la sortie 9:16,
+                pas le natif dont le crop est ailleurs à l'écran (addendum #178).
+                « variante » se disait à tort quand le natif est déjà 9:16 et
+                qu'aucune variante n'est produite. (relevé par Copilot) */}
+            <dt className="text-muted-foreground">Cadre (9:16)</dt>
             {/* Ce que le rendu découpera sur le plan qu'on regarde : le cadre
                 saute aux frontières, donc une seule valeur pour tout le clip ne
                 voudrait rien dire. La valeur est ramenée dans l'image, comme le
@@ -813,9 +822,12 @@ function ShotFrameLine({
   const effective = effectiveRatio(shot, ratio)
   const position = isComputedFraming(framing) ? (shot?.cropX ?? 0.5) : cropX
   const percent = Math.round(clampCropX(position, cropWidthFraction(effective)) * 100)
+  // Un plan splitté n'a pas de position de crop unique : le pourcentage ne
+  // décrirait rien (spec du 25 août, addendum #178).
+  const split = activeSplit(shot, framing, ratio)
   return (
     <dd className="font-mono tabular-nums">
-      {effective} · {percent} %
+      {split ? 'split' : `${effective} · ${percent} %`}
       {shot?.source === 'default' && (
         <span className="ml-1 font-sans text-amber-500 dark:text-amber-400">
           rien mesuré sur ce plan

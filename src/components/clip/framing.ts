@@ -52,10 +52,44 @@ export function effectiveRatio(
  * L'écran s'en sert pour dire, en un mot, que le cadre ne sera pas le même d'un
  * bout à l'autre : le ratio se choisit **par plan**, et ne rien en dire ferait
  * passer un saut de taille voulu pour un défaut de rendu.
+ *
+ * **Les plans splittés n'y figurent pas** : `ratio` y survit comme un champ
+ * vestigial, mais le split ignore le crop qu'il décrirait — l'y compter
+ * annoncerait un cadre qui ne sera pas rendu. (relevé par Aristarque)
  */
 export function shotRatios(framing: PublishedFraming): Ratio[] {
-  const seen = new Set(framing.shots.map((p) => p.ratio))
+  const seen = new Set(
+    framing.shots.filter((p) => p.split === undefined).map((p) => p.ratio),
+  )
   return ORDER_RATIOS.filter((r) => seen.has(r))
+}
+
+/**
+ * Un plan au moins pose-t-il un split-screen ?
+ *
+ * Vaut seulement pour la **variante 9:16** (spec du 25 août) : le natif ignore
+ * `split` et garde toujours un crop unique.
+ */
+export function anyShotSplit(framing: PublishedFraming): boolean {
+  return framing.shots.some((p) => p.split !== undefined)
+}
+
+/**
+ * Le split est-il actif, compte tenu du ratio épinglé — jamais `shot.split` seul.
+ *
+ * Épingler `9:16` supprime la variante (le serveur n'en produit aucune quand
+ * le natif est déjà vertical, `src/server/steps/render.ts`) et le split avec
+ * elle, mais `shot.split` reste celui du dernier `PATCH` le temps de
+ * l'écriture différée. Le ratio natif effectif, lui, se connaît tout de suite
+ * — même raisonnement que `effectiveRatio`. (relevé par Copilot, Codex)
+ */
+export function activeSplit(
+  shot: ShotFraming | null,
+  framing: PublishedFraming,
+  ratio: Ratio | 'auto',
+): boolean {
+  const nativeRatio = ratio === 'auto' ? framing.ratio : ratio
+  return nativeRatio !== '9:16' && shot?.split !== undefined
 }
 
 /**

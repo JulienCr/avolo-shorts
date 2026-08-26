@@ -19,10 +19,12 @@ import {
   unmeasuredShots,
   effectiveRatio,
   shotRatios,
+  anyShotSplit,
+  activeSplit,
   useCurrentShot,
 } from '@/components/clip/framing'
 import { usePlayback } from '@/components/clip/playback'
-import { framing, manualFraming, shot } from '../../fixtures/framing'
+import { framing, manualFraming, shot, splitCells } from '../../fixtures/framing'
 
 afterEach(() => usePlayback.getState().reset())
 
@@ -116,6 +118,60 @@ describe('shotRatios', () => {
         }),
       ),
     ).toEqual(['9:16', '16:9'])
+  })
+
+  it('exclut le ratio d’un plan splitté, vestigial et jamais rendu', () => {
+    expect(
+      shotRatios(
+        framing({
+          shots: [shot(0, 1, '16:9', 0.5), shot(1, 2, '16:9', 0.5, 'auto', splitCells())],
+        }),
+      ),
+    ).toEqual(['16:9'])
+    expect(
+      shotRatios(framing({ shots: [shot(0, 1, '16:9', 0.5, 'auto', splitCells())] })),
+    ).toEqual([])
+  })
+})
+
+describe('anyShotSplit', () => {
+  it('vaut vrai dès qu’un plan porte deux cellules', () => {
+    expect(
+      anyShotSplit(framing({ shots: [shot(0, 1, '16:9', 0.5, 'auto', splitCells())] })),
+    ).toBe(true)
+  })
+
+  it('vaut faux sans aucun plan splitté', () => {
+    expect(anyShotSplit(framing({ shots: [shot(0, 1, '16:9', 0.5)] }))).toBe(false)
+  })
+})
+
+describe('activeSplit', () => {
+  const splitFraming = framing({
+    ratio: '1:1',
+    shots: [shot(0, 1, '16:9', 0.5, 'auto', splitCells())],
+  })
+
+  it('vaut vrai sur un plan splitté quand le natif n’est pas 9:16', () => {
+    expect(activeSplit(splitFraming.shots[0], splitFraming, 'auto')).toBe(true)
+  })
+
+  it('vaut faux dès que le ratio épingle 9:16, avant même le retour du PATCH', () => {
+    // Le natif publié vaut encore '1:1' ici : c'est le ratio épinglé, connu
+    // tout de suite, qui doit fermer le split — pas la réponse du serveur.
+    expect(activeSplit(splitFraming.shots[0], splitFraming, '9:16')).toBe(false)
+  })
+
+  it('vaut faux quand le natif publié est déjà 9:16, en auto', () => {
+    const already916 = framing({
+      ratio: '9:16',
+      shots: [shot(0, 1, '16:9', 0.5, 'auto', splitCells())],
+    })
+    expect(activeSplit(already916.shots[0], already916, 'auto')).toBe(false)
+  })
+
+  it('vaut faux sans plan sous la lecture', () => {
+    expect(activeSplit(null, splitFraming, 'auto')).toBe(false)
   })
 })
 

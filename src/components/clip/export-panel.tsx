@@ -3,7 +3,7 @@
 import { Check, ChevronDown, Copy, LoaderCircle, Send, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 
-import { unmeasuredShots, shotRatios } from '@/components/clip/framing'
+import { unmeasuredShots, shotRatios, anyShotSplit } from '@/components/clip/framing'
 import type { Clip, Ratio } from '@/core/edl'
 import { clipExportEligibility } from '@/core/publication'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -159,6 +159,10 @@ export function PanelExport({
   const shotCount = framing.shots.length
   const unmeasured = unmeasuredShots(framing)
   const frames = shotRatios(framing)
+  // `anyShotSplit` seule ne dit rien du natif : sans variante due (natif déjà
+  // 9:16), le split ne se rend jamais — l'annoncer serait décrire un fichier
+  // qui n'existe pas. (relevé par Aristarque)
+  const split = names.variant9x16 !== null && anyShotSplit(framing)
   const state = deriveDeliveryState(clip.status, outputs)
   /**
    * Ce que le pli dit sans être ouvert : combien de fichiers, à quel ratio, et
@@ -263,6 +267,8 @@ export function PanelExport({
             {summary} · {shotCount === 1 ? '1 plan' : `${shotCount} plans`}, cadrés{' '}
             <span className="font-mono">{frames.join(', ') || '—'}</span>
             {frames.length > 1 && ' selon le plan, dans la variante 9:16'}
+            {split &&
+              ' — dont au moins un en split-screen, deux personnes empilées sur la variante'}
           </p>
 
           <OutputsList names={names} native={native} outputs={outputs} />

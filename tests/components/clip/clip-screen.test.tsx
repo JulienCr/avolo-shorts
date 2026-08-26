@@ -14,7 +14,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ClipScreen } from '@/components/clip/clip-screen'
-import { framing, shot } from '../../fixtures/framing'
+import { framing, shot, splitCells } from '../../fixtures/framing'
 import { defaultPlatformAvailability } from '@/core/publication'
 import type { CandidateClip, ClipDetail } from '@/lib/api'
 import { useEditor } from '@/store/editor'
@@ -188,6 +188,28 @@ describe('la boucle de montage', () => {
     await mount('c4')
     const button = await screen.findByRole('button', { name: /clip suivant/i })
     expect(button.hasAttribute('disabled')).toBe(true)
+  })
+})
+
+describe('le cadre du plan sous la lecture, splitté', () => {
+  it('dit « split » plutôt qu’un ratio et un pourcentage qui n’y correspondent plus', async () => {
+    const d = detail()
+    d.framing = framing({ shots: [shot(0, 200, '16:9', 0.5, 'auto', splitCells())] })
+    await mount('c2', d)
+    const label = await screen.findByText('Cadre (9:16)')
+    expect(label.nextElementSibling?.textContent).toContain('split')
+  })
+})
+
+describe('le libellé du cadre, quand le natif est déjà 9:16', () => {
+  it('ne dit pas « variante », qui n’existe pas dans ce cas', async () => {
+    // Le natif prend alors la place de la sortie verticale : aucune variante
+    // n'est produite (`src/server/steps/render.ts`). (relevé par Copilot)
+    const d = detail()
+    d.framing = framing({ ratio: '9:16', shots: [shot(0, 200, '9:16', 0.5)] })
+    await mount('c2', d)
+    expect(await screen.findByText('Cadre (9:16)')).toBeTruthy()
+    expect(screen.queryByText('Cadre (variante)')).toBeNull()
   })
 })
 

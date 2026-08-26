@@ -7,6 +7,8 @@ import {
   originMessage,
   effectiveRatio,
   shotRatios,
+  anyShotSplit,
+  activeSplit,
   useCurrentShot,
 } from '@/components/clip/framing'
 import type { Ratio } from '@/core/edl'
@@ -27,32 +29,21 @@ const NOT_FAST = 0.05
 /**
  * Pourquoi le curseur de cadrage ne déplace rien, ou `null` quand il déplace.
  *
- * **Un contrôle inerte sans raison écrite fait douter de l'outil**, et c'est la
- * forme que le dépôt a déjà retenue ailleurs : le bouton « Monter » d'une carte
- * de candidat reste atteignable, porte `aria-disabled` et pointe vers sa raison,
- * écrite à côté (`src/components/review/candidate-card.tsx`). Une bulle d'aide ne
- * conviendrait pas — elle serait invisible au clavier, et la raison d'un blocage
- * se lit avant d'essayer.
- *
- * Deux causes, et elles se cumulent :
- *
- * - **rien à déplacer** — en 16:9 le cadre couvre toute la source ;
- * - **rien à écrire** — le cadrage est calculé, et la dérogation par plan qui
- *   rendrait le curseur utile demande une table persistée que le clip ne porte
- *   pas encore (§9.4). C'est délibéré : un curseur qui bougerait sans rien
- *   changer au fichier produit serait pire qu'un curseur figé.
- *
- * **La seconde moitié de cette fonction est datée et doit partir avec le lot qui
- * rebranche le curseur.** Elle tient en une branche, exprès : le jour où la
- * dérogation s'enregistre, c'est la condition `automatic` qui disparaît, pas
- * une phrase à retrouver dans trois paragraphes.
- *
- * Exportée parce que **deux composants en ont besoin et doivent s'accorder** :
- * le sélecteur l'affiche, le rectangle la désigne par `aria-describedby`. Deux
- * conditions recopiées finiraient par diverger, et le jour où elles divergent le
- * rectangle pointe vers un texte qui n'est plus rendu.
+ * Trois causes cumulables, dans l'ordre où elles priment : le plan est
+ * splitté (deux cellules, pas de crop unique) ; le cadrage est calculé (la
+ * dérogation par plan qui rendrait le curseur utile n'existe pas encore,
+ * §9.4) ; ou le cadre couvre toute la source (16:9, rien à déplacer).
+ * `CropOverlay` et `RatioPicker` l'appellent tous deux, pour ne jamais rendre
+ * deux textes différents pour la même cause.
  */
-export function frozenCropReason(framing: PublishedFraming, effective: Ratio): string | null {
+export function frozenCropReason(
+  framing: PublishedFraming,
+  effective: Ratio,
+  split = false,
+): string | null {
+  if (split) {
+    return 'Ce plan pose deux personnes en deux cellules empilées (split-screen) : il n’y a pas un seul crop à déplacer.'
+  }
   const computed = isComputedFraming(framing)
   const fullWidth = cropWidthFraction(effective) >= 1
   if (fullWidth) {
@@ -134,17 +125,19 @@ export function CropOverlay({
   const automatic = isComputedFraming(framing)
 
   const effective = effectiveRatio(shot, ratio)
+  const split = activeSplit(shot, framing, ratio)
   const position = automatic ? (shot?.cropX ?? 0.5) : cropX
   const width = cropWidthFraction(effective)
   const left = cropLeftFraction(position, width)
   const center = clampCropX(position, width)
-  // Figé quand le cadre couvre toute la source — il n'y a rien à déplacer — ou
-  // quand c'est le calcul qui décide de sa position.
+  // Figé quand le cadre couvre toute la source, ou quand c'est le calcul qui
+  // décide de sa position. `split` n'a pas sa place ici : il n'est jamais posé
+  // hors du cadrage calculé, donc `automatic` couvre déjà ce cas.
   const frozen = width >= 1 || automatic
   // La même énumération que celle qu'affiche `RatioPicker`, appelée plutôt que
   // recopiée : deux conditions parallèles finissent par diverger, et le jour où
   // elles divergent le rectangle décrit un texte qui n'est plus rendu.
-  const reason = frozenCropReason(framing, effective)
+  const reason = frozenCropReason(framing, effective, split)
 
   function pointerFraction(clientX: number): number | null {
     const rect = frame.current?.getBoundingClientRect()
@@ -163,6 +156,38 @@ export function CropOverlay({
     else if (e.key === 'End') onCropX(clampCropX(1, width))
     else return
     e.preventDefault()
+  }
+
+  if (split && shot?.split) {
+    // Pas de crop unique à situer : deux rectangles, un par cellule, dans les
+    // coordonnées de la source (mêmes fractions que `splitCellRect`). Un
+    // `slider` mentirait sur les deux (`aria-valuenow` d'une position qui
+    // n'existe pas) ; `group` porte la même raison sans en simuler une.
+    // (relevé par Codex, Copilot)
+    return (
+      <div
+        ref={frame}
+        role="group"
+        tabIndex={reason !== null ? 0 : -1}
+        aria-label="Cadre de ce plan, en deux cellules empilées"
+        aria-describedby={reason !== null ? describedBy : undefined}
+        className="pointer-events-none absolute inset-0 outline-none focus-visible:ring-2 focus-visible:ring-stage focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+      >
+        {shot.split.map((cell, i) => (
+          <div
+            key={i}
+            aria-hidden
+            className="absolute border-2 border-stage/90 shadow-[0_0_0_1px_rgba(0,0,0,0.45)]"
+            style={{
+              left: `${cell.x0 * 100}%`,
+              top: `${cell.y0 * 100}%`,
+              width: `${(cell.x1 - cell.x0) * 100}%`,
+              height: `${(cell.y1 - cell.y0) * 100}%`,
+            }}
+          />
+        ))}
+      </div>
+    )
   }
 
   return (
@@ -224,6 +249,7 @@ export function CropOverlay({
         )}
         style={{ left: `${left * 100}%`, width: `${width * 100}%` }}
       >
+        {/* `split` a déjà rendu son propre retour ci-dessus : ici, toujours `effective`. */}
         <span className="absolute top-1 left-1 rounded bg-stage px-1 font-mono text-[0.75rem] font-semibold text-stage-foreground">
           {effective}
         </span>
@@ -291,6 +317,8 @@ export function RatioPicker({
   const values: (Ratio | 'auto')[] = ['auto', ...ORDER_RATIOS]
   const shot = useCurrentShot(framing)
   const effective = effectiveRatio(shot, ratio)
+  const split = activeSplit(shot, framing, ratio)
+  const anySplit = anyShotSplit(framing)
   const origin = originMessage(framing)
   const varied = ratio === 'auto' ? shotRatios(framing) : []
   const varies = varied.length > 1
@@ -307,7 +335,7 @@ export function RatioPicker({
   const nativeRatio = ratio === 'auto' ? framing.ratio : ratio
   // La variante n'existe que si le natif n'est pas déjà vertical (spec §11).
   const variantDue = nativeRatio !== '9:16'
-  const cropReason = frozenCropReason(framing, effective)
+  const cropReason = frozenCropReason(framing, effective, split)
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -337,7 +365,11 @@ export function RatioPicker({
           sélecteur ne peut pas dire seul : ce que « auto » a choisi *pour le
           plan qu'on regarde*, et qu'un ratio épinglé vaut pour tous. */}
       <p className="font-mono text-[0.75rem] text-muted-foreground">
-        {ratio === 'auto' ? `auto → ${effective}` : `${effective} · épinglé partout`}
+        {ratio === 'auto'
+          ? `auto → ${split ? 'split' : effective}`
+          : split
+            ? 'split · sur ce plan'
+            : `${effective} · épinglé partout`}
         {' · natif '}
         {nativeRatio}
       </p>
@@ -354,7 +386,7 @@ export function RatioPicker({
         <span className="font-mono">{nativeRatio}</span>
         {' · '}
         <strong className="font-medium">Variante 9:16</strong>{' '}
-        {variantDue ? 'sur fond flouté' : 'aucune'}
+        {variantDue ? (anySplit ? 'sur fond flouté, en split sur certains plans' : 'sur fond flouté') : 'aucune'}
       </p>
 
       <details className="group/comportement basis-full">
@@ -376,6 +408,12 @@ export function RatioPicker({
                   {' '}
                   — le cadre y change avec les plans (
                   <span className="font-mono">{varied.join(', ')}</span>)
+                </>
+              )}
+              {anySplit && (
+                <>
+                  {' '}
+                  — un plan à deux personnes se pose en deux cellules empilées, sans fond
                 </>
               )}{' '}
               : elle suit le calcul et ne se règle pas ici.

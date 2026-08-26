@@ -21,7 +21,7 @@ import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
 import { HOOK_DEFAULTS, type ResolvedHook } from '@/core/hook'
 import { RATIOS } from '@/core/framing'
-import { framing, manualFraming, shot } from '../../fixtures/framing'
+import { framing, manualFraming, shot, splitCells } from '../../fixtures/framing'
 
 afterEach(() => {
   cleanup()
@@ -89,6 +89,26 @@ describe('paintOutput', () => {
       hauteur: 192,
     })
     expect(ctx.drawImage.mock.calls[0][1]).toBe(0)
+  })
+
+  it('peint les deux cellules empilées quand le plan est splitté, en ignorant `ratio`/`cropX`', () => {
+    const ctx = { drawImage: vi.fn() }
+    const [top, bottom] = splitCells()
+    paintOutput(ctx as unknown as CanvasRenderingContext2D, video(), {
+      ratio: '16:9',
+      cropX: 0.5,
+      width: 100,
+      hauteur: 200,
+      split: [top, bottom],
+    })
+
+    expect(ctx.drawImage).toHaveBeenCalledTimes(2)
+    const [, , , , , dx1, dy1, dw1, dh1] = ctx.drawImage.mock.calls[0]
+    expect([dx1, dy1, dw1, dh1]).toEqual([0, 0, 100, 100])
+    const [, sx2, sy2, sw2, sh2, dx2, dy2, dw2, dh2] = ctx.drawImage.mock.calls[1]
+    // La cellule de droite couvre la moitié droite de la source (960x540).
+    expect([sx2, sy2, sw2, sh2]).toEqual([480, 0, 480, 540])
+    expect([dx2, dy2, dw2, dh2]).toEqual([0, 100, 100, 100])
   })
 
   it('ne peint rien tant que la vidéo n’a pas de dimensions', () => {
@@ -200,6 +220,25 @@ describe('PreviewOutput', () => {
     rerender(<PreviewOutput video={video()} framing={two} ratio="auto" cropX={0.5} />)
     expect(container.textContent).toContain('32')
     expect(container.textContent).toContain('16:9')
+  })
+
+  /**
+   * Le split (spec du 25 août) n'existe que sur la variante 9:16 : la légende
+   * doit le dire, et le canevas doit occuper 100 % de la hauteur du téléphone
+   * — les deux cellules empilées remplissent le canevas, sans fond flouté.
+   */
+  it('montre « split » et 100 % sur un plan splitté', () => {
+    const ctx = context()
+    const two = framing({
+      ratio: '16:9',
+      shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())],
+    })
+    const { container } = render(
+      <PreviewOutput video={video()} framing={two} ratio="auto" cropX={0.5} />,
+    )
+    expect(container.textContent).toContain('split')
+    expect(container.textContent).toContain('100')
+    expect(ctx.drawImage).toHaveBeenCalledTimes(2)
   })
 
   /**

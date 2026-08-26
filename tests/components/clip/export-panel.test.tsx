@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Clip } from '@/core/edl'
 import type { ClipOutputs, ExportResult } from '@/lib/api'
 import { PanelExport } from '@/components/clip/export-panel'
-import { framing, shot } from '../../fixtures/framing'
+import { framing, shot, splitCells } from '../../fixtures/framing'
 
 afterEach(() => {
   cleanup()
@@ -127,6 +127,37 @@ describe('avant l’export', () => {
     openDetail()
     expect(screen.getByText(/2 plans/)).toBeTruthy()
     expect(screen.getByText(/1:1, 16:9/)).toBeTruthy()
+  })
+
+  /**
+   * Le split (spec du 25 août) n'existe que sur la variante 9:16 : le natif
+   * n'a pas bougé, et cette ligne décrit déjà la variante — elle doit donc
+   * dire que le split y a cours plutôt que de ne montrer qu'un ratio de crop.
+   */
+  it('signale le split-screen sur au moins un plan', () => {
+    mount({
+      framing: framing({
+        shots: [shot(0, 10, '16:9', 0.5, 'auto', splitCells()), shot(10, 20, '1:1', 0.5)],
+      }),
+    })
+    openDetail()
+    expect(screen.getByText(/split-screen/)).toBeTruthy()
+  })
+
+  /**
+   * Sans variante due (natif déjà 9:16), le split ne se rend jamais : rien à
+   * `src/server/steps/render.ts` ne le produit. L'annoncer décrirait un
+   * fichier qui n'existe pas. (relevé par Aristarque)
+   */
+  it('ne signale pas de split quand le natif est déjà 9:16', () => {
+    mount({
+      framing: framing({
+        ratio: '9:16',
+        shots: [shot(0, 10, '9:16', 0.5, 'auto', splitCells())],
+      }),
+    })
+    openDetail()
+    expect(screen.queryByText(/split-screen/)).toBeNull()
   })
 
   /**

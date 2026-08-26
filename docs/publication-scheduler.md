@@ -34,25 +34,50 @@ cette machine.
 Depuis PowerShell, en remplaçant `<Distro>` par le nom trouvé ci-dessus :
 
 ```
-schtasks /Create /F /SC MINUTE /MO 5 /RL LIMITED /TN "AvoloShorts-PublishScheduled" /TR 'wsl.exe -d <Distro> -- bash -lc "cd /home/julien/dev/avolo-shorts && pnpm tsx scripts/publish-scheduled.ts >> projects/publish-scheduled.log 2>&1"'
+schtasks /Create /F /SC MINUTE /MO 5 /RL LIMITED /TN "AvoloShorts-PublishScheduled" /TR 'wsl.exe -d <Distro> -- /home/julien/dev/avolo-shorts/scripts/publish-scheduled.sh >> projects/publish-scheduled.log 2>&1'
 ```
 
-**L'apostrophe n'est pas une apostrophe Windows.** Le découpage en arguments que
-`CreateProcess` applique quand la tâche se déclenche ne reconnaît que les
-guillemets doubles pour grouper une valeur avec des espaces — une apostrophe y
-est un caractère ordinaire. La commande `bash -lc` doit donc être entre
-guillemets doubles ; c'est la valeur entière de `/TR`, elle, qui est entre
+`/TR` invoque `scripts/publish-scheduled.sh`, un lanceur du dépôt, comme un
+**chemin unique** plutôt qu'une commande `bash -lc "…"` imbriquée — la
+commande n'a donc plus de guillemets doubles internes à protéger d'une
+apostrophe Windows. C'est la valeur entière de `/TR`, elle, qui reste entre
 apostrophes PowerShell, pour que PowerShell la transmette telle quelle à
 `schtasks.exe` sans y toucher.
 
 - `/SC MINUTE /MO 5` : toutes les cinq minutes, comme la conception le fixe.
 - `/RL LIMITED` : pas de privilèges élevés, la tâche n'en a pas besoin.
-- `bash -lc` : un shell de connexion, pour que `.bashrc`/`.profile` posent le
-  `PATH` qui contient `pnpm` — un `bash -c` simple ne le garantit pas. Si la
-  tâche échoue avec « pnpm : commande introuvable », vérifier depuis WSL :
-  `wsl.exe -d <Distro> -- bash -lc 'which pnpm'`.
+- Le lanceur résout lui-même son `nvm` et vérifie la version de Node avant
+  d'appeler `pnpm tsx` — voir « Pourquoi un lanceur, et pas `bash -lc` »
+  ci-dessous.
 - La sortie (`stdout` et `stderr`) part dans `projects/publish-scheduled.log`,
-  à côté de la base et des jetons — ce dossier est déjà hors dépôt.
+  à côté de la base et des jetons — ce dossier est déjà hors dépôt. Le lanceur
+  ne redirige rien lui-même : c'est `>> … 2>&1` sur la commande `/TR` qui
+  capture tout, y compris un échec avant même que Node ne démarre.
+
+## Pourquoi un lanceur, et pas `bash -lc`
+
+Une version antérieure de ce document posait la tâche avec
+`bash -lc "cd … && pnpm tsx …"`, au motif qu'un shell de connexion pose le
+`PATH` qui contient `pnpm`. **C'est faux sur cette machine, et ça a coûté un
+incident réel** : deux clips programmés à 20:50 n'étaient pas partis à 23:10.
+`nvm` est sourcé depuis un fichier de démarrage **interactif**
+(`.zshrc`/`.bashrc`), et une tâche planifiée n'obtient jamais de shell
+interactif — `bash -lc`, en session de connexion non interactive, lit
+`.bash_profile`/`.profile`, jamais `.bashrc`. Résultat mesuré :
+`wsl.exe -d Ubuntu -- bash -lc 'node -v'` rend `v12.22.9`, le Node système
+d'Ubuntu dans `/usr/bin/node`. Le dépôt exige Node ≥ 22, donc `pnpm` meurt
+avec `SyntaxError: Unexpected token '.'`, une trace qui pointe dans
+`internal/modules/cjs/loader.js` sans jamais mentionner Node, `PATH` ni `nvm`
+— c'est ce message qui a fait perdre des heures à l'investigation. Appeler le
+`pnpm` de `nvm` par son chemin absolu ne suffit pas non plus : son shebang est
+`#!/usr/bin/env node`, qui recherche `node` dans `PATH` et retrouve la v12 en
+premier.
+
+`scripts/publish-scheduled.sh` résout cette dépendance dans le script plutôt
+que dans le shell qui l'invoque : il source `$NVM_DIR/nvm.sh` s'il existe,
+lance `nvm use default`, puis vérifie que la version de Node résolue est bien
+≥ 22 avant d'appeler `pnpm tsx` — sinon il échoue avec un message sur
+`stderr` qui nomme la version trouvée, le binaire `node` résolu et `PATH`.
 
 Cette forme suppose une **session Windows ouverte** au moment du réveil (la
 tâche tourne dans le contexte de l'utilisateur courant). Si l'essai plus bas

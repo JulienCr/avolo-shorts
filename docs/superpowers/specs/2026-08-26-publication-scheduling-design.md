@@ -217,6 +217,16 @@ programmé** et **part quand même** (§3). Le calendrier lit les publications,
 pas le vivier. Implémenter l'inverse — retirer du calendrier ce qui sort du
 vivier — serait une régression silencieuse.
 
+**Ce scénario tient parce que `discardRenderStale` épargne les sorties d'un
+clip qui porte encore une échéance `planned`** (`keepScheduledOutputs`,
+`src/server/db.ts:hasPendingSchedule`, issue #205). Sans cette réserve, la
+route d'édition efface le MP4, sa variante et l'empreinte dès qu'un montage
+devient périmé — exactement le geste que l'exemple du §3 décrit — et le
+fichier de lundi n'existe plus le vendredi où il devait partir : deux
+relecteurs l'ont trouvé indépendamment sur la PR #204. La réserve ne s'étend
+jamais à `renderClip` lui-même, qui continue d'effacer l'empreinte pour
+décider de ré-encoder.
+
 ### 5.3 L'écran
 
 Route `/planning`, cinquième membre du type `Lieu`, entrée permanente dans la

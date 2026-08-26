@@ -243,8 +243,16 @@ export const PATCH = route(
       // passagère y ferait redescendre un clip `exported` à `kept` par le
       // rattrapage ci-dessous, et ses sorties disparaîtraient de l'API sur une
       // simple correction de titre. (relevé par Codex)
-      const stale = discardRenderStale(db, id, paths, clip, renderedFraming(framingBefore), (c) =>
-        renderedFraming(framingWith(c, analysis, framingGlobals)),
+      // **`keepScheduledOutputs: true`** : un clip qui porte une échéance
+      // `planned` garde ses sorties même périmées (#205, spec planning §3/§5.2).
+      const stale = discardRenderStale(
+        db,
+        id,
+        paths,
+        clip,
+        renderedFraming(framingBefore),
+        (c) => renderedFraming(framingWith(c, analysis, framingGlobals)),
+        true,
       )
 
       // **La variante du ratio d'arrivée, en plus de celle du ratio de départ.**
@@ -257,7 +265,11 @@ export const PATCH = route(
       // variante ne dépend pas du ratio, seulement du fait qu'il ne soit pas
       // 9:16 : effacer l'union des deux ferme le cas dans les deux sens.
       // (relevé par Copilot)
-      if (stale) {
+      //
+      // **Seulement sur `'discarded'`.** Sur `'keptForSchedule'` à ratio égal,
+      // `variantAfter` est le chemin qu'on vient d'épargner : l'effacer ici
+      // reprendrait d'une main ce que la réserve donne de l'autre (#205).
+      if (stale === 'discarded') {
         const variantAfter = pathsRender(
           written.projectId,
           written.id,

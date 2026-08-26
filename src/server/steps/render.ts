@@ -28,6 +28,7 @@ import {
   getClip,
   getDb,
   getProject,
+  hasPendingSchedule,
   putClip,
   HOOK_STYLE_SHAPE,
   type Project,
@@ -1810,7 +1811,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
     // cette ligne faisait annoncer « exporté » sur des fichiers que le `PATCH`
     // venait d'effacer. Le chemin long refusait ce cas depuis toujours ; celui-ci
     // ne le voyait pas.
-    if (discardRenderStale(db, clipId, paths, clip, framingSnapshot)) {
+    if (discardRenderStale(db, clipId, paths, clip, framingSnapshot) !== 'fresh') {
       throw new Error(
         `Le clip ${clipId} a été modifié pendant son export : les fichiers présents décrivaient le montage d'avant et ont été écartés. Relancer l'export.`,
       )
@@ -2297,7 +2298,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   // retire et on échoue franchement, plutôt que de les laisser sur le disque où
   // l'export suivant les prendrait pour bons. C'est le prix d'un modèle où la
   // présence du fichier fait foi.
-  if (discardRenderStale(db, clipId, paths, clip, framingSnapshot)) {
+  if (discardRenderStale(db, clipId, paths, clip, framingSnapshot) !== 'fresh') {
     throw new Error(
       `Le clip ${clipId} a été modifié pendant son export : les fichiers produits décrivaient le montage d'avant et ont été écartés. Relancer l'export.`,
     )
@@ -2378,20 +2379,40 @@ export function markExported(
 }
 
 /**
- * Écarte les sorties d'un rendu que le montage a rendu caduc, et rend vrai
- * quand c'est arrivé.
+ * Ce que `discardRenderStale` a fait d'un rendu périmé.
  *
- * **Laisser les fichiers en place ne suffisait pas.** Refuser le statut ne fait
- * que reporter le problème d'un appel : les MP4 sont tous là, donc l'export
- * suivant passe par `sauterRender`, ne compare plus rien, et annonce `exported`
- * sur des fichiers qui décrivent le montage d'avant. L'utilisateur publierait
- * l'ancien cadre sans jamais voir passer d'avertissement. La seule sortie qui
- * tienne dans un modèle « la présence du fichier fait foi » (spec §4) est de
- * retirer les fichiers qu'on sait faux : le prochain export les refait.
- * (relevé par Copilot)
+ * `'fresh'` : le rendu décrit toujours le clip, rien n'a bougé. `'discarded'` :
+ * périmé, fichiers et empreinte effacés. `'keptForSchedule'` : périmé, statut
+ * quand même redescendu, mais fichiers **et empreinte laissés sur le disque**
+ * parce qu'une échéance programmée doit encore trouver quelque chose à publier
+ * (#205).
+ */
+export type StaleDiscard = 'fresh' | 'discarded' | 'keptForSchedule'
+
+/**
+ * Écarte les sorties d'un rendu que le montage a rendu caduc — ou les épargne
+ * quand une échéance programmée en dépend encore. Rend l'issue, voir
+ * `StaleDiscard`.
+ *
+ * **Laisser les fichiers en place ne suffisait pas, dans le cas général.**
+ * Refuser le statut ne fait que reporter le problème d'un appel : les MP4 sont
+ * tous là, donc l'export suivant passe par `sauterRender`, ne compare plus
+ * rien, et annonce `exported` sur des fichiers qui décrivent le montage
+ * d'avant. La seule sortie qui tienne dans un modèle « la présence du fichier
+ * fait foi » (spec §4) est de retirer les fichiers qu'on sait faux : le
+ * prochain export les refait. (relevé par Copilot)
+ *
+ * **Sauf pour un clip programmé.** La conception du planning (§3, §5.2) veut
+ * que le dernier export parte quand même à l'échéance ; sans cette réserve, le
+ * fichier de lundi n'existe plus le vendredi où il devait partir (#205). La
+ * réserve ne s'applique **jamais à `renderClip`** : ses deux appels internes
+ * gardent le défaut, parce qu'ils s'en servent pour décider de ré-encoder — y
+ * épargner l'empreinte ferait sauter silencieusement un rendu qui devrait être
+ * refait.
  *
  * Un clip déjà `exported` redescend à `kept` du même geste — « décidé, reste à
- * exporter » —, puisque plus rien sur le disque ne justifie l'autre statut.
+ * exporter » —, que les sorties soient effacées ou épargnées : plus rien
+ * n'atteste que le rendu courant décrit le montage courant.
  */
 export function discardRenderStale(
   db: Database.Database,
@@ -2413,26 +2434,36 @@ export function discardRenderStale(
    * subsiste après le point de non-retour. (relevé par Codex)
    */
   rereadFraming: (clip: Clip) => RenderedFraming = (clip) => renderedFraming(clipFraming(clip, effectiveSettings(db).framing)),
-): boolean {
+  /**
+   * Épargne les sorties d'un clip qui porte encore une échéance `planned`.
+   * **Faux par défaut** pour que les deux appels internes de `renderClip`
+   * n'aient rien à changer : ils continuent d'effacer l'empreinte, qui est ce
+   * qui leur fait décider de ré-encoder.
+   */
+  keepScheduledOutputs = false,
+): StaleDiscard {
   const toDay = getClip(db, clipId)
-  if (toDay === undefined) return false
+  if (toDay === undefined) return 'fresh'
   // **Le cadrage d'après se recalcule sur le clip relu**, pas sur celui qu'on
   // avait : c'est tout l'objet du contrôle. Retirer un passage où un comédien
   // traverse le plateau peut faire retomber un 16:9 en 1:1 sans qu'aucun champ
   // du clip ne dise « cadrage », et les fichiers montreraient alors un cadre que
   // plus personne ne veut.
   if (!renderIsStale(renderedShape(render, framing), renderedShape(toDay, rereadFraming(toDay))))
-    return false
+    return 'fresh'
 
-  // **L'empreinte part la première.** Elle est ce qui certifie les autres : un
-  // échec au milieu de cette boucle doit laisser des fichiers sans empreinte —
-  // donc à refaire — et jamais une empreinte sans les fichiers qu'elle décrit,
-  // qui ferait sauter l'export suivant sur une livraison amputée.
-  for (const path of [paths.fingerprint, paths.mp4, paths.variant9x16, paths.texts]) {
-    if (path !== null) fs.rmSync(path, { force: true })
+  const spare = keepScheduledOutputs && hasPendingSchedule(db, clipId)
+  if (!spare) {
+    // **L'empreinte part la première.** Elle est ce qui certifie les autres : un
+    // échec au milieu de cette boucle doit laisser des fichiers sans empreinte —
+    // donc à refaire — et jamais une empreinte sans les fichiers qu'elle décrit,
+    // qui ferait sauter l'export suivant sur une livraison amputée.
+    for (const path of [paths.fingerprint, paths.mp4, paths.variant9x16, paths.texts]) {
+      if (path !== null) fs.rmSync(path, { force: true })
+    }
   }
   if (toDay.status === 'exported') putClip(db, { ...toDay, status: 'kept' })
-  return true
+  return spare ? 'keptForSchedule' : 'discarded'
 }
 
 /**

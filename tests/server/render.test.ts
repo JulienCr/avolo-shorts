@@ -6,7 +6,7 @@ import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip, Ratio } from '@/core/edl'
 import { cleanPaths } from '@/core/errors'
 import type { Word } from '@/core/transcript'
-import { applySettings, openDb, upsertProject, putClip, getClip } from '@/server/db'
+import { applySettings, openDb, upsertProject, putClip, getClip, schedulePublications } from '@/server/db'
 import {
   pathsRender,
   collectMarkers,
@@ -1576,7 +1576,7 @@ describe('renderClip, chemin du saut', () => {
     poserFingerprint(c, '1:1')
     putClip(db, { ...c, status: 'exported', segments: [{ start: 0, end: 5 }] })
 
-    expect(discardRenderStale(db, c.id, paths, c, framingFor(c))).toBe(true)
+    expect(discardRenderStale(db, c.id, paths, c, framingFor(c))).toBe('discarded')
 
     expect(fs.existsSync(paths.mp4 as string)).toBe(false)
     expect(fs.existsSync(paths.variant9x16 as string)).toBe(false)
@@ -1595,9 +1595,57 @@ describe('renderClip, chemin du saut', () => {
     poser([paths.mp4 as string, paths.variant9x16 as string, paths.texts])
     poserFingerprint(c, '1:1')
 
-    expect(discardRenderStale(db, c.id, paths, c, framingFor(c))).toBe(false)
+    expect(discardRenderStale(db, c.id, paths, c, framingFor(c))).toBe('fresh')
     expect(fs.existsSync(paths.mp4 as string)).toBe(true)
     expect(fs.existsSync(paths.fingerprint)).toBe(true)
+  })
+
+  /**
+   * **Critère 2 de l'issue #205.** Un clip qui porte une échéance `planned`
+   * garde ses quatre sorties — mp4, variante, `.txt` **et l'empreinte** — quand
+   * `keepScheduledOutputs` vaut `true`, et son statut redescend quand même à
+   * `kept` : plus rien n'atteste que le rendu décrit le montage courant, même
+   * si le fichier reste publiable.
+   */
+  it("épargne les sorties d'un clip programmé sous keepScheduledOutputs", () => {
+    const { db, c } = prepare({ status: 'exported' })
+    schedulePublications(db, [c.id], Date.now() + 86_400_000, Date.now())
+    const paths = pathsRender(ID, c.id, '1:1')
+    poser([paths.mp4 as string, paths.variant9x16 as string, paths.texts])
+    poserFingerprint(c, '1:1')
+    putClip(db, { ...c, status: 'exported', segments: [{ start: 0, end: 5 }] })
+
+    expect(discardRenderStale(db, c.id, paths, c, framingFor(c), undefined, true)).toBe(
+      'keptForSchedule',
+    )
+
+    expect(fs.existsSync(paths.mp4 as string)).toBe(true)
+    expect(fs.existsSync(paths.variant9x16 as string)).toBe(true)
+    expect(fs.existsSync(paths.texts)).toBe(true)
+    expect(fs.existsSync(paths.fingerprint)).toBe(true)
+    expect(getClip(db, c.id)?.status).toBe('kept')
+  })
+
+  /**
+   * **Critère 3.** Même montage devenu périmé, mais sans échéance `planned` :
+   * la réserve ne joue pas, et le comportement reste celui d'avant #205 même
+   * quand `keepScheduledOutputs` vaut `true` — la réserve dépend de
+   * `hasPendingSchedule`, pas seulement du paramètre.
+   */
+  it("efface quand même les sorties d'un clip sans échéance, sous keepScheduledOutputs", () => {
+    const { db, c } = prepare({ status: 'exported' })
+    const paths = pathsRender(ID, c.id, '1:1')
+    poser([paths.mp4 as string, paths.variant9x16 as string, paths.texts])
+    poserFingerprint(c, '1:1')
+    putClip(db, { ...c, status: 'exported', segments: [{ start: 0, end: 5 }] })
+
+    expect(discardRenderStale(db, c.id, paths, c, framingFor(c), undefined, true)).toBe('discarded')
+
+    expect(fs.existsSync(paths.mp4 as string)).toBe(false)
+    expect(fs.existsSync(paths.variant9x16 as string)).toBe(false)
+    expect(fs.existsSync(paths.texts)).toBe(false)
+    expect(fs.existsSync(paths.fingerprint)).toBe(false)
+    expect(getClip(db, c.id)?.status).toBe('kept')
   })
 
   /**
@@ -1622,14 +1670,14 @@ describe('renderClip, chemin du saut', () => {
       calls += 1
       return framingFor(clip)
     }
-    expect(discardRenderStale(db, c.id, paths, c, framingFor(c), resolver)).toBe(false)
+    expect(discardRenderStale(db, c.id, paths, c, framingFor(c), resolver)).toBe('fresh')
     expect(calls).toBe(1)
 
     // Et un résolveur qui rend un autre cadrage périme, sans qu'aucun champ du
     // clip n'ait bougé : c'est bien lui qui décide, pas une relecture cachée.
     expect(
       discardRenderStale(db, c.id, paths, c, framingFor(c), () => framing({ ratio: '4:5' })),
-    ).toBe(true)
+    ).toBe('discarded')
     expect(fs.existsSync(paths.mp4 as string)).toBe(false)
   })
 

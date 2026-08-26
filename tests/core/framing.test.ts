@@ -2097,9 +2097,11 @@ describe('computeShotSplit', () => {
 
   it('juge le plancher sur le recouvrement monté, pas la durée source du plan', () => {
     // Plan source de 20 s, mais 3 s seulement montées : `boxes` ne couvre que
-    // ces 3 s, et `mountedSeconds` doit être ce qui compte pour le plancher.
+    // ces 3 s, et le recouvrement doit être ce qui compte pour le plancher.
     const boxes = splitFrames(0, 3, LEFT_GEOMETRY, RIGHT_GEOMETRY)
-    const result = computeShotSplit(boxes, shot(0, 20), '1:1', SRC_W, SRC_H, RAW_BOUNDS, 3)
+    const result = computeShotSplit(boxes, shot(0, 20), '1:1', SRC_W, SRC_H, RAW_BOUNDS, [
+      { start: 0, end: 3 },
+    ])
     expect(result.cells).toBeNull()
     expect(result.rejection).toBe('tooShort')
   })
@@ -2154,6 +2156,15 @@ describe('computeShotSplit', () => {
       { ...RAW_BOUNDS, sizeFloor: 0 },
     )
     expect(rejection).not.toBe('notTwoPeople')
+  })
+
+  it("refuse quand la moitié du plan n'a retenu personne, même si les images représentées portent toutes deux personnes", () => {
+    // Dix images à deux personnes sur [0, 5), rien du tout sur [5, 10). Sans
+    // le complément à zéro des dix instants manquants, la médiane ne se lit
+    // que sur les dix représentés et vaut deux à tort.
+    const boxes = splitFrames(0, 5, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const { rejection } = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(rejection).toBe('notTwoPeople')
   })
 
   it('refuse un ratio déjà 9:16 : le splitter ne gagnerait rien', () => {

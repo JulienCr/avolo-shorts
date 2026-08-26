@@ -203,7 +203,7 @@ Les cas de contrôle, avec leur timestamp :
 |---|---|---|
 | Jambes tendues | `2026-22-02-entre-nous`, 2 973 s | Le tronc contre la boîte |
 | Tête à l'extrémité de sa boîte | `2026-03-08-caro-mdlm`, 7 250 s | Qu'un rognage aveugle perd un visage |
-| Deux comédiens aux deux bords | `2025-06-15-cqlp`, 2 120 s | Qu'un 1:1 garde les deux bustes |
+| Deux comédiens aux deux bords | `2025-06-15-cqlp`, 2 120 s | Que le split-screen tienne les deux bustes, chacun dans sa cellule — un 1:1 partagé n'est plus le résultat attendu ici, voir `docs/superpowers/specs/2026-08-25-split-screen-design.md` |
 | Gros plan à boîtes instables | `2025-06-15-cqlp`, 2 138 s | Ce qu'aucune largeur ne résout |
 | Bascule acceptée sans coupe | `2026-03-08-caro-mdlm`, 652,5 s | Qu'une frontière posée corresponde à une coupe |
 

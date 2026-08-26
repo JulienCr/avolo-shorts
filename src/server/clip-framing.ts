@@ -255,6 +255,7 @@ export function framingWith(
     splitBleedTolerance: framingGlobals.splitBleedTolerancePermille / 1000,
     splitBleedShare: framingGlobals.splitBleedSharePermille / 1000,
     sizeFloor: framingGlobals.sizeFloorPermille / 1000,
+    fps: analysis.fps,
   })
 
   // **Un clip dont aucun segment ne rencontre un plan n'a rien à cadrer.** Le

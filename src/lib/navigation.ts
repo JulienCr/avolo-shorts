@@ -41,6 +41,7 @@ export type Lieu =
   | { kind: 'project'; project: Landmarks }
   | { kind: 'clip'; project: Landmarks; clip: { title: string } }
   | { kind: 'settings' }
+  | { kind: 'planning' }
   | { kind: 'unknown'; label: string }
 
 /** L'URL d'un projet. Encodée : les identifiants portent accents et espaces. */
@@ -63,6 +64,11 @@ export function linkProject(projectId: string): string {
  */
 export function settingsLink(): string {
   return '/settings'
+}
+
+/** L'URL du planning. Même raisonnement que `settingsLink` : un frère de la racine. */
+export function planningLink(): string {
+  return '/planning'
 }
 
 /** L'URL d'un clip. Même règle : l'identifiant hérite de celui du projet. */
@@ -90,6 +96,8 @@ export function path(lieu: Lieu): { label: string; href?: string }[] {
       ]
     case 'settings':
       return [{ label: 'Paramètres' }]
+    case 'planning':
+      return [{ label: 'Planning' }]
     case 'unknown':
       return [{ label: lieu.label }]
   }

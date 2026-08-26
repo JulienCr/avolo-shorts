@@ -64,6 +64,22 @@ describe('AppBar', () => {
     expect(screen.getByText('Paramètres')).toBeTruthy()
   })
 
+  it('mène au planning depuis n’importe quel écran', () => {
+    render(<AppBar lieu={{ kind: 'library' }} />)
+    expect(screen.getByRole('link', { name: 'Planning' })).toHaveProperty('pathname', '/planning')
+  })
+
+  it('ne pose pas de lien vers le planning depuis lui-même', () => {
+    render(<AppBar lieu={{ kind: 'planning' }} />)
+    expect(screen.queryByRole('link', { name: 'Planning' })).toBeNull()
+    expect(screen.getByText('Planning')).toBeTruthy()
+  })
+
+  it('reste présent sur les paramètres', () => {
+    render(<AppBar lieu={{ kind: 'settings' }} />)
+    expect(screen.getByRole('link', { name: 'Planning' })).toHaveProperty('pathname', '/planning')
+  })
+
   it('porte un emplacement pour l’indicateur d’exécution', () => {
     // La barre laisse la place, elle ne dessine pas l'indicateur : c'est
     // l'écran de projet qui sait ce qui tourne.

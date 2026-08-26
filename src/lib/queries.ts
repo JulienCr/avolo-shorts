@@ -45,6 +45,13 @@ import { postRegenerateHook } from '@/lib/api'
 import { getCorrectionHistory, removeCorrectionEntry, undoCorrection } from '@/lib/api'
 // Import à part, même règle, pour la même raison.
 import { fetchPublicationAvailability, getPublications, publishClip } from '@/lib/api'
+// Import à part, même règle, pour la même raison.
+import {
+  listPlanningPool,
+  listPlanningSchedule,
+  schedulePublication,
+  unschedulePublication,
+} from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
 import type { Platform, PublicationRecord } from '@/core/publication'
 
@@ -80,6 +87,10 @@ export const keys = {
   publicationAvailability: ['publication-availability'] as const,
   /** Les publications d'un clip — voir `usePublications`. */
   publications: (clipId: string) => ['publications', clipId] as const,
+  /** Le vivier du planning : clips exportés, à jour, pas encore programmés. */
+  planningPool: ['planning-pool'] as const,
+  /** Le calendrier du planning entre deux bornes — voir `usePlanningSchedule`. */
+  planningSchedule: (from: number, to: number) => ['planning-schedule', from, to] as const,
 }
 
 export function useProjects() {
@@ -928,6 +939,57 @@ export function usePublisher() {
     }) => publishClip(clipId, platforms, force),
     onSuccess(_result, { clipId }) {
       void client.invalidateQueries({ queryKey: keys.publications(clipId) })
+    },
+  })
+}
+
+/**
+ * Le vivier du planning — clips exportés, à jour, pas encore programmés.
+ *
+ * **Pas de sondage** : rien ici ne change sans un geste de l'utilisateur,
+ * contrairement à `usePublications` qui suit un envoi détaché.
+ */
+export function usePlanningPool() {
+  return useQuery({ queryKey: keys.planningPool, queryFn: listPlanningPool })
+}
+
+/** Le calendrier entre deux bornes (ms, `to` exclu). */
+export function usePlanningSchedule(from: number, to: number) {
+  return useQuery({
+    queryKey: keys.planningSchedule(from, to),
+    queryFn: () => listPlanningSchedule(from, to),
+  })
+}
+
+/**
+ * Pose une échéance sur un ou plusieurs clips.
+ *
+ * **Invalide le vivier et le calendrier** : programmer retire un clip du
+ * vivier et l'ajoute au calendrier, et un écran qui en montrerait un seul à
+ * jour vaut moins qu'un écran qui redemande les deux.
+ */
+export function useSchedulePublication() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ clipIds, scheduledAt }: { clipIds: readonly string[]; scheduledAt: number }) =>
+      schedulePublication(clipIds, scheduledAt),
+    onSuccess() {
+      void client.invalidateQueries({ queryKey: keys.planningPool })
+      void client.invalidateQueries({ queryKey: ['planning-schedule'] })
+    },
+  })
+}
+
+/** Retire une échéance encore `planned`, et remet ses clips au vivier. */
+export function useUnschedulePublication() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: (clipIds: readonly string[]) => unschedulePublication(clipIds),
+    onSuccess() {
+      void client.invalidateQueries({ queryKey: keys.planningPool })
+      void client.invalidateQueries({ queryKey: ['planning-schedule'] })
     },
   })
 }

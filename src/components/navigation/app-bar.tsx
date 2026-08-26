@@ -1,8 +1,8 @@
-import { Settings } from 'lucide-react'
+import { CalendarClock, Settings } from 'lucide-react'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 
-import { path, settingsLink, type Lieu } from '@/lib/navigation'
+import { path, planningLink, settingsLink, type Lieu } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
 /**
@@ -90,6 +90,15 @@ export function AppBar({
 
             Il disparaît sur l'écran des paramètres lui-même : un lien vers soi
             n'est pas une navigation, et il volerait un arrêt de tabulation. */}
+        {lieu.kind !== 'planning' && (
+          <Link
+            href={planningLink()}
+            aria-label="Planning"
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <CalendarClock className="size-4" aria-hidden />
+          </Link>
+        )}
         {lieu.kind !== 'settings' && (
           <Link
             href={settingsLink()}

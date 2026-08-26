@@ -12,17 +12,19 @@
 import fs from 'node:fs'
 import {
   computeFraming,
+  computeShotSplit,
   FRAMING_DEFAULTS,
   type ClipFraming,
   type FramingOptions,
   type FramingRequest,
   type ShotFraming,
+  type SplitRejection,
 } from '@/core/framing'
 import type { Shot } from '@/core/shots'
-import type { Segment } from '@/core/edl'
+import type { Ratio, Segment } from '@/core/edl'
 import { analysisPath, projectDir } from '@/server/paths'
 import { lireAnalysis, type Analysis } from '@/server/steps/analysis'
-import { projectOf, type CaseScope, type FramingCase, type ProjectId } from './cases'
+import { projectOf, type CaseBaseline, type CaseScope, type FramingCase, type ProjectId } from './cases'
 
 /**
  * Les segments qu'un cas couvre, dans la source.
@@ -108,12 +110,18 @@ export function shotAt(framing: ClipFraming, t: number): ShotFraming | undefined
   return framing.shots.find((s) => s.shot.start <= t && t < s.shot.end)
 }
 
+/** Ratio, split et raison de refus, tels que le code les produit aujourd'hui — comparables à un `CaseBaseline`. */
+export type FramingSnapshot = { ratio: Ratio; split: boolean; rejection: SplitRejection | null }
+
 /** Ce qui a bougé entre l'étiquetage d'un cas et l'analyse du jour. Un rapport, jamais une décision. */
 export type CaseDrift =
   | { kind: 'shotMoved'; recorded: Shot; today: Shot }
   | { kind: 'shotGone'; recorded: Shot }
   | { kind: 'instantOutsideShot'; instant: number; shot: Shot }
   | { kind: 'nearBoundary'; instant: number; distance: number; frame: number }
+  | { kind: 'framingChanged'; field: 'ratio'; baseline: Ratio; today: Ratio }
+  | { kind: 'framingChanged'; field: 'split'; baseline: boolean; today: boolean }
+  | { kind: 'framingChanged'; field: 'rejection'; baseline: SplitRejection | null; today: SplitRejection | null }
 
 /**
  * Une observation, pas une dérive : un instant posé pile sur `shot.start` se
@@ -191,6 +199,42 @@ function computeDrift(
   return { drift, notes }
 }
 
+/** Le split déjà tenu par `ShotFraming`, ou recalculé pour porter sa raison de refus (comme `splitState`). */
+export function todayFramingSnapshot(shot: ShotFraming, analysis: Analysis): FramingSnapshot {
+  if (shot.split !== undefined) return { ratio: shot.ratio, split: true, rejection: null }
+  const boxes = analysis.boxes.filter((b) => b.t >= shot.shot.start && b.t < shot.shot.end)
+  const { rejection } = computeShotSplit(
+    boxes,
+    shot.shot,
+    shot.ratio,
+    analysis.source.w,
+    analysis.source.h,
+    FRAMING_DEFAULTS,
+  )
+  return { ratio: shot.ratio, split: false, rejection }
+}
+
+/**
+ * Compare un témoin à ce que le code produit aujourd'hui — **pure, sans
+ * disque**, testable sur des littéraux. `baseline: null` (aucun témoin posé)
+ * ne remonte jamais rien : un témoin absent n'est pas une dérive.
+ */
+export function framingDrift(baseline: CaseBaseline | null, today: FramingSnapshot): CaseDrift[] {
+  if (baseline === null) return []
+  if (baseline.ratio !== today.ratio) {
+    return [{ kind: 'framingChanged', field: 'ratio', baseline: baseline.ratio, today: today.ratio }]
+  }
+  if (baseline.split !== today.split) {
+    return [{ kind: 'framingChanged', field: 'split', baseline: baseline.split, today: today.split }]
+  }
+  if (baseline.rejection !== today.rejection) {
+    return [
+      { kind: 'framingChanged', field: 'rejection', baseline: baseline.rejection, today: today.rejection },
+    ]
+  }
+  return []
+}
+
 /**
  * Résout un cas contre le disque : lit l'analyse, calcule le cadrage par le
  * vrai chemin (`computeFraming`), et rapporte la dérive. Lève si le projet,
@@ -214,6 +258,7 @@ export function resolveCase(c: FramingCase, options: Partial<FramingOptions> = {
     throw new Error(`${c.id} : l'instant ${instant} ne tombe plus dans aucun plan de ${projectId}.`)
   }
   const { drift, notes } = computeDrift(c, analysis, analysis.fps)
+  drift.push(...framingDrift(c.baseline, todayFramingSnapshot(shot, analysis)))
   return {
     case: c,
     projectId,

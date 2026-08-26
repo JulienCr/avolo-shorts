@@ -15,6 +15,9 @@
  * résultat attendu de `cqlp` 2120 s a changé (un 1:1 partagé n'est plus visé).
  */
 
+import type { Ratio } from '@/core/edl'
+import type { SplitRejection } from '@/core/framing'
+
 export const REGISTRY_REVISION = 1
 
 export const PROJECTS = {
@@ -31,6 +34,19 @@ export type ProjectId = (typeof PROJECTS)[ShowName]
 
 export type IsoDay = `${number}-${number}-${number}`
 export type Call = 'keep' | 'drop' | 'unsure'
+
+/**
+ * Ce que le code produisait sur ce cas à cette date — un TÉMOIN, pas une
+ * attente. Un écart dit « le comportement a changé, va voir », jamais « c'est
+ * une régression » : trois des cas portent aujourd'hui un split que le
+ * propriétaire a rejeté, et #190 le corrigera.
+ */
+export type CaseBaseline = {
+  ratio: Ratio
+  split: boolean
+  rejection: SplitRejection | null
+  on: IsoDay
+}
 
 /** Un verdict posé par un humain. Ne partage aucun champ avec `HeuristicTag`. */
 export type HumanLabel = {
@@ -89,6 +105,7 @@ export type FramingCase = {
   tags: readonly HeuristicTag[]
   origin: string
   retired: { on: IsoDay; why: string; was: string } | null
+  baseline: CaseBaseline | null
 }
 
 /**
@@ -187,6 +204,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'skill cadrage § Mesurer',
     retired: null,
+    baseline: { ratio: '4:5', split: false, rejection: 'tooShort', on: '2026-08-26' },
   },
   {
     id: 'caro-mdlm-7250000',
@@ -198,6 +216,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'skill cadrage § Mesurer',
     retired: null,
+    baseline: { ratio: '16:9', split: false, rejection: 'bleedsIntoOther', on: '2026-08-26' },
   },
   {
     id: 'cqlp-2120000',
@@ -212,6 +231,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'skill cadrage § Mesurer',
     retired: null,
+    baseline: { ratio: '1:1', split: false, rejection: 'bleedsIntoOther', on: '2026-08-26' },
   },
   {
     id: 'cqlp-2138000',
@@ -227,6 +247,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'skill cadrage § Mesurer',
     retired: null,
+    baseline: { ratio: '16:9', split: false, rejection: 'tooNarrowForSource', on: '2026-08-26' },
   },
   {
     id: 'caro-mdlm-652500',
@@ -241,6 +262,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'skill cadrage § Mesurer',
     retired: null,
+    baseline: { ratio: '16:9', split: false, rejection: 'bleedsIntoOther', on: '2026-08-26' },
   },
   // Les huit cas de l'issue #190, table « Les cas de référence, à garder
   // comme jeu d'épreuve ». `nabla` 1798,867 s et 1607,967 s sont deux plans
@@ -262,6 +284,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'issue #190',
     retired: null,
+    baseline: { ratio: '16:9', split: true, rejection: null, on: '2026-08-26' },
   },
   {
     id: 'nabla-1798867',
@@ -279,6 +302,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'issue #190',
     retired: null,
+    baseline: { ratio: '16:9', split: true, rejection: null, on: '2026-08-26' },
   },
   {
     id: 'nabla-1607967',
@@ -296,6 +320,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'issue #190',
     retired: null,
+    baseline: { ratio: '16:9', split: true, rejection: null, on: '2026-08-26' },
   },
   {
     id: 'nabla-2077400',
@@ -313,6 +338,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'issue #190',
     retired: null,
+    baseline: { ratio: '1:1', split: true, rejection: null, on: '2026-08-26' },
   },
   {
     id: 'nabla-6418667',
@@ -330,6 +356,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'issue #190',
     retired: null,
+    baseline: { ratio: '1:1', split: true, rejection: null, on: '2026-08-26' },
   },
   {
     id: 'cqlp-1366033',
@@ -347,6 +374,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'issue #190',
     retired: null,
+    baseline: { ratio: '16:9', split: true, rejection: null, on: '2026-08-26' },
   },
   {
     id: 'entre-nous-3495867',
@@ -364,6 +392,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'issue #190',
     retired: null,
+    baseline: { ratio: '16:9', split: true, rejection: null, on: '2026-08-26' },
   },
   {
     id: 'fmr-1115733',
@@ -381,5 +410,6 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     tags: [],
     origin: 'issue #190',
     retired: null,
+    baseline: { ratio: '16:9', split: true, rejection: null, on: '2026-08-26' },
   },
 ]

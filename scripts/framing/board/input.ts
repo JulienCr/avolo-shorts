@@ -22,7 +22,7 @@ export type BoardInput = {
   projectId: string
   analysis: Analysis
   /** Le fichier réellement décodé, et ses dimensions SONDÉES. */
-  decoded: { file: string; w: number; h: number; videoFps: number; fromProxy: boolean }
+  decoded: { file: string; w: number; h: number; videoFps: number; fromProxy: boolean; durationSec: number | null }
   hasAudio: boolean
   globals: FramingSettings
 }
@@ -100,7 +100,7 @@ export async function loadBoardInput(projectId: string): Promise<BoardInput> {
   return {
     projectId,
     analysis,
-    decoded: { file, w: dims.width, h: dims.height, videoFps: dims.fps, fromProxy },
+    decoded: { file, w: dims.width, h: dims.height, videoFps: dims.fps, fromProxy, durationSec: dims.durationSec },
     hasAudio: true,
     globals,
   }

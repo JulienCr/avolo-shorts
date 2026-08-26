@@ -23,7 +23,7 @@ function decodedInput(o: Partial<BoardInput['decoded']> = {}): BoardInput {
     // Seul `decoded` est lu par `stillArgs` — le reste de `BoardInput` sert
     // `input.ts`/`framing.ts`, hors de portée de ce fichier.
     analysis: {} as BoardInput['analysis'],
-    decoded: { file: '/tmp/source.mp4', w: 1920, h: 1080, videoFps: 30, fromProxy: false, ...o },
+    decoded: { file: '/tmp/source.mp4', w: 1920, h: 1080, videoFps: 30, fromProxy: false, durationSec: null, ...o },
     hasAudio: true,
     globals: {} as BoardInput['globals'],
   }
@@ -190,5 +190,77 @@ describe("stillArgs : l'argv vertical est exactement celui de blurredVariantArgs
     })
 
     expect(args).toEqual(direct)
+  })
+})
+
+describe('stillArgs : la fenêtre déborde du plan, pas du fichier — issue #194', () => {
+  const SHOT_END = 10.15
+
+  it("un instant à la dernière image d'un plan produit une fenêtre valide, et -ss vaut toujours cet instant", () => {
+    const f = framing([shotFraming({ shot: { start: 0, end: SHOT_END } })])
+    const input = decodedInput({ videoFps: 60, durationSec: 120 })
+    const instant = SHOT_END - 1 / 60
+
+    const { window, args } = stillArgs({ input, instant, shotEnd: SHOT_END, framing: f, output: 'vertical', dst: 'a.mp4' })
+
+    expect(window.start).toBe(instant)
+    const ss = args[args.indexOf('-ss') + 1]
+    expect(Number(ss)).toBeCloseTo(instant, 5)
+  })
+
+  it('la fenêtre déborde du plan mais reste dans le fichier', () => {
+    const f = framing([shotFraming({ shot: { start: 0, end: SHOT_END } })])
+    const input = decodedInput({ videoFps: 60, durationSec: 120 })
+    const instant = SHOT_END - 1 / 60
+
+    const { window } = stillArgs({ input, instant, shotEnd: SHOT_END, framing: f, output: 'vertical', dst: 'a.mp4' })
+
+    expect(window.end).toBeGreaterThan(SHOT_END)
+    expect(window.end).toBeLessThanOrEqual(120)
+  })
+
+  it('un instant au-delà de la fin du fichier est refusé', () => {
+    const f = framing([shotFraming({ shot: { start: 0, end: SHOT_END } })])
+    const input = decodedInput({ videoFps: 60, durationSec: 120 })
+
+    expect(() =>
+      stillArgs({ input, instant: 120, shotEnd: SHOT_END, framing: f, output: 'vertical', dst: 'a.mp4' }),
+    ).toThrow()
+  })
+
+  it("sans durée sondée, repli sur la fin du plan — la fenêtre reste refusée comme avant #194", () => {
+    const f = framing([shotFraming({ shot: { start: 0, end: SHOT_END } })])
+    const input = decodedInput({ videoFps: 60, durationSec: null })
+    const instant = SHOT_END - 1 / 60
+
+    expect(() =>
+      stillArgs({ input, instant, shotEnd: SHOT_END, framing: f, output: 'vertical', dst: 'a.mp4' }),
+    ).toThrow()
+  })
+
+  it("l'invariante tient : window.start === instant dans tous les cas acceptés", () => {
+    const f = framing([shotFraming({ shot: { start: 0, end: SHOT_END } })])
+    const cases = [
+      { videoFps: 30, durationSec: 60 },
+      { videoFps: 60, durationSec: 120 },
+    ]
+    for (const c of cases) {
+      const input = decodedInput(c)
+      const instant = SHOT_END - 1 / c.videoFps
+      const { window } = stillArgs({ input, instant, shotEnd: SHOT_END, framing: f, output: 'vertical', dst: 'a.mp4' })
+      expect(window.start).toBe(instant)
+    }
+  })
+
+  it("le cas limite nommé par l'issue #194 — un plan finissant sur une image isolée, comme fmr-1115733 — passe", () => {
+    const shot = { start: 1115.733, end: 1120.767 }
+    const f = framing([shotFraming({ shot })])
+    const input = decodedInput({ videoFps: 60, durationSec: 1200 })
+    const instant = shot.end - 1 / 60
+
+    const { window } = stillArgs({ input, instant, shotEnd: shot.end, framing: f, output: 'vertical', dst: 'a.mp4' })
+
+    expect(window.start).toBe(instant)
+    expect(window.end - window.start).toBeGreaterThanOrEqual(1.5 / 60)
   })
 })

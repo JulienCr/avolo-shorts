@@ -59,7 +59,7 @@ function boardInput(analysis: Analysis, globals: FramingSettings = FRAMING_SETTI
   return {
     projectId: 'test-project',
     analysis,
-    decoded: { file: '/tmp/source.mp4', w: 1920, h: 1080, videoFps: 30, fromProxy: false },
+    decoded: { file: '/tmp/source.mp4', w: 1920, h: 1080, videoFps: 30, fromProxy: false, durationSec: null },
     hasAudio: true,
     globals,
   }

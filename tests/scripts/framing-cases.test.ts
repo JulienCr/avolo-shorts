@@ -10,7 +10,7 @@ import {
   selectCases,
   type FramingCase,
 } from '../../scripts/framing/cases'
-import { resolveCase } from '../../scripts/framing/case-registry'
+import { framingDrift, resolveCase } from '../../scripts/framing/case-registry'
 import { hasDrift } from '../../scripts/framing-cases'
 
 /**
@@ -151,7 +151,7 @@ describe('note contre dérive (case-registry, framing-cases)', () => {
     )
   }
 
-  function caseAt(instant: number): FramingCase {
+  function caseAt(instant: number, baseline: FramingCase['baseline'] = null): FramingCase {
     return {
       id: `test-${instant}`,
       show: 'nabla',
@@ -162,6 +162,7 @@ describe('note contre dérive (case-registry, framing-cases)', () => {
       tags: [],
       origin: 'test',
       retired: null,
+      baseline,
     }
   }
 
@@ -204,5 +205,82 @@ describe('note contre dérive (case-registry, framing-cases)', () => {
     const noted = resolveCase(caseAt(5))
     const drifted = resolveCase(caseAt(5.033))
     expect(hasDrift([noted, drifted])).toBe(true)
+  })
+
+  /**
+   * Ce que le code produit aujourd'hui sur `caseAt(2)` : plan [0; 5[, aucune
+   * boîte, ratio `16:9`, aucun split (`notTwoPeople`). Fixé une fois ici pour
+   * que les témoins ci-dessous s'écrivent contre une valeur connue plutôt que
+   * recalculée à chaque test.
+   */
+  const TODAY = { ratio: '16:9', split: false, rejection: 'notTwoPeople' } as const
+
+  it('un témoin absent (`baseline: null`) ne remonte rien — pas une dérive', () => {
+    const resolved = resolveCase(caseAt(2, null))
+    expect(resolved.drift.filter((d) => d.kind === 'framingChanged')).toEqual([])
+    expect(hasDrift([resolved])).toBe(false)
+  })
+
+  it('un témoin conforme ne remonte rien', () => {
+    const resolved = resolveCase(caseAt(2, { ...TODAY, on: '2026-08-26' }))
+    expect(resolved.drift.filter((d) => d.kind === 'framingChanged')).toEqual([])
+    expect(hasDrift([resolved])).toBe(false)
+  })
+
+  it('un cas dont le split diffère du témoin remonte un `framingChanged` nommant le champ, et `--strict` échoue dessus', () => {
+    const resolved = resolveCase(caseAt(2, { ratio: '16:9', split: true, rejection: null, on: '2026-08-26' }))
+    expect(resolved.drift).toEqual([
+      { kind: 'framingChanged', field: 'split', baseline: true, today: false },
+    ])
+    expect(hasDrift([resolved])).toBe(true)
+  })
+
+  it('`--strict` continue de ne pas échouer sur une simple note, même à côté d\'un cas conforme', () => {
+    const noted = resolveCase(caseAt(5))
+    const conforme = resolveCase(caseAt(2, { ...TODAY, on: '2026-08-26' }))
+    expect(hasDrift([noted, conforme])).toBe(false)
+  })
+
+  it("le compte de dérive (celui de la ligne de résumé) est juste sur un mélange de cas", () => {
+    const sansTemoin = resolveCase(caseAt(2, null))
+    const conforme = resolveCase(caseAt(2, { ...TODAY, on: '2026-08-26' }))
+    const change = resolveCase(caseAt(2, { ratio: '9:16', split: false, rejection: 'notTwoPeople', on: '2026-08-26' }))
+    const resolved = [sansTemoin, conforme, change]
+    const driftCount = resolved.filter((r) => r.drift.length > 0).length
+    expect(driftCount).toBe(1)
+  })
+})
+
+describe('framingDrift — comparaison pure au témoin, sans disque', () => {
+  const TODAY_SNAPSHOT = { ratio: '16:9', split: false, rejection: 'notTwoPeople' } as const
+
+  it('rend [] sans témoin', () => {
+    expect(framingDrift(null, TODAY_SNAPSHOT)).toEqual([])
+  })
+
+  it('rend [] quand le témoin est conforme à aujourd\'hui', () => {
+    const baseline = { ...TODAY_SNAPSHOT, on: '2026-08-26' as const }
+    expect(framingDrift(baseline, TODAY_SNAPSHOT)).toEqual([])
+  })
+
+  it('nomme `ratio` quand seul le ratio diffère', () => {
+    const baseline = { ratio: '9:16' as const, split: false, rejection: 'notTwoPeople' as const, on: '2026-08-26' as const }
+    expect(framingDrift(baseline, TODAY_SNAPSHOT)).toEqual([
+      { kind: 'framingChanged', field: 'ratio', baseline: '9:16', today: '16:9' },
+    ])
+  })
+
+  it('nomme `split` quand seul le split diffère', () => {
+    const baseline = { ratio: '16:9' as const, split: true, rejection: null, on: '2026-08-26' as const }
+    expect(framingDrift(baseline, TODAY_SNAPSHOT)).toEqual([
+      { kind: 'framingChanged', field: 'split', baseline: true, today: false },
+    ])
+  })
+
+  it('nomme `rejection` quand le split est identique mais sa raison de refus a changé', () => {
+    const baseline = { ratio: '16:9' as const, split: false, rejection: 'ratioNotWide' as const, on: '2026-08-26' as const }
+    expect(framingDrift(baseline, TODAY_SNAPSHOT)).toEqual([
+      { kind: 'framingChanged', field: 'rejection', baseline: 'ratioNotWide', today: 'notTwoPeople' },
+    ])
   })
 })

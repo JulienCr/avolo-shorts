@@ -76,11 +76,12 @@ celle à refaire après toute modification du script ou de l'environnement.
 ## Lire une passe réelle
 
 Chaque appel de `scripts/publish-scheduled.ts` (sans `--dry-run`) imprime une
-ligne de résumé — `Rien à publier.`, `Verrou déjà posé depuis …`, `Publié : …`
-ou `Abandonné après … essai(s) : …` — suivie, pour `Publié` et `Abandonné`, du
-détail par plateforme. Le code de sortie est 0 dans tous les cas sauf
-`Abandonné`, qui rend 1 : le planificateur Windows consigne les échecs de
-tâche, ce qui donne une seconde voie d'alerte à côté du courriel.
+ligne de résumé — `Rien à publier.`, `Verrou déjà posé depuis …`, ou, préfixées
+par l'heure de la passe, `<heure> — Publié : …` et `<heure> — Abandonné
+après … essai(s) : …` — suivie, pour ces deux dernières, du détail par
+plateforme. Le code de sortie est 0 dans tous les cas sauf `Abandonné`, qui
+rend 1 : le planificateur Windows consigne les échecs de tâche, ce qui donne
+une seconde voie d'alerte à côté du courriel.
 
 Sur abandon après les trois essais, un courriel part à `julien@avolo.fr` via
 Resend (voir `.env.example` pour `RESEND_API_KEY` et `RESEND_FROM`) — **le

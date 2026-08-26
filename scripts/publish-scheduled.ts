@@ -36,17 +36,26 @@ function formatParis(ms: number): string {
   return FORMAT_PARIS.format(new Date(ms))
 }
 
-/** Les quatre vrais résultats — `dry-run` a sa propre présentation, ci-dessous. */
-function describe(outcome: Exclude<SchedulerOutcome, { kind: 'dry-run' }>): string {
+/**
+ * Les quatre vrais résultats — `dry-run` a sa propre présentation, ci-dessous.
+ *
+ * **Préfixé par l'heure de la passe**, pas seulement celle du verrou : le
+ * protocole d'essai (`docs/publication-scheduler.md`) déverrouille la
+ * session et lit ensuite si une ligne `Publié`/`Abandonné` est datée pendant
+ * le verrouillage — sans horodatage sur ces deux lignes-là, cette lecture
+ * était impossible (relevé en revue).
+ */
+function describe(outcome: Exclude<SchedulerOutcome, { kind: 'dry-run' }>, now: number): string {
+  const heure = formatParis(now)
   switch (outcome.kind) {
     case 'idle':
       return 'Rien à publier.'
     case 'locked':
       return `Verrou déjà posé depuis ${formatParis(outcome.since)}.`
     case 'done':
-      return `Publié : ${outcome.clipId} (${outcome.attempts} essai(s)).`
+      return `${heure} — Publié : ${outcome.clipId} (${outcome.attempts} essai(s)).`
     case 'abandoned':
-      return `Abandonné après ${outcome.attempts} essai(s) : ${outcome.clipId}.`
+      return `${heure} — Abandonné après ${outcome.attempts} essai(s) : ${outcome.clipId}.`
   }
 }
 
@@ -88,7 +97,7 @@ async function main(): Promise<number> {
     return 0
   }
 
-  console.log(describe(outcome))
+  console.log(describe(outcome, Date.now()))
   if (outcome.kind === 'done' || outcome.kind === 'abandoned') {
     for (const [platform, status] of Object.entries(outcome.statuses)) {
       console.log(`  ${platform.padEnd(10)}: ${status}`)

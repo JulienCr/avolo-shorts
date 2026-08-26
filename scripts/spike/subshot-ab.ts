@@ -127,7 +127,7 @@ import {
 import { splitByShot } from '@/core/shot-split'
 import { shotStartMs, type PersonBox, type Shot } from '@/core/shots'
 import { closeDb, getClips, getDb, getProject } from '@/server/db'
-import { encoderName, ffprobeBin, produceArtifact, runFfmpeg } from '@/server/ffmpeg'
+import { encoderName, ffmpegBin, ffprobeBin, produceArtifact, runFfmpeg } from '@/server/ffmpeg'
 import { analysisPath, proxyPath } from '@/server/paths'
 import { lireAnalysis, type Analysis } from '@/server/steps/analysis'
 import { workingInput } from '@/server/steps/ingest'
@@ -160,6 +160,17 @@ const CASE_MAX_SEC = 20
 
 /** La durée du cas de contrôle, en secondes. Il n'a qu'une chose à montrer. */
 const CONTROL_SEC = 12
+
+/**
+ * Le plancher de PSNR, en dB, sous lequel deux panneaux du contrôle sont
+ * déclarés divergents.
+ *
+ * Deux flux strictement identiques rendent `inf`. La mesure à la main du 20
+ * août 2026 donnait `inf` sur un contrôle sain et 14,3 dB sur un cas où les
+ * cadrages diffèrent réellement — l'écart est large, ce seuil n'a pas à être
+ * ajusté au dixième de dB.
+ */
+const CONTROL_PSNR_FLOOR_DB = 40
 
 /** Un panneau. Trois côte à côte font 1620x960 : assez pour juger, assez léger pour s'échanger. */
 const PANEL = { w: 540, h: 960 } as const
@@ -344,6 +355,29 @@ function inInterval(t: number, start: number, end: number): boolean {
   return t >= start && t < end
 }
 
+/**
+ * La grille réelle d'échantillonnage sur `[start, end)`, en secondes, arrondie
+ * au même pas que `worker/detect.py` (3 décimales).
+ *
+ * Issue #174 : une image sans détection n'a aucune entrée dans `analysis.boxes`,
+ * donc un regroupement qui n'énumère que les boîtes la rend invisible plutôt
+ * que nulle. Énumérer `k / fps` couvre les trous.
+ */
+function gridTimestamps(start: number, end: number, fps: number): number[] {
+  if (!(fps > 0) || !(end > start)) return []
+  // Bornes en `k` élargies d'un cran : une frontière de plan tombant pile sur
+  // un pas de grille peut voir `k / fps` s'arrondir de l'autre côté que le `t`
+  // stocké dans `analysis.boxes` ; la membership se décide donc sur `t` arrondi.
+  const firstK = Math.floor(start * fps) - 1
+  const lastK = Math.ceil(end * fps) + 1
+  const out: number[] = []
+  for (let k = Math.max(0, firstK); k <= lastK; k += 1) {
+    const t = Math.round((k / fps) * 1000) / 1000
+    if (t >= start && t < end) out.push(t)
+  }
+  return out
+}
+
 /** L'abscisse du centre de `personBounds` — le repère sur lequel le rang se départage. */
 function centerOf(box: PersonBox): number {
   const bounds = personBounds(box)
@@ -381,7 +415,7 @@ function lowerBound(boxes: readonly PersonBox[], value: number): number {
  * premier plan, tri par abscisse du centre du tronc. C'est l'**adressage** des
  * rangs, pas la règle qui choisit entre eux — celle-là est dans le JSON.
  */
-function framesOfShot(sortedBoxes: readonly PersonBox[], shot: Shot): Frame[] {
+function framesOfShot(sortedBoxes: readonly PersonBox[], shot: Shot, fps: number): Frame[] {
   const byFrame = new Map<number, PersonBox[]>()
   for (let i = lowerBound(sortedBoxes, shot.start); i < sortedBoxes.length; i += 1) {
     const box = sortedBoxes[i]
@@ -393,9 +427,10 @@ function framesOfShot(sortedBoxes: readonly PersonBox[], shot: Shot): Frame[] {
   }
 
   const out: Frame[] = []
-  for (const all of byFrame.values()) {
+  for (const t of gridTimestamps(shot.start, shot.end, fps)) {
+    const all = byFrame.get(Math.round(t * 1000)) ?? []
     out.push({
-      t: all[0].t,
+      t,
       all,
       ranked: all
         .filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
@@ -605,6 +640,63 @@ function probeStreamKinds(file: string): string[] {
     .filter((line) => line.length > 0)
 }
 
+/**
+ * Le PSNR le plus bas rencontré, image par image, entre deux panneaux — le
+ * pire, pas la moyenne : une seule image divergente au milieu d'un plan de
+ * douze secondes ne doit pas se noyer dans la moyenne des images identiques.
+ *
+ * Passe par `stats_file` plutôt que par la ligne de résumé du filtre : cette
+ * dernière n'est écrite par ffmpeg que sur son flux d'erreur, dans un format
+ * pensé pour l'œil, pas pour être analysé de façon fiable.
+ */
+function worstPsnr(a: string, b: string): number {
+  // Comparées avant le filtre : le framesync de ffmpeg tronque ou répète un
+  // flux plutôt que d'échouer, ce qui laisserait passer une image d'écart
+  // sous couvert d'une comparaison « image par image ».
+  const framesA = probeVideoStream(a).frames
+  const framesB = probeVideoStream(b).frames
+  if (framesA !== framesB) {
+    throw new Error(
+      `psnr entre ${a} (${framesA} images) et ${b} (${framesB} images) : nombre d'images différent.`,
+    )
+  }
+  const statsFile = path.join(os.tmpdir(), `psnr-${process.pid}-${Math.random().toString(36).slice(2)}.txt`)
+  try {
+    try {
+      execFileSync(
+        ffmpegBin(),
+        ['-y', '-i', a, '-i', b, '-lavfi', `psnr=stats_file=${statsFile}`, '-f', 'null', '-'],
+        { stdio: ['ignore', 'ignore', 'pipe'] },
+      )
+    } catch (err) {
+      // stderr, capturé plutôt qu'ignoré : sans lui l'échec remonte comme
+      // « Command failed: ffmpeg … » sans dire lequel des deux fichiers pose
+      // problème.
+      const stderr = err instanceof Error && 'stderr' in err ? String((err as { stderr: unknown }).stderr) : ''
+      throw new Error(`psnr entre ${a} et ${b} : ffmpeg a échoué.\n${stderr}`)
+    }
+    const lines = fs.readFileSync(statsFile, 'utf8').trim().split('\n').filter((l) => l.length > 0)
+    let worst = Number.POSITIVE_INFINITY
+    let matched = 0
+    for (const line of lines) {
+      const match = /psnr_avg:(inf|[\d.]+)/.exec(line)
+      if (match === null) continue
+      matched += 1
+      const value = match[1] === 'inf' ? Number.POSITIVE_INFINITY : Number.parseFloat(match[1])
+      if (value < worst) worst = value
+    }
+    if (matched === 0) throw new Error(`psnr : aucune valeur psnr_avg reconnue entre ${a} et ${b}.`)
+    if (matched !== framesA) {
+      throw new Error(
+        `psnr entre ${a} et ${b} : ${matched} paire(s) comparée(s) sur ${framesA} attendue(s).`,
+      )
+    }
+    return worst
+  } finally {
+    fs.rmSync(statsFile, { force: true })
+  }
+}
+
 function loadShow(projectId: string, show: JsonShow, seed: number): Show {
   const file = analysisPath(projectId)
   if (!fs.existsSync(file)) {
@@ -627,7 +719,7 @@ function loadShow(projectId: string, show: JsonShow, seed: number): Show {
       index,
       shot,
       json,
-      frames: framesOfShot(sortedBoxes, shot),
+      frames: framesOfShot(sortedBoxes, shot, analysis.fps),
       segments: editedSegments.filter(
         (s) => Math.min(shot.end, s.end) > Math.max(shot.start, s.start),
       ),
@@ -1315,6 +1407,36 @@ async function main(): Promise<number> {
         : '  DEFAUT(S) ci-dessus — ne pas juger un cadrage sur une sortie qui ne tient pas ses durées.',
     )
 
+    console.log('\n=== 5bis. Le contrôle négatif — ses trois panneaux doivent être indiscernables ===')
+    const controlEntry = produced.find(({ c }) => c.kind === 'control')
+    let controlOk = false
+    if (controlEntry === undefined) {
+      console.log(
+        '  Pas de cas de contrôle rendu — le contrôle négatif annoncé par ce script n’a pas pu être vérifié.',
+      )
+    } else {
+      controlOk = true
+      const [today, candidate, randomWho] = controlEntry.panels
+      const pairs: [string, string, string][] = [
+        ['aujourd’hui / candidat', today, candidate],
+        ['aujourd’hui / randomWho', today, randomWho],
+      ]
+      for (const [label, a, b] of pairs) {
+        const psnr = worstPsnr(a, b)
+        const ok = psnr >= CONTROL_PSNR_FLOOR_DB
+        if (!ok) controlOk = false
+        console.log(
+          `  ${label.padEnd(26)} PSNR minimal ${Number.isFinite(psnr) ? psnr.toFixed(1) : 'inf'} dB` +
+            `${ok ? '' : `   ← DIVERGENCE (< ${CONTROL_PSNR_FLOOR_DB} dB)`}`,
+        )
+      }
+      console.log(
+        controlOk
+          ? '  Panneaux indiscernables : la reconstruction de candidate et randomWho tient.'
+          : "  DEFAUT — le contrôle négatif est censé montrer trois panneaux identiques, et ce n'est pas le cas.",
+      )
+    }
+
     console.log('\n=== 6. Ce qu\'on livre ===')
     for (const { c, file } of produced) {
       const duration = probeContainerDuration(file)
@@ -1324,7 +1446,7 @@ async function main(): Promise<number> {
       console.log(`      image du milieu : ${still}`)
     }
 
-    return soundOk ? 0 : 1
+    return soundOk && controlOk ? 0 : 1
   } finally {
     closeDb()
   }

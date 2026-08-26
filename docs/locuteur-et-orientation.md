@@ -465,12 +465,12 @@ La règle ne se déclenche pas partout, et la ventilation dit pourquoi :
 
 | cause | temps | part du montage |
 |---|---|---|
-| écart de frontalité insuffisant | 600 s | 29,7 % |
-| moins de deux personnes | 238 s | 11,8 % |
-| **plus de deux personnes** | **208 s** | **10,3 %** |
-| une frontalité `unknown` | 89 s | 4,4 % |
+| écart de frontalité insuffisant | 602 s | 29,6 % |
+| moins de deux personnes | 268 s | 13,2 % |
+| **plus de deux personnes** | **213 s** | **10,5 %** |
+| une frontalité `unknown` | 92 s | 4,5 % |
 
-**Les 208 s de « plus de deux personnes » viennent pour 166 s de `caro-mdlm`
+**Les 213 s de « plus de deux personnes » viennent pour 171 s de `caro-mdlm`
 seule**, soit la moitié du montage de cette émission. C'est le faux positif sur
 visage imprimé : une boîte de plus fait passer le plan à trois personnes, et une
 règle qui n'agit qu'à deux se tait. Un filtre rendrait presque tout son effet

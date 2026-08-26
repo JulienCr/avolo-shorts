@@ -176,6 +176,29 @@ function sampleStep(analysis: Analysis): number {
   return analysis.fps > 0 ? 1 / analysis.fps : Number.NaN
 }
 
+/**
+ * La grille réelle d'échantillonnage sur `[start, end)`, en secondes, arrondie
+ * au même pas que `worker/detect.py` (3 décimales).
+ *
+ * Issue #174 : une image sans détection n'a aucune entrée dans `analysis.boxes`,
+ * donc un regroupement qui n'énumère que les boîtes la rend invisible plutôt
+ * que nulle. Énumérer `k / fps` couvre les trous.
+ */
+function gridTimestamps(start: number, end: number, fps: number): number[] {
+  if (!(fps > 0) || !(end > start)) return []
+  // Bornes en `k` élargies d'un cran : une frontière de plan tombant pile sur
+  // un pas de grille peut voir `k / fps` s'arrondir de l'autre côté que le `t`
+  // stocké dans `analysis.boxes` ; la membership se décide donc sur `t` arrondi.
+  const firstK = Math.floor(start * fps) - 1
+  const lastK = Math.ceil(end * fps) + 1
+  const out: number[] = []
+  for (let k = Math.max(0, firstK); k <= lastK; k += 1) {
+    const t = Math.round((k / fps) * 1000) / 1000
+    if (t >= start && t < end) out.push(t)
+  }
+  return out
+}
+
 /** Le temps commun à un intervalle et à une liste de segments, en secondes. */
 function overlapSeconds(interval: { start: number; end: number }, segments: Segment[]): number {
   return segments.reduce(
@@ -295,6 +318,7 @@ function frameDecisionsOf(
   shot: Shot,
   segments: Segment[],
   frontalMargin: number,
+  fps: number,
 ): FrameDecision[] {
   const byFrame = new Map<number, PersonBox[]>()
   for (const b of boxes) {
@@ -306,8 +330,8 @@ function frameDecisionsOf(
   }
 
   const out: FrameDecision[] = []
-  for (const all of byFrame.values()) {
-    const t = all[0].t
+  for (const t of gridTimestamps(shot.start, shot.end, fps)) {
+    const all = byFrame.get(Math.round(t * 1000)) ?? []
     const ranked = all
       .filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
       .sort((x, y) => centerOf(x) - centerOf(y))
@@ -1079,7 +1103,7 @@ function loadShow(id: string, frontalMargin: number): Show | null {
     if (inClipSeconds <= 0) continue
     works.push({
       shot,
-      frames: frameDecisionsOf(analysis.boxes, shot, segments, frontalMargin),
+      frames: frameDecisionsOf(analysis.boxes, shot, segments, frontalMargin, analysis.fps),
       segments,
       inClipSeconds,
     })

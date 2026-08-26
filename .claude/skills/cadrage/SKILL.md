@@ -166,13 +166,36 @@ Trois outils, à étendre plutôt qu'à doubler :
 
 - `scripts/measure-ratios.ts` — la répartition des ratios par clip, par fenêtre de
   30 s et **en temps de plan**. C'est le troisième qui compte : il dit ce que la
-  sortie verticale montre vraiment ;
+  sortie verticale montre vraiment ; `--cas <sélecteur>` ajoute une dixième section,
+  une ligne par cas de contrôle ;
 - `scripts/framing-thumbnails.ts` — une image par plan, choisie sur son débordement,
-  avec les boîtes, les troncs et le rectangle de crop ;
+  avec les boîtes, les troncs et le rectangle de crop : **ce que le détecteur voit,
+  et où le cadre tomberait**. `--cas <sélecteur>` rend une vignette `<caseId>.jpg`
+  par cas plutôt qu'une par rang ;
 - `scripts/framing-preview.ts` — un serveur local qui joue le proxy avec la même
-  surimpression, pour voir *où* dans un plan le crop serre.
+  surimpression, pour voir *où* dans un plan le crop serre. Un sélecteur « Cas »
+  (ou `--cas <id>` / `?cas=<id>` dans l'URL) amène directement le lecteur à
+  l'instant d'un cas.
 
-Quatre projets sont sur le disque avec leur analyse. **Compare toujours au code en
+Et trois outils construits par l'issue #191 mais jamais encore documentés ici :
+
+- `scripts/framing-cases.ts` — le registre en ligne de commande : `list` imprime
+  les cas, `show <id>` en détaille un, `verify [--strict]` dit lesquels ont dérivé
+  depuis leur étiquetage — la commande de régression, quelques secondes, sans
+  ffmpeg ;
+- `scripts/framing-board.ts` — la planche : **ce que le spectateur voit**, la
+  sortie composée, à l'opposé de `framing-thumbnails.ts` qui dessine le crop
+  annoté **sur la source**. Les deux questions ne se recoupent pas ; l'issue #191
+  est explicite que la seconde n'existait nulle part de versionné avant elle ;
+  générer une planche est un travail `sonnet-low` — la forme de la page est
+  figée dans le générateur, seuls le choix du cas et de la sélection engagent
+  un jugement ;
+- `scripts/framing-sieve.ts` — passe le corpus entier au travers d'une métrique et
+  rend ce qui mérite un œil (les extrémités d'une distribution, ou le voisinage
+  d'un seuil), au besoin en `FramingCase` prêts à coller dans `cases.ts`.
+
+Cinq projets sont sur le disque avec leur analyse (26 août 2026) ; le sixième,
+`2025-12-14-handicap`, n'a qu'un `status.json`. **Compare toujours au code en
 service, pas à un état antérieur** : deux améliorations successives se sont déjà
 attribué le même gain.
 
@@ -197,21 +220,20 @@ lecture d'image a renversé une conclusion chiffrée à répétition. `CLAUDE.md
 tient le compte et la raison, sous « Distinguer l'absence d'information de son
 ambiguïté » — ne les recopie pas ici, les deux comptes ont déjà divergé une fois.
 
-Les cas de contrôle, avec leur timestamp :
+Les cas de contrôle vivent dans **`scripts/framing/cases.ts`**, en données
+exécutables — treize cas au 26 août 2026, dont huit étiquetés.
+`pnpm tsx scripts/framing-cases.ts list` les imprime, `… verify` dit lesquels
+ont bougé. **Ne recopie pas un timestamp ici** : les deux sources ont déjà
+divergé une fois (#78), et un test l'interdit désormais.
 
-| Cas | Où | Ce qu'il éprouve |
-|---|---|---|
-| Jambes tendues | `2026-22-02-entre-nous`, 2 973 s | Le tronc contre la boîte |
-| Tête à l'extrémité de sa boîte | `2026-03-08-caro-mdlm`, 7 250 s | Qu'un rognage aveugle perd un visage |
-| Deux comédiens aux deux bords | `2025-06-15-cqlp`, 2 120 s | Que le split-screen tienne les deux bustes, chacun dans sa cellule — un 1:1 partagé n'est plus le résultat attendu ici, voir `docs/superpowers/specs/2026-08-25-split-screen-design.md` |
-| Gros plan à boîtes instables | `2025-06-15-cqlp`, 2 138 s | Ce qu'aucune largeur ne résout |
-| Bascule acceptée sans coupe | `2026-03-08-caro-mdlm`, 652,5 s | Qu'une frontière posée corresponde à une coupe |
-
-La dernière ligne couvre ce que les quatre autres ne voient pas. Elles éprouvent
-toutes un **cadre**, mesurable ; celle-ci éprouve une **frontière**, qui ne l'est
-pas : le détecteur de bascules en ajoute, donc il peut en ajouter de fausses, et
-une fausse frontière ne dégrade aucun chiffre de cadrage. Elle ne se voit qu'en
-regardant les deux images qui l'encadrent.
+Parmi les cinq cas de la skill d'origine, quatre éprouvent un **cadre**,
+mesurable — jambes tendues, tête à l'extrémité de sa boîte, deux comédiens aux
+deux bords d'un split, gros plan à boîtes instables. Le cinquième (« bascule
+acceptée sans coupe ») couvre ce que les quatre autres ne voient pas. Il
+n'éprouve pas un cadre mais une **frontière**, qui ne l'est pas : le détecteur
+de bascules en ajoute, donc il peut en ajouter de fausses, et une fausse
+frontière ne dégrade aucun chiffre de cadrage. Elle ne se voit qu'en regardant
+les deux images qui l'encadrent.
 
 ## Ce qui reste ouvert
 

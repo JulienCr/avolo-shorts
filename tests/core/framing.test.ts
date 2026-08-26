@@ -8,6 +8,8 @@ import {
   computeFraming,
   computeShotSplit,
   cropRect,
+  gridCount,
+  gridInstants,
   headBounds,
   isForeground,
   orientationOf,
@@ -2625,5 +2627,34 @@ describe('les six réglages de la famille `framing` bougent RenderedFraming', ()
     // la médiane n'est plus deux, et le split se refuse.
     expect(computeFraming({ ...request, sizeFloor: 0 }).shots[0].split).toBeUndefined()
     expect(computeFraming({ ...request, sizeFloor: FRAMING_DEFAULTS.sizeFloor }).shots[0].split).toBeDefined()
+  })
+})
+
+describe('gridInstants', () => {
+  it("s'accorde avec `gridCount` sur une plage d'entrées", () => {
+    const fpsValues = [1, 2, 5, 30]
+    const ranges: [number, number][] = [
+      [0, 10],
+      [0.001, 10.004],
+      [7250, 7251.7],
+      [2.5, 2.5],
+      [3, 1],
+    ]
+    for (const fps of fpsValues) {
+      for (const [a, b] of ranges) {
+        expect(gridInstants(a, b, fps).length).toBe(gridCount(a, b, fps))
+      }
+    }
+  })
+
+  it('rend les instants `k / fps` de `[a, b)`', () => {
+    expect(gridInstants(0, 1, 2)).toEqual([0, 0.5])
+    expect(gridInstants(0.4, 1.4, 2)).toEqual([0.5, 1])
+  })
+
+  it('rend un tableau vide hors domaine (b <= a, fps <= 0)', () => {
+    expect(gridInstants(5, 5, 2)).toEqual([])
+    expect(gridInstants(5, 4, 2)).toEqual([])
+    expect(gridInstants(0, 10, 0)).toEqual([])
   })
 })

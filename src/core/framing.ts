@@ -1237,9 +1237,23 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
  * plus large que le cas qu'il corrige. Suivi en issue #185, avec le désaccord
  * `Math.round`/arrondi au pair de Python qu'elle porte déjà.
  */
-function gridCount(a: number, b: number, fps: number): number {
+export function gridCount(a: number, b: number, fps: number): number {
   if (!(b > a) || !(fps > 0)) return 0
   return Math.ceil(b * fps) - Math.ceil(a * fps)
+}
+
+/**
+ * Les instants `k / fps` de `[a, b)`, l'horloge de l'analyse — la forme
+ * énumérée de `gridCount`, pour qui a besoin des valeurs et pas seulement du
+ * compte (les planches de comparaison, notamment).
+ */
+export function gridInstants(a: number, b: number, fps: number): number[] {
+  if (!(b > a) || !(fps > 0)) return []
+  const first = Math.ceil(a * fps)
+  const last = Math.ceil(b * fps) - 1
+  const out: number[] = []
+  for (let k = first; k <= last; k += 1) out.push(k / fps)
+  return out
 }
 
 /**

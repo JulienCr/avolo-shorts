@@ -103,9 +103,11 @@ import { normalizeSegments } from '@/core/edl'
 import type { Ratio, Segment } from '@/core/edl'
 import type { PersonBox } from '@/core/shots'
 import { closeDb, getClips, getDb } from '@/server/db'
-import { analysisPath } from '@/server/paths'
+import { analysisPath, projectDir } from '@/server/paths'
 import { lireAnalysis, type Analysis } from '@/server/steps/analysis'
 import { chargerEnv, quit } from './dev-common'
+import { resolveCase, segmentsForScope } from './framing/case-registry'
+import { projectOf as projectOfCase, selectCases } from './framing/cases'
 
 /** Les quatre ratios du plus étroit au plus large, déduits de `RATIOS`. */
 const MORE_NARROW_MORE_WIDE = (Object.keys(RATIOS) as Ratio[]).sort(
@@ -1527,6 +1529,71 @@ function sizeFloorHeadcountShift(show: Show): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 10. Les cas de contrôle
+// ---------------------------------------------------------------------------
+
+/** `[start; end]` à trois décimales, ou `—` quand aucun intervalle n'est enregistré. */
+function intervalText(shot: { start: number; end: number } | null): string {
+  return shot === null ? '—' : `[${shot.start.toFixed(3)}; ${shot.end.toFixed(3)}]`
+}
+
+/**
+ * Une ligne par cas de `scripts/framing/cases.ts` : le ratio choisi
+ * aujourd'hui, le split, sa cause de refus le cas échéant, et le verdict
+ * humain — le tableau que `docs/superpowers/specs/…` et l'issue #78 payent de
+ * ne pas avoir eu.
+ *
+ * **La plus petite régression possible.** Aucun ffmpeg, quelques secondes :
+ * un cas qui bascule de ratio ou de split entre deux exécutions est un
+ * changement d'une cellule, à comparer sans avoir à relire une image.
+ */
+function sectionCases(selector: string): void {
+  const cases = selectCases(selector)
+  console.log('\n=== 10. Les cas de contrôle ===')
+  console.log(
+    '  id                       projet             enregistré                      résolu                           ratio  split  rejet                bleed   pire bleed  verdict',
+  )
+  for (const c of cases) {
+    const projectId = projectOfCase(c)
+    if (!fs.existsSync(projectDir(projectId)) || !fs.existsSync(analysisPath(projectId))) {
+      console.log(`  ${c.id.padEnd(24)} ${projectId.padEnd(18)} ABSENT`)
+      continue
+    }
+    try {
+      const r = resolveCase(c)
+      const recorded = c.anchor.at === 'shot' ? c.anchor.shot : null
+      const boxes = r.analysis.boxes.filter((b) =>
+        withinInterval(b.t, r.shot.shot.start, r.shot.shot.end),
+      )
+      const segments = segmentsForScope(c.scope, r.analysis, r.shot.shot)
+      const { cells, rejection, bleed, worstBleedAt } = computeShotSplit(
+        boxes,
+        r.shot.shot,
+        r.shot.ratio,
+        r.analysis.source.w,
+        r.analysis.source.h,
+        opts(),
+        segments,
+      )
+      const verdict = c.label?.call ?? (c.retired !== null ? 'retiré' : 'sans étiquette')
+      console.log(
+        `  ${c.id.padEnd(24)} ${projectId.padEnd(18)}` +
+          ` ${intervalText(recorded).padEnd(32)} ${intervalText(r.shot.shot).padEnd(32)}` +
+          ` ${r.shot.ratio.padEnd(6)} ${(cells !== null ? 'oui' : 'non').padEnd(6)}` +
+          ` ${(rejection ?? '—').padEnd(20)}` +
+          ` ${(bleed === null ? '—' : bleed.toFixed(3)).padStart(6)}` +
+          ` ${(worstBleedAt === null ? '—' : worstBleedAt.toFixed(1)).padStart(11)}` +
+          ` ${verdict}`,
+      )
+    } catch (e) {
+      console.log(
+        `  ${c.id.padEnd(24)} ${projectId.padEnd(18)} ERREUR : ${e instanceof Error ? e.message : String(e)}`,
+      )
+    }
+  }
+}
+
 async function main(): Promise<number> {
   await chargerEnv()
 
@@ -1537,13 +1604,44 @@ async function main(): Promise<number> {
   // projet nommé « 3 » et va lire une analyse qui n'existe pas.
   const suiveuses = new Set<number>()
   for (const [i, a] of arguments_.entries()) {
-    if (a === '--instants' || a === '--tronc' || a === '--analyse') suiveuses.add(i + 1)
+    if (a === '--instants' || a === '--tronc' || a === '--analyse' || a === '--cas') suiveuses.add(i + 1)
   }
   const ids = arguments_.filter((a, i) => !a.startsWith('--') && !suiveuses.has(i))
-  if (ids.length === 0) {
+
+  const iCas = arguments_.indexOf('--cas')
+  let casSelector: string | null = null
+  let casProjectIds: string[] = []
+  if (iCas >= 0) {
+    const raw = arguments_[iCas + 1]
+    if (raw === undefined || raw.startsWith('--')) {
+      console.error(`--cas attend un sélecteur (voir scripts/framing-cases.ts), reçu « ${String(raw)} ».`)
+      return 1
+    }
+    casSelector = raw
+    try {
+      casProjectIds = [...new Set(selectCases(casSelector).map(projectOfCase))]
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e))
+      return 1
+    }
+    // **Un positionnel qui contredit `--cas` est refusé, jamais ignoré.** Une
+    // planche qui prétendrait mesurer un projet différent de celui de ses
+    // légendes est exactement le défaut de forme qui a fait diverger la skill
+    // et l'issue #78.
+    if (ids.length > 0 && (ids.length !== casProjectIds.length || !ids.every((id) => casProjectIds.includes(id)))) {
+      console.error(
+        `--cas ${casSelector} désigne ${casProjectIds.join(', ')} ; positionnels donnés en contradiction : ` +
+          `${ids.join(', ')}.`,
+      )
+      return 1
+    }
+  }
+  const finalIds = casSelector !== null ? casProjectIds : ids
+
+  if (finalIds.length === 0) {
     console.error(
       'Usage : pnpm tsx scripts/mesure-ratios.ts <projectId…> [--instants N] ' +
-        '[--tronc <nom|off>] [--analyse <projet>=<fichier>]…',
+        '[--tronc <nom|off>] [--analyse <projet>=<fichier>]… [--cas <sélecteur>]',
     )
     return 1
   }
@@ -1609,7 +1707,7 @@ async function main(): Promise<number> {
   }
 
   try {
-    const shows = ids
+    const shows = finalIds
       .map((id) => charger(id, overrides))
       .filter((e): e is Show => e !== null)
     if (shows.length === 0) return 1
@@ -1691,6 +1789,8 @@ async function main(): Promise<number> {
     console.log('\n  Le balayage de la tolérance au débordement (splitBleedTolerance)')
     console.log('  (« pire bleed accepté » : le plan le plus proche de la tolérance parmi ceux acceptés — celui à regarder à l\'image)')
     for (const e of shows) sweepBleedTolerance(e)
+
+    if (casSelector !== null) sectionCases(casSelector)
 
     return 0
   } finally {

@@ -11,6 +11,7 @@
     "type-check": "next typegen && tsc --noEmit",
     "framing-preview": "tsx scripts/framing-preview.ts",
     "framing-preview:stop": "lsof -t -iTCP:${PORT:-4321} -sTCP:LISTEN | xargs -r kill -INT",
+    "framing-board": "tsx scripts/framing-board.ts",
     "generate-env:local": "tsx scripts/generate-env-local.ts"
   },
   "dependencies": {

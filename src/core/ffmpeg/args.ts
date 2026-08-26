@@ -321,8 +321,10 @@ export type FramedSegment = Segment & {
   ratio: Ratio
   /**
    * Les deux cellules du split-screen, en pixels de la source, `[haut, bas]`.
-   * Quand elles sont posées, `buildRender` les rend plutôt que `crop`/`ratio` —
-   * voir `blurredVariantArgs`. `renderArgs` (le natif) ne les lit jamais.
+   * Quand elles sont posées, `buildRender` les rend plutôt que `crop`/`ratio`,
+   * que l'appel vienne de `renderArgs` ou de `blurredVariantArgs` — la branche
+   * ne dépend pas du canevas. C'est `render.ts` qui garantit qu'un segment
+   * natif n'en porte jamais, en ne les construisant pas pour lui.
    */
   split?: [Rectangle, Rectangle]
 }

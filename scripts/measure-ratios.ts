@@ -1504,9 +1504,11 @@ function sizeFloorHeadcountShift(show: Show): void {
   for (const cut of show.clips) {
     const segments = normalizeSegments(cut.segments)
     const boxes = show.analysis.boxes.filter((b) => segments.some((g) => withinInterval(b.t, g.start, g.end)))
-    const mountedSeconds = segments.reduce((n, g) => n + (g.end - g.start), 0)
-    const before = retainedCountByFrame(boxes, withoutFloor, mountedSeconds)
-    const after = retainedCountByFrame(boxes, withFloor, mountedSeconds)
+    // `0` désactive le complément à zéro : `boxes` couvre tous les plans du
+    // cut, pas un seul, donc aucune grille unique ne s'y applique. Comportement
+    // inchangé, une comparaison image par image des deux mêmes regroupements.
+    const before = retainedCountByFrame(boxes, withoutFloor, 0)
+    const after = retainedCountByFrame(boxes, withFloor, 0)
     // Les deux comptes viennent du même regroupement par image et donc du même
     // ordre d'itération : `retainedCountByFrame` ne fait que varier le
     // plancher, jamais le regroupement lui-même.

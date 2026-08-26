@@ -1242,8 +1242,8 @@ export function retainedCountByFrame(
     ({ boxes: frameBoxes }) => afterSizeFloor(frameBoxes, floor).length,
   )
   const fps = setting(options.fps, FRAMING_DEFAULTS.fps)
-  // Même formule que le script de mesure du contrat (`gaps.ts`) : reproduire
-  // le chiffre publié demande la même approximation, pas une grille exacte.
+  // Arrondi, pas `Math.ceil` : la grille réelle est ancrée sur l'horloge de la
+  // vidéo, pas sur le début du plan (corps de la PR, mesuré sur le corpus).
   const expected = Math.round(mountedSeconds * fps)
   const missing = Math.max(0, expected - counts.length)
   return missing > 0 ? [...counts, ...new Array(missing).fill(0)] : counts

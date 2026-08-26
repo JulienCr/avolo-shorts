@@ -246,6 +246,7 @@ function number(n: number, decimals = 3): string {
 /** Le cadrage complet d'une découpe : le ratio natif, et un cadre par plan. */
 function framingOf(cut: Cut, analysis: Analysis, options: FramingOptions): ClipFraming {
   return computeFraming({
+    fps: analysis.fps,
     ...options,
     segments: cut.segments,
     shots: analysis.shots,

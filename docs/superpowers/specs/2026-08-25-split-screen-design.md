@@ -223,8 +223,9 @@ affiche, contrairement à tout le reste de cette conception : il ne dit pas « n
 cadre pas sur cette personne », il dit « ce n'est pas une personne », comme
 `isForeground` le fait déjà pour le public au premier rang.
 
-Sa valeur exacte demande un balayage, comme celui qui a fixé le rognage latéral.
-Cette conception arrête la forme de la règle, pas son seuil.
+Sa valeur par défaut, `0,5`, vient d'un balayage, quantifié dans le corps de
+la PR #177 et repris dans `2026-08-25-size-floor-design.md`. Cette conception
+arrêtait la forme de la règle, livrée depuis avec ce seuil.
 
 ## Ce qui reste ouvert
 

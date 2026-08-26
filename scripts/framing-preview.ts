@@ -712,6 +712,7 @@ function sendFraming(res: ServerResponse, projectId: string, clipId: string | un
   // `FRAMING_DEFAULTS`. `ratio: 'auto'` laisse `computeFraming` décider comme le
   // ferait le rendu ; un clip choisi passe le sien.
   const framing = computeFraming({
+    fps: analysis.fps,
     segments,
     shots: analysis.shots,
     people: analysis.boxes,

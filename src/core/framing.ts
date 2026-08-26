@@ -332,8 +332,8 @@ export type FramingOptions = {
   splitBleedShare?: number
   /**
    * La cadence d'échantillonnage de l'analyse, en images par seconde. Sert à
-   * `retainedCountByFrame` pour tailler la grille complète d'un plan — voir
-   * `mountedSeconds` — et à rien d'autre : les images elles-mêmes portent leur
+   * `retainedCountByFrame` pour tailler la grille complète des intervalles
+   * montés d'un plan, et à rien d'autre : les images elles-mêmes portent leur
    * propre `t`, cette valeur ne fait que compter combien sont attendues.
    */
   fps?: number
@@ -1222,6 +1222,16 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
 }
 
 /**
+ * `detect.py` écrit `round(k / fps, 3)`, jamais `k / fps` en clair (relevé
+ * par Copilot) : à une cadence dont l'inverse n'a pas d'écriture décimale
+ * exacte (3 im/s, `k=2` → `0,6667` arrondi à `0,667`), l'instant persisté
+ * peut franchir une borne d'intervalle que l'instant continu ne franchit
+ * pas. Décaler `a` et `b` d'un demi-pas d'arrondi avant de compter reproduit
+ * la même bascule que l'arrondi du worker plutôt qu'une horloge idéale.
+ */
+const DETECT_TIMESTAMP_ROUNDING = 0.0005
+
+/**
  * Le nombre exact d'instants `k / fps` dans l'intervalle demi-ouvert
  * `[a, b)` — l'horloge de la vidéo, pas celle de l'intervalle lui-même.
  * `a` et `b` ne sont donc pas interchangeables avec une simple durée : un
@@ -1231,14 +1241,16 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
  */
 function gridCount(a: number, b: number, fps: number): number {
   if (!(b > a) || !(fps > 0)) return 0
-  return Math.ceil(b * fps) - Math.ceil(a * fps)
+  const g = (t: number) => Math.ceil((t - DETECT_TIMESTAMP_ROUNDING) * fps)
+  return g(b) - g(a)
 }
 
 /**
  * Le nombre de personnes retenues par image, sur la **grille complète** —
  * même filtre que `spans`, sans la fusion en empan, mais complété d'un `0`
- * pour chaque instant échantillonné où personne n'a survécu. C'est ce que le
- * déclencheur du split lit pour juger l'effectif d'un plan.
+ * pour chaque instant échantillonné où personne n'a survécu. Un multi-ensemble
+ * dans l'ordre de première apparition, pas une chronologie : seule la médiane
+ * en est lue.
  *
  * @param intervals Les intervalles montés du plan (mêmes bornes que
  *   `computeShotSplit` intersecte) sur lesquels la grille se compte — pas

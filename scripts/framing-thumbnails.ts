@@ -396,6 +396,7 @@ async function main(): Promise<number> {
   }
 
   const framing = computeFraming({
+    fps: analysis.fps,
     margin: margin,
     sideTrim: trim,
     torso,

@@ -58,8 +58,10 @@ import { parseRange } from '@/core/range'
 import type { PersonBox } from '@/core/shots'
 import { closeDb, getClips, getDb, listProjects } from '@/server/db'
 import { analysisPath, proxyPath } from '@/server/paths'
-import { lireAnalysis } from '@/server/steps/analysis'
+import { lireAnalysis, type Analysis } from '@/server/steps/analysis'
 import { chargerEnv, quit } from './dev-common'
+import { caseFramingRequest } from './framing/case-registry'
+import { findCase, FRAMING_CASES, projectOf } from './framing/cases'
 
 const DEFAULT_PORT = 4321
 
@@ -120,6 +122,54 @@ function shotPayload(shot: ShotFraming, srcW: number, srcH: number): ShotPayload
     ratio: shot.ratio,
     crops,
   }
+}
+
+/**
+ * Les boîtes d'une analyse, colorées et réduites à ce que le navigateur
+ * dessine — factorisé entre `sendFraming` et `sendCase`, qui en avaient
+ * chacun une copie avant que le second existe.
+ */
+function boxPayload(analysis: Analysis): {
+  t: number
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+  score: number
+  c: 'gray' | 'red' | 'lime'
+  torso: { x0: number; x1: number } | undefined
+  head: { x0: number; y0: number; x1: number; y1: number } | undefined
+  k: readonly number[] | undefined
+}[] {
+  // La plus haute boîte retenue de chaque image, requise par `boxColor` pour
+  // juger le plancher de taille relatif. Géométrie complète écartée en
+  // premier, comme `spans()` : sans elle, une boîte à `x` inversés (hauteur
+  // valide) peut devenir la référence de l'image. (relevé par Copilot)
+  const tallestByFrame = new Map<number, number>()
+  for (const b of analysis.boxes) {
+    if (!hasValidGeometry(b) || !(b.score >= FRAMING_DEFAULTS.minScore) || isForeground(b)) continue
+    const key = Math.round(b.t * 1000)
+    tallestByFrame.set(key, Math.max(tallestByFrame.get(key) ?? 0, b.y1 - b.y0))
+  }
+
+  return analysis.boxes.map((b) => {
+    const tallest = tallestByFrame.get(Math.round(b.t * 1000)) ?? 0
+    const c = boxColor(b, tallest)
+    const torso = c === 'lime' ? personBounds(b) : undefined
+    const head = c === 'lime' ? headBounds(b) : null
+    return {
+      t: b.t,
+      x0: b.x0,
+      x1: b.x1,
+      y0: b.y0,
+      y1: b.y1,
+      score: b.score,
+      c,
+      torso,
+      head: head ?? undefined,
+      k: b.k,
+    }
+  })
 }
 
 function sendJson(res: ServerResponse, body: unknown, status = 200): void {
@@ -219,7 +269,36 @@ function serveProxy(req: IncomingMessage, res: ServerResponse, filePath: string)
   stream.pipe(res)
 }
 
-const PAGE = `<!DOCTYPE html>
+/**
+ * `JSON.stringify` puis échappe `<` — sans quoi un `probes` portant
+ * `</script>` fermerait la balise et exécuterait le reste comme du HTML
+ * (relevé par Aristarque sur la #192).
+ */
+function jsonForScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c')
+}
+
+/** Fixé par `--cas` en ligne de commande (`main`) — voir `renderPage`. */
+let cliInitialCase: string | null = null
+
+/**
+ * La page HTML, régénérée à chaque requête pour porter `cliInitialCase` — un
+ * `--cas` passé après coup (le process ne redémarre pas entre deux appels de
+ * `pnpm framing-preview:stop` / relance) doit se voir au prochain
+ * rechargement, pas seulement au premier.
+ */
+function renderPage(): string {
+  // Un cas par ligne pour le `<select>` groupé par émission — `projectOf` et
+  // le verdict humain calculés ici, une fois, plutôt que redemandés à
+  // `/api/case/:id` avant même qu'un cas soit choisi.
+  const casesForClient = FRAMING_CASES.map((c) => ({
+    id: c.id,
+    show: c.show,
+    project: projectOf(c),
+    probes: c.probes,
+    verdict: c.label?.call ?? (c.retired !== null ? 'retiré' : 'sans étiquette'),
+  }))
+  return `<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -244,6 +323,7 @@ const PAGE = `<!DOCTYPE html>
 <div id="controls">
   <label>Proxy <select id="project"></select></label>
   <label>Cadre du clip <select id="clip"><option value="">(toute la vidéo, auto)</option></select></label>
+  <label>Cas <select id="cas"></select></label>
   <label><input id="showBoxes" type="checkbox" checked> boîtes</label>
   <button id="copyImage" type="button">Copier l'image</button>
   <span id="copyStatus"></span>
@@ -255,6 +335,7 @@ const PAGE = `<!DOCTYPE html>
   <video id="video" controls></video>
   <canvas id="overlay"></canvas>
 </div>
+<p id="caseInfo" class="legend"></p>
 <p class="legend">
   <span><i style="background:lime"></i> gardée</span>
   <span><i style="background:red"></i> premier plan écarté</span>
@@ -265,17 +346,42 @@ const PAGE = `<!DOCTYPE html>
 </p>
 
 <script>
+const CASES = ${jsonForScript(casesForClient)};
+const INITIAL_CASE = ${jsonForScript(cliInitialCase)};
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
 const ctx = canvas.getContext('2d');
 const projectSel = document.getElementById('project');
 const clipSel = document.getElementById('clip');
+const casSel = document.getElementById('cas');
 const showBoxes = document.getElementById('showBoxes');
 const copyImageBtn = document.getElementById('copyImage');
 const copyStatusEl = document.getElementById('copyStatus');
 const copyDebugBtn = document.getElementById('copyDebug');
 const debugStatusEl = document.getElementById('debugStatus');
 const statusEl = document.getElementById('status');
+const caseInfoEl = document.getElementById('caseInfo');
+
+// Un select groupé par émission, peuplé depuis les données injectées plutôt
+// qu'un aller-retour réseau : FRAMING_CASES est une donnée pure, déjà
+// résolue côté serveur dans CASES ci-dessus.
+(function populateCases() {
+  const empty = document.createElement('option');
+  empty.value = '';
+  empty.textContent = '(aucun cas)';
+  casSel.appendChild(empty);
+  for (const show of [...new Set(CASES.map((c) => c.show))]) {
+    const group = document.createElement('optgroup');
+    group.label = show;
+    for (const c of CASES.filter((x) => x.show === show)) {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.id + ' — ' + c.verdict;
+      group.appendChild(opt);
+    }
+    casSel.appendChild(group);
+  }
+})();
 
 let boxesByTime = new Map();
 let sortedTimes = [];
@@ -496,20 +602,77 @@ async function loadFraming(projectId, clipId, generation = ++requestGeneration) 
     (data.nativeRatio ? \` — natif \${data.nativeRatio}\` : '');
 }
 
-projectSel.addEventListener('change', () => selectProject(projectSel.value));
-clipSel.addEventListener('change', () => loadFraming(projectSel.value, clipSel.value));
+/**
+ * Le cadrage d'un cas — même forme de réponse que \`loadFraming\`, plus
+ * \`probes\`/\`verdict\` à afficher à côté de l'image (sans eux, le lecteur
+ * redérive le jugement du cas depuis l'image, ce que le cas existe pour
+ * éviter) et \`instant\`, sur lequel la vidéo est amenée.
+ */
+async function loadCaseFraming(caseId, generation = ++requestGeneration) {
+  statusEl.textContent = 'chargement du cas...';
+  caseInfoEl.textContent = '';
+  boxesByTime = new Map();
+  sortedTimes = [];
+  shots = [];
+  currentProxy = '';
+  currentNativeRatio = null;
+  const data = await (await fetch(\`/api/case/\${encodeURIComponent(caseId)}\`)).json();
+  if (generation !== requestGeneration) return;
+  if (data.error) {
+    statusEl.textContent = data.error;
+    return;
+  }
+  sampleFps = data.fps || 2;
+  boxesByTime = new Map();
+  for (const b of data.boxes) {
+    if (!boxesByTime.has(b.t)) boxesByTime.set(b.t, []);
+    boxesByTime.get(b.t).push(b);
+  }
+  sortedTimes = Array.from(boxesByTime.keys()).sort((a, b) => a - b);
+  shots = data.shots;
+  currentProxy = data.proxy || '';
+  currentNativeRatio = data.nativeRatio || null;
+  statusEl.textContent = \`\${data.boxes.length} boîtes, \${data.shots.length} plan(s) cadré(s)\` +
+    (data.nativeRatio ? \` — natif \${data.nativeRatio}\` : '');
+  caseInfoEl.textContent = \`\${caseId} — probes : \${data.probes} — verdict : \${data.verdict}\`;
+  const seek = () => { video.currentTime = data.instant; };
+  if (video.readyState >= 1) seek(); else video.addEventListener('loadedmetadata', seek, { once: true });
+}
+
+/** Choisit un cas : bascule le projet, désarme le sélecteur de clip, puis charge son cadrage. */
+async function selectCase(id) {
+  const c = CASES.find((x) => x.id === id);
+  if (!c) return;
+  casSel.value = id;
+  // \`selectProject\` ne touche jamais \`projectSel.value\` : sans cette ligne,
+  // une sélection de clip qui suit relit encore l'ancien projet (relevé par
+  // chatgpt-codex-connector sur la #192).
+  projectSel.value = c.project;
+  await selectProject(c.project);
+  clipSel.value = '';
+  await loadCaseFraming(id);
+}
+
+projectSel.addEventListener('change', () => { casSel.value = ''; selectProject(projectSel.value); });
+clipSel.addEventListener('change', () => { casSel.value = ''; loadFraming(projectSel.value, clipSel.value); });
+casSel.addEventListener('change', () => { if (casSel.value) selectCase(casSel.value); });
 
 video.addEventListener('loadedmetadata', () => {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
 });
 
-loadProjects();
+loadProjects().then(() => {
+  const urlCas = new URLSearchParams(location.search).get('cas');
+  const initialCas = urlCas || INITIAL_CASE;
+  if (initialCas) selectCase(initialCas);
+});
 requestAnimationFrame(draw);
 </script>
 </body>
 </html>
 `
+}
 
 async function main(): Promise<number> {
   await chargerEnv()
@@ -520,6 +683,22 @@ async function main(): Promise<number> {
   if (!Number.isInteger(port) || port <= 0) {
     console.error(`--port attend un entier > 0, reçu « ${String(arguments_[portIndex + 1])} ».`)
     return 1
+  }
+
+  const casIndex = arguments_.indexOf('--cas')
+  if (casIndex >= 0) {
+    const rawCaseId = arguments_[casIndex + 1]
+    // Refusé, pas remplacé par « aucun cas » : un identifiant qui ne
+    // désigne rien ouvrirait la page sans le dire, même doctrine que
+    // `--marge` de `framing-thumbnails.ts`.
+    if (rawCaseId === undefined || findCase(rawCaseId) === undefined) {
+      console.error(
+        `--cas attend un identifiant de cas connu (voir « pnpm tsx scripts/framing-cases.ts list »), ` +
+          `reçu « ${String(rawCaseId)} ».`,
+      )
+      return 1
+    }
+    cliInitialCase = rawCaseId
   }
 
   const server = createServer((req, res) => {
@@ -553,7 +732,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   const segments = url.pathname.split('/').filter(Boolean)
 
   if (segments.length === 0) {
-    sendText(res, PAGE, 'text/html; charset=utf-8')
+    sendText(res, renderPage(), 'text/html; charset=utf-8')
+    return
+  }
+
+  if (segments[0] === 'api' && segments[1] === 'case' && segments.length === 3) {
+    sendCase(res, decodeURIComponent(segments[2]))
     return
   }
 
@@ -643,41 +827,7 @@ function sendFraming(res: ServerResponse, projectId: string, clipId: string | un
   // déjà repassée sans effet de bord.
   const proxy = proxyPath(projectId)
 
-  // La plus haute boîte retenue de chaque image, requise par `boxColor` pour
-  // juger le plancher de taille relatif. Géométrie complète écartée en
-  // premier, comme `spans()` : sans elle, une boîte à `x` inversés (hauteur
-  // valide) peut devenir la référence de l'image. (relevé par Copilot)
-  const tallestByFrame = new Map<number, number>()
-  for (const b of analysis.boxes) {
-    if (!hasValidGeometry(b) || !(b.score >= FRAMING_DEFAULTS.minScore) || isForeground(b)) continue
-    const key = Math.round(b.t * 1000)
-    tallestByFrame.set(key, Math.max(tallestByFrame.get(key) ?? 0, b.y1 - b.y0))
-  }
-
-  const boxes = analysis.boxes.map((b) => {
-    const tallest = tallestByFrame.get(Math.round(b.t * 1000)) ?? 0
-    const c = boxColor(b, tallest)
-    // Tronc et tête ne se calculent que sur ce que le cadrage retient
-    // vraiment — même restriction que le liseré cyan et le carré magenta de
-    // `framing-thumbnails.ts`, pas de calcul superflu sur gris/rouge.
-    const torso = c === 'lime' ? personBounds(b) : undefined
-    const head = c === 'lime' ? headBounds(b) : null
-    return {
-      t: b.t,
-      x0: b.x0,
-      x1: b.x1,
-      y0: b.y0,
-      y1: b.y1,
-      score: b.score,
-      c,
-      torso,
-      head: head ?? undefined,
-      // Les points bruts, pour le débogage (bouton « Copier le debug ») : la
-      // seule façon de vérifier `torso`/`head` sans relancer le calcul à la
-      // main sur une capture.
-      k: b.k,
-    }
-  })
+  const boxes = boxPayload(analysis)
 
   let segments: { start: number; end: number }[]
   let ratio: Ratio | 'auto'
@@ -728,6 +878,42 @@ function sendFraming(res: ServerResponse, projectId: string, clipId: string | un
     nativeRatio: framing.ratio,
     shots: framing.shots.map((s) => shotPayload(s, analysis.source.w, analysis.source.h)),
     proxy,
+  })
+}
+
+/**
+ * Le cadrage d'un cas de `scripts/framing/cases.ts` : même charge utile que
+ * `sendFraming`, mais construite par `caseFramingRequest` — le chemin qui
+ * résout un cas contre le disque (`scripts/framing/case-registry.ts`), pas
+ * une troisième lecture de `CaseScope` réimplémentée ici.
+ */
+function sendCase(res: ServerResponse, caseId: string): void {
+  const c = findCase(caseId)
+  if (c === undefined) {
+    sendJson(res, { error: `Cas inconnu : ${caseId}. Voir « pnpm tsx scripts/framing-cases.ts list ».` }, 404)
+    return
+  }
+  const projectId = projectOf(c)
+  let analysis: ReturnType<typeof lireAnalysis>
+  try {
+    analysis = lireAnalysis(analysisPath(projectId))
+  } catch (error) {
+    sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 404)
+    return
+  }
+  const proxy = proxyPath(projectId)
+  const framing = computeFraming(caseFramingRequest(c, analysis))
+
+  sendJson(res, {
+    fps: analysis.fps,
+    boxes: boxPayload(analysis),
+    nativeRatio: framing.ratio,
+    shots: framing.shots.map((s) => shotPayload(s, analysis.source.w, analysis.source.h)),
+    proxy,
+    project: projectId,
+    instant: c.anchor.instants[0],
+    probes: c.probes,
+    verdict: c.label?.call ?? (c.retired !== null ? 'retiré' : 'sans étiquette'),
   })
 }
 

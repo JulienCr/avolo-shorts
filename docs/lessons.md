@@ -251,3 +251,47 @@ valeur traîne dans les réglages. Il se réécrit en simulant le trou dans le r
 il ne se supprime pas. Confondre « plus atteignable par le chemin normal » et « plus
 utile » est la façon dont une garde défensive perd sa couverture sans que personne
 ne décide de la retirer.
+
+## Un signal qui se déclenche toujours n'est pas un signal
+
+Le registre de cas de cadrage (`scripts/framing/cases.ts`) rapporte, à chaque
+`verify`, ce qui a bougé depuis l'étiquetage. La première version signalait comme
+**dérive** tout instant tombant à moins d'une image d'une frontière de plan. Sur
+les treize cas, elle en signalait **huit**, en permanence, à distance 0,000 s.
+
+La cause n'était pas un seuil trop large : les huit viennent de l'issue #190, qui
+avait listé le début du plan comme instant. Un instant posé pile sur `shot.start`
+se résout de façon déterministe par le prédicat semi-ouvert `start <= t < end` —
+il ne peut pas basculer. Ce qui peut basculer, c'est un instant à quelques
+dizaines de millisecondes **après** une frontière, et il y en avait exactement
+deux : `cqlp` 2 138 s et `caro-mdlm` 652,5 s, tous deux à 33 ms, enregistrés
+précisément pour éprouver le décalage d'horloge du piège 6 de la skill `cadrage`.
+
+Huit alertes permanentes noyaient les deux vraies, et rendaient `--strict`
+inutilisable : il aurait sorti en 1 sans que rien n'ait jamais bougé. La
+séparation retenue est celle du sens, pas du seuil — une **dérive** (quelque
+chose a bougé, `--strict` échoue) et une **note** (une observation, ignorée par
+`--strict`). Le compte final le dit d'une ligne : « 13 cas vérifiés — 2 en
+dérive, 8 ancrés sur une frontière (sans conséquence), 0 absents ».
+
+La règle générale : **avant de livrer un détecteur, compter combien de fois il se
+déclenche sur les données qu'on a.** S'il se déclenche sur la majorité, ce n'est
+pas un détecteur, c'est une propriété du corpus qu'on vient de redécouvrir.
+
+## Un chiffre cité dans une issue n'est pas un chiffre stable
+
+L'issue #190 construit toute sa table de distribution de la frontalité sur
+**489 plans splittés**. Le tamis de l'issue #191, écrit six jours plus tard et
+balayant le même corpus par le même chemin (`computeFraming` sur un
+pseudo-segment couvrant toute la vidéo), en trouve **499**.
+
+Personne n'a truqué quoi que ce soit : entre les deux, le corpus et le code du
+cadrage ont bougé. Mais la table de #190 n'est plus assise sur la population
+qu'elle nomme, et rien dans l'issue ne le dira jamais — un chiffre en prose ne
+vieillit pas bruyamment.
+
+C'est l'argument le plus court pour le registre de cas : une planche perdue se
+régénère, un verdict humain perdu se repaie en temps humain, et **un chiffre
+recopié en prose dérive sans prévenir**. La skill `cadrage` porte déjà la règle
+sous une autre forme — « compare toujours au code en service, pas à un état
+antérieur ». Elle vaut aussi pour les populations, pas seulement pour les gains.

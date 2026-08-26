@@ -203,6 +203,26 @@ const eslintConfig = defineConfig([
     },
   },
 
+  // Le tamis (issue #191 lot 5) construit son déterminisme sur un hachage par
+  // élément — `Math.random()` y romprait la reproductibilité que l'issue
+  // exige (deux planches à trois semaines d'écart doivent être comparables),
+  // et une graine seedée qui marche la liste la romprait tout autant au
+  // premier plan ajouté au corpus. Interdit ici, mécaniquement.
+  {
+    files: ["scripts/framing/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"],
+    rules: {
+      "no-restricted-properties": [
+        "error",
+        {
+          object: "Math",
+          property: "random",
+          message:
+            "Math.random() est interdit dans scripts/framing/** : utiliser le hachage par élément (voir sieve.ts).",
+        },
+      ],
+    },
+  },
+
   // Le garde-fou de l'issue #73 : aucun identifiant accentué neuf.
   //
   // `id-match` sur un motif ASCII attrape mécaniquement toute la classe des

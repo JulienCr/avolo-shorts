@@ -1237,9 +1237,23 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
  * plus large que le cas qu'il corrige. Suivi en issue #185, avec le désaccord
  * `Math.round`/arrondi au pair de Python qu'elle porte déjà.
  */
-function gridCount(a: number, b: number, fps: number): number {
+export function gridCount(a: number, b: number, fps: number): number {
   if (!(b > a) || !(fps > 0)) return 0
   return Math.ceil(b * fps) - Math.ceil(a * fps)
+}
+
+/**
+ * Les instants `k / fps` de `[a, b)`, l'horloge de l'analyse — la forme
+ * énumérée de `gridCount`, pour qui a besoin des valeurs et pas seulement du
+ * compte (les planches de comparaison, notamment).
+ */
+export function gridInstants(a: number, b: number, fps: number): number[] {
+  if (!(b > a) || !(fps > 0)) return []
+  const first = Math.ceil(a * fps)
+  const last = Math.ceil(b * fps) - 1
+  const out: number[] = []
+  for (let k = first; k <= last; k += 1) out.push(k / fps)
+  return out
 }
 
 /**
@@ -1267,6 +1281,21 @@ export function retainedCountByFrame(
   const expected = intervals.reduce((n, i) => n + gridCount(i.start, i.end, fps), 0)
   const missing = Math.max(0, expected - counts.length)
   return missing > 0 ? [...counts, ...new Array(missing).fill(0)] : counts
+}
+
+/**
+ * Les boîtes retenues, toutes images confondues — score, géométrie, premier
+ * plan et plancher de taille, la même retenue que `spans` applique par
+ * image. Aplatie pour un appelant qui reclasse lui-même par instant (les
+ * planches de comparaison, notamment) : compter des boîtes non retenues y
+ * ferait passer une détection bruitée pour une troisième personne.
+ */
+export function retainedBoxes(boxes: PersonBox[], options: FramingOptions = {}): PersonBox[] {
+  const floor = clampedSizeFloor(options)
+  const byImage = retainedByFrame(boxes, options)
+  return [...byImage.values()].flatMap(({ boxes: frameBoxes }) =>
+    afterSizeFloor(frameBoxes, floor).map((f) => f.box),
+  )
 }
 
 /**

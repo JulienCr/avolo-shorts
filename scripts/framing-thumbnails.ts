@@ -76,7 +76,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { normalizeSegments } from '@/core/edl'
-import type { Ratio } from '@/core/edl'
+import type { Ratio, Segment } from '@/core/edl'
 import {
   FRAMING_DEFAULTS,
   RATIOS,
@@ -97,6 +97,8 @@ import { closeDb, getClips, getDb } from '@/server/db'
 import { analysisPath, proxyPath } from '@/server/paths'
 import { lireAnalysis } from '@/server/steps/analysis'
 import { chargerEnv, quit } from './dev-common'
+import { caseFramingRequest, shotAt } from './framing/case-registry'
+import { projectOf as projectOfCase, selectCases, type FramingCase } from './framing/cases'
 
 /** Le binaire de `setup.sh`, le même que le reste de la chaîne. */
 function ffmpeg(): string {
@@ -286,6 +288,98 @@ function projectIdFromClipId(clipId: string): string | undefined {
   return m?.[1]
 }
 
+/** Les segments d'un clip — le seul usage de la base par ce script. */
+function segmentsFor(projectId: string, clipId: string): Segment[] | undefined {
+  const db = getDb()
+  const clip = getClips(db, projectId).find((c) => c.id === clipId)
+  closeDb()
+  return clip?.segments
+}
+
+/**
+ * Une vignette par cas de `scripts/framing/cases.ts`, nommée `<caseId>.jpg`.
+ *
+ * **`{ over: 'source' }` ne lit aucune base** : c'est ce qui débloque les 6
+ * cas sur 13 qui n'appartiennent à aucun clip (mesuré — dont `cqlp` 2138 s,
+ * qui tombe dans deux clips qui se recouvrent). C'est pourquoi un cas ne se
+ * clé pas sur un clip.
+ */
+function renderCase(
+  c: FramingCase,
+  settings: {
+    margin: number
+    trim: number
+    torso: TorsoName | 'off'
+    splitScreen: boolean
+    splitBleedTolerance: number | undefined
+    folder: string
+  },
+): void {
+  const projectId = projectOfCase(c)
+  const file = analysisPath(projectId)
+  if (!fs.existsSync(file)) {
+    console.error(`${c.id} : analyse introuvable pour ${projectId} (${file}).`)
+    return
+  }
+  const proxy = proxyPath(projectId)
+  if (!fs.existsSync(proxy)) {
+    console.error(`${c.id} : proxy introuvable (${proxy}).`)
+    return
+  }
+  const analysis = lireAnalysis(file)
+  const framing = computeFraming(
+    caseFramingRequest(c, analysis, {
+      margin: settings.margin,
+      sideTrim: settings.trim,
+      torso: settings.torso,
+      splitScreen: settings.splitScreen,
+      splitBleedTolerance: settings.splitBleedTolerance,
+    }),
+  )
+  const instant = c.anchor.instants[0]
+  const shot = shotAt(framing, instant)
+  if (shot === undefined) {
+    console.error(`${c.id} : l'instant ${instant} ne tombe dans aucun plan de ${projectId}.`)
+    return
+  }
+  const rectToFrame = (rect: { x: number; y: number; w: number; h: number }): Frame => ({
+    x: rect.x / analysis.source.w,
+    y: rect.y / analysis.source.h,
+    w: rect.w / analysis.source.w,
+    h: rect.h / analysis.source.h,
+  })
+  const crops: Frame[] =
+    shot.split !== undefined
+      ? shot.split.map((cell) => rectToFrame(splitCellRect(cell, analysis.source.w, analysis.source.h)))
+      : [rectToFrame(cropRect(shot.ratio, shot.cropX, analysis.source.w, analysis.source.h))]
+
+  const inside = analysis.boxes.filter((b) => b.t >= shot.shot.start && b.t < shot.shot.end)
+  const byImage = new Map<number, PersonBox[]>()
+  for (const b of inside) {
+    const key = Math.round(b.t * 1000)
+    const already = byImage.get(key)
+    if (already) already.push(b)
+    else byImage.set(key, [b])
+  }
+  const instants = [...byImage.keys()]
+  const nearest =
+    instants.length === 0
+      ? undefined
+      : instants.reduce((best, k) =>
+          Math.abs(k / 1000 - instant) < Math.abs(best / 1000 - instant) ? k : best,
+        )
+  const t = nearest === undefined ? instant : nearest / 1000
+  const boxes = nearest === undefined ? [] : (byImage.get(nearest) ?? [])
+  const file_ = path.join(settings.folder, `${c.id}.jpg`)
+  vignette(proxy, t, boxes, crops, analysis.proxy.w, analysis.proxy.h, file_, settings.trim, settings.torso)
+
+  const verdict = c.label?.call ?? (c.retired !== null ? 'retiré' : 'sans étiquette')
+  console.log(
+    `  ${file_}  ${c.id} (${projectId}) — ${shot.ratio}${shot.split !== undefined ? ' (split)' : ''}, ` +
+      `image ${t.toFixed(1)} s — probes : ${c.probes} — verdict : ${verdict}`,
+  )
+}
+
 async function main(): Promise<number> {
   await chargerEnv()
 
@@ -297,13 +391,23 @@ async function main(): Promise<number> {
     return raw === undefined || raw.startsWith('--') ? undefined : raw
   }
   const flagsWithValue = new Set<number>()
-  for (const d of ['--marge', '--out', '--ratio', '--trim', '--images', '--tronc', '--analyse', '--instant', '--tolerance']) {
+  for (const d of ['--marge', '--out', '--ratio', '--trim', '--images', '--tronc', '--analyse', '--instant', '--tolerance', '--cas']) {
     const i = arguments_.indexOf(d)
     if (i >= 0) flagsWithValue.add(i + 1)
   }
   const positional = arguments_.filter(
     (a, i) => !a.startsWith('--') && !flagsWithValue.has(i),
   )
+  const rawCas = value('--cas')
+  // **`--cas` fixe déjà son projet et son instant** : le combiner à un
+  // positionnel ou à `--instant` serait une légende en contradiction avec
+  // l'image, refusée pour la même raison que `--marge`.
+  if (rawCas !== undefined && (positional.length > 0 || arguments_.includes('--instant'))) {
+    console.error(
+      `--cas ne se combine pas avec un projet/clip positionnel ni avec --instant : chaque cas fixe déjà les siens.`,
+    )
+    return 1
+  }
   // Le projet est optionnel : `clipId` le contient (`projectIdFromClipId`), donc
   // un seul positionnel suffit — `pnpm tsx scripts/framing-thumbnails.ts <clipId>`.
   let projectId: string | undefined
@@ -314,12 +418,12 @@ async function main(): Promise<number> {
     clipId = positional[0]
     projectId = clipId === undefined ? undefined : projectIdFromClipId(clipId)
   }
-  if (projectId === undefined || clipId === undefined) {
+  if (rawCas === undefined && (projectId === undefined || clipId === undefined)) {
     console.error(
       'Usage : pnpm tsx scripts/framing-thumbnails.ts [<projectId>] <clipId> ' +
         '[--marge M] [--trim T] [--tronc <nom|off>] [--ratio 9:16|4:5|1:1|16:9] ' +
         '[--images N] [--analyse <fichier>] [--out <dossier>] ' +
-        '[--split-off] [--instant S] [--tolerance T]\n' +
+        '[--split-off] [--instant S] [--tolerance T] [--cas <sélecteur>]\n' +
         `<projectId> est optionnel : déduit de <clipId> quand un seul positionnel est passé.`,
     )
     return 1
@@ -380,18 +484,46 @@ async function main(): Promise<number> {
     return 1
   }
 
-  const analysis = lireAnalysis(value('--analyse') ?? analysisPath(projectId))
-  const proxy = proxyPath(projectId)
+  if (rawCas !== undefined) {
+    // `renderCase` ne les lit pas : les ignorer en silence produirait une
+    // vignette différente de celle demandée, dangereux pour un outil de
+    // mesure (relevé par copilot-pull-request-reviewer sur la #192).
+    const unsupported = ['--ratio', '--instant', '--analyse'].filter((f) => arguments_.includes(f))
+    if (unsupported.length > 0) {
+      console.error(`--cas ne prend pas en charge ${unsupported.join(', ')} pour l'instant.`)
+      return 1
+    }
+    let cases: FramingCase[]
+    try {
+      cases = selectCases(rawCas)
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e))
+      return 1
+    }
+    const folder = value('--out') ?? fs.mkdtempSync(path.join(os.tmpdir(), 'cadrage-'))
+    fs.mkdirSync(folder, { recursive: true })
+    for (const c of cases) {
+      renderCase(c, { margin, trim, torso, splitScreen, splitBleedTolerance, folder })
+    }
+    return 0
+  }
+
+  // Prouvé par les deux gardes plus haut, pas par le vérificateur de types :
+  // `rawCas` vaut ici `undefined`, donc le premier `if` a déjà refusé un
+  // `projectId`/`clipId` manquant.
+  const knownProjectId = projectId as string
+  const knownClipId = clipId as string
+
+  const analysis = lireAnalysis(value('--analyse') ?? analysisPath(knownProjectId))
+  const proxy = proxyPath(knownProjectId)
   if (!fs.existsSync(proxy)) {
     console.error(`Proxy introuvable : ${proxy}`)
     return 1
   }
 
-  const db = getDb()
-  const clip = getClips(db, projectId).find((c) => c.id === clipId)
-  closeDb()
-  if (clip === undefined) {
-    console.error(`Clip inconnu sur ${projectId} : ${clipId}`)
+  const segments = segmentsFor(knownProjectId, knownClipId)
+  if (segments === undefined) {
+    console.error(`Clip inconnu sur ${knownProjectId} : ${knownClipId}`)
     return 1
   }
 
@@ -402,7 +534,7 @@ async function main(): Promise<number> {
     torso,
     splitScreen,
     splitBleedTolerance,
-    segments: clip.segments,
+    segments,
     shots: analysis.shots,
     people: analysis.boxes,
     srcW: analysis.source.w,
@@ -414,10 +546,10 @@ async function main(): Promise<number> {
   const folder = value('--out') ?? fs.mkdtempSync(path.join(os.tmpdir(), 'cadrage-'))
   fs.mkdirSync(folder, { recursive: true })
 
-  const segments = normalizeSegments(clip.segments)
+  const normalizedSegments = normalizeSegments(segments)
   const { w: W, h: H } = analysis.proxy
   console.log(
-    `${clipId} — natif ${framing.ratio}, marge ${margin}, rognage ${trim}, tronc ${torso}, ` +
+    `${knownClipId} — natif ${framing.ratio}, marge ${margin}, rognage ${trim}, tronc ${torso}, ` +
       `${framing.shots.length} plan(s)` +
       ` — largeur du crop natif ${((RATIOS[framing.ratio] * analysis.source.h) / analysis.source.w).toFixed(3)}`,
   )
@@ -430,7 +562,7 @@ async function main(): Promise<number> {
       (b) =>
         b.t >= shot.shot.start &&
         b.t < shot.shot.end &&
-        segments.some((s) => b.t >= s.start && b.t < s.end),
+        normalizedSegments.some((s) => b.t >= s.start && b.t < s.end),
     )
     const byImage = new Map<number, PersonBox[]>()
     for (const b of inside) {

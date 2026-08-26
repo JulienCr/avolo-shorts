@@ -1766,7 +1766,7 @@ export type ShotHeadInstrument = {
    * redériver l'appariement depuis la proximité d'une cellule** : c'est
    * exactement ce qui produisait une affectation non bijective — les deux
    * personnes assignées à la même cellule sur une image où leurs centres se
-   * rapprochent — trouvé au checkpoint du 27 août sur `entre-nous-3495867`,
+   * rapprochent — trouvé au second checkpoint sur `entre-nous-3495867`,
    * t=3507,5 s. `null` en même temps que `cells`.
    */
   perFrame: readonly FrameHeadStats[] | null

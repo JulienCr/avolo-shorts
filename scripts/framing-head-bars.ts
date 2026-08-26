@@ -1,6 +1,6 @@
 /**
  * Rapporte les deux barres de présence de tête de l'issue #190 (checkpoints
- * des 26 et 27 août 2026) : ce que chacune retire, sur le corpus entier et
+ * du 26 août 2026) : ce que chacune retire, sur le corpus entier et
  * sur les huit cas de référence. **Descriptif, ne câble aucune des deux.**
  *
  *     PROJECTS_DIR=<chemin> pnpm tsx scripts/framing-head-bars.ts
@@ -10,7 +10,7 @@
  * part : elle se lit sur `computeShotHeadInstrument(...).perFrame[].{top,
  * bottom}.pointCount`, que l'instrument expose déjà — **jamais une seconde
  * dérivation de l'appariement**. C'est exactement le bug corrigé au
- * checkpoint du 27 août : `pairedWithCells` réassignait chaque boîte à sa
+ * second checkpoint : `pairedWithCells` réassignait chaque boîte à sa
  * cellule la plus proche, sans bijectivité, au lieu de lire l'appariement
  * réel que l'instrument porte déjà.
  */

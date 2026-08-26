@@ -2665,7 +2665,7 @@ describe('computeShotHeadInstrument', () => {
   })
 
   /**
-   * Checkpoint du 27 août 2026 : sur une image ajoutée où les deux personnes
+   * Second checkpoint (26 août 2026) : sur une image ajoutée où les deux personnes
    * se rapprochent, leurs deux centres tombent plus près de la cellule du
    * haut (0,25) que de celle du bas (0,64) — 0,33 et 0,37 contre 0,06–0,44 et
    * 0,45–0,83. Une affectation par plus-proche-cellule les collerait toutes

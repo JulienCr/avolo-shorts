@@ -402,7 +402,7 @@ describe('sieve — head-absence-worst et head-containment-worst (#190)', () => 
   })
 
   /**
-   * Checkpoint du 27 août 2026 : `pairedWithCells` assignait chaque boîte à
+   * Second checkpoint (26 août 2026) : `pairedWithCells` assignait chaque boîte à
    * sa cellule la plus proche, sans contrainte de bijectivité. Sur une image
    * où les deux personnes se rapprochent, les deux peuvent tomber plus près
    * de la même cellule fixe — ici toutes deux plus près du haut (~0,29) que
@@ -442,7 +442,7 @@ describe('sieve — head-absence-worst et head-containment-worst (#190)', () => 
     return { t, x0: 0.33, x1: 0.43, y0: 0.1, y1: 0.9, score: 0.9, k }
   }
 
-  it('reste bijectif sur une image où les deux personnes se rapprochent — checkpoint du 27 août', () => {
+  it('reste bijectif sur une image où les deux personnes se rapprochent — second checkpoint', () => {
     const ambiguousFrame: PersonFrame = {
       t: 8,
       boxes: [ambiguousHeadless(8), ambiguousWithHead(8)],

@@ -1,10 +1,10 @@
 # La tête dans la cellule : l'instrument, et ce qu'il mesure
 
-Mesures faites entre le 26 et le 27 août 2026, sur le code de cette PR
+Mesures faites le 26 août 2026, sur le code de cette PR
 (`tooling/framing-head-instrument`), à partir de la base `94e89e2`, complétées
-après deux checkpoints du propriétaire du dépôt et d'une relecture interne —
-voir « Ce que le premier checkpoint a changé (26 août) » et « Ce que le
-second checkpoint a changé (27 août) ». Répond à l'issue #190 pour sa
+le même jour après deux checkpoints du propriétaire du dépôt et une
+relecture interne — voir « Ce que le premier checkpoint a changé » et
+« Ce que le second checkpoint a changé ». Répond à l'issue #190 pour sa
 première moitié — « présence et intégrité de la tête » — sans toucher à la
 seconde (profil contre trois-quarts dos, hors périmètre).
 
@@ -52,7 +52,7 @@ la métrique entière rend `null` plutôt que de répondre avec la seule cellule
 qui, elle, va bien — sans quoi le cas exactement visé par ce document
 disparaîtrait de la mesure.
 
-## Ce que le premier checkpoint a changé (26 août)
+## Ce que le premier checkpoint a changé
 
 Le premier jet de ce document rapportait deux cas `drop` liés à la tête —
 `nabla-6418667`, `entre-nous-3495867` — comme indiscernables des trois cas
@@ -87,7 +87,7 @@ identique avant/après, voir dernière section). Les deux correctifs ne
 touchent que `headContainment` et l'agrégation de `head-containment-worst`
 dans `metrics.ts` — jamais `headBounds`, qui garde ses six autres appelants.
 
-## Ce que le second checkpoint a changé (27 août)
+## Ce que le second checkpoint a changé
 
 La relecture interne a trouvé un défaut réel dans `pairedWithCells`
 (`scripts/framing/metrics.ts`) : elle assignait chaque boîte retenue à sa
@@ -315,11 +315,11 @@ attrapés**, et aucun `keep` ne bascule : `entre-nous-3495867` monte à
 deux barres — la barre à deux points ne mord pas sur la seconde moitié du
 critère de #190, qu'elle n'a pas à trancher.
 
-**Ce tableau tient après le correctif de bijectivité du 27 août** (voir
-plus haut) : régénéré avec `computeShotHeadInstrument` corrigé, il reproduit
-les mêmes valeurs à quatre décimales près que la mesure exploratoire du 26
-août. La séparation des quatre `drop` liés à la tête et des trois `keep`
-n'a pas eu besoin du défaut pour tenir.
+**Ce tableau tient après le correctif de bijectivité du second checkpoint**
+(voir plus haut) : régénéré avec `computeShotHeadInstrument` corrigé, il
+reproduit les mêmes valeurs à quatre décimales près que la mesure
+exploratoire d'origine. La séparation des quatre `drop` liés à la tête et
+des trois `keep` n'a pas eu besoin du défaut pour tenir.
 
 ## Pourquoi les deux cas manqués passent à travers — vérifié à l'image
 
@@ -390,7 +390,7 @@ l'extraction de `splitPairs`/`splitCells`/`splitBleed`/`splitLeftOnTop`
 préserve son comportement, plutôt que de le supposer depuis les seuls tests.
 
 Aucun des deux checkpoints ne touche `computeShotSplit` ni `headBounds`. Le
-premier (26 août) modifie `headContainment` et l'agrégation de
-`head-containment-worst`. Le second (27 août) retire `pairedWithCells` de
+premier modifie `headContainment` et l'agrégation de
+`head-containment-worst`. Le second retire `pairedWithCells` de
 `metrics.ts` et ajoute `perFrame` à `ShotHeadInstrument` — un appariement
 supplémentaire exposé, jamais recalculé.

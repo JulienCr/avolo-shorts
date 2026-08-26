@@ -120,8 +120,8 @@ function headInstrumentOf(s: ShotSample): ReturnType<typeof computeShotHeadInstr
 
 /**
  * L'entrée de `headInstrumentOf(s).perFrame` pour l'instant de `f` — jamais
- * redérivée depuis la proximité d'une cellule. C'était le bug du checkpoint
- * du 27 août : assigner chaque boîte à sa cellule la plus proche n'est pas
+ * redérivée depuis la proximité d'une cellule. C'était le bug du second
+ * checkpoint : assigner chaque boîte à sa cellule la plus proche n'est pas
  * bijectif, et sur une image où les deux personnes se rapprochent, les deux
  * peuvent tomber du même côté pendant que l'autre cellule n'a personne.
  * `computeShotHeadInstrument` porte l'appariement réel — trié par centre à

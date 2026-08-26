@@ -81,11 +81,14 @@ function lockSince(file: string, now: number): number {
 }
 
 /**
- * Prise atomique (`wx`), reprise d'un verrou périmé par suppression puis
- * nouvelle tentative `wx` — jamais par écrasement inconditionnel : deux
- * passes qui trouvent toutes deux le même verrou périmé pouvaient auparavant
- * se croire propriétaires ensemble (relevé en revue). Le perdant de la
- * reprise se retire, comme devant un verrou frais.
+ * Prise atomique (`wx`) ; reprise d'un verrou périmé par un `renameSync`
+ * exclusif du fichier périmé vers un nom à soi, **jamais** par une paire
+ * suppression-puis-création : ces deux appels séparés laissaient une fenêtre
+ * où deux processus qui trouvent tous deux le même verrou périmé pouvaient
+ * chacun supprimer puis recréer, se croyant tous deux propriétaires (relevé
+ * en revue, à deux reprises). `renameSync` sur une **source** partagée est
+ * la seule des deux moitiés qui soit atomique : un seul appelant la trouve
+ * encore là, les autres reçoivent `ENOENT` et se retirent.
  */
 function acquireLock(lockDir: string, now: number): { acquired: true; owner: string } | { acquired: false; since: number } {
   const file = lockPath(lockDir)
@@ -97,15 +100,22 @@ function acquireLock(lockDir: string, now: number): { acquired: true; owner: str
   const since = lockSince(file, now)
   if (now - since < STALE_LOCK_MS) return { acquired: false, since }
 
-  console.warn(`Verrou de publication périmé (posé il y a plus de 30 min) : repris.`)
+  const evicted = `${file}.${owner}.evicted`
   try {
-    fs.unlinkSync(file)
+    fs.renameSync(file, evicted)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    // Un autre processus a déjà entamé sa propre reprise, ou le titulaire a
+    // relâché entretemps : on se retire, comme devant un verrou frais.
+    return { acquired: false, since: lockSince(file, now) }
   }
+  console.warn(`Verrou de publication périmé (posé il y a plus de 30 min) : repris.`)
+  fs.rmSync(evicted, { force: true })
+
   if (tryCreateLock(file, payload)) return { acquired: true, owner }
-  // Un autre processus a gagné la reprise entre notre suppression et notre
-  // nouvelle tentative : on se retire, plutôt que de forcer une seconde fois.
+  // Un troisième processus a posé un verrou frais entre notre reprise
+  // exclusive et notre nouvelle création : on se retire plutôt que de
+  // l'écraser.
   return { acquired: false, since: lockSince(file, now) }
 }
 
@@ -119,12 +129,24 @@ function releaseLock(lockDir: string, owner: string): void {
   if (readLock(file)?.owner === owner) fs.rmSync(file, { force: true })
 }
 
-/** Les plateformes qui n'ont ni réussi ni été déposées — ce qu'un essai doit encore cibler. */
+/**
+ * Les plateformes qui n'ont ni réussi ni été déposées — ce qu'un essai doit
+ * encore cibler.
+ *
+ * **Une ligne absente n'est pas encore à faire, elle ne l'est plus.**
+ * `schedulePublications` écrit les quatre lignes `planned` d'un coup, donc
+ * une échéance due en a toujours une par plateforme ; en voir une manquer
+ * ici ne peut venir que d'une déprogrammation (`unschedulePublications`
+ * supprime les lignes `planned`) survenue entre deux essais de cette même
+ * passe — relue à chaque tour de boucle, pas seulement au premier. La
+ * traiter comme « à faire » republierait après que l'humain a annulé
+ * (relevé en revue).
+ */
 function outstandingPlatforms(db: Database.Database, clipId: string): Platform[] {
   const byPlatform = new Map(getPublications(db, clipId).map((r) => [r.platform, r.status]))
   return PLATFORMS.filter((p) => {
     const status = byPlatform.get(p)
-    return status !== 'published' && status !== 'submitted'
+    return status === 'planned' || status === 'failed' || status === 'in_progress'
   })
 }
 
@@ -220,6 +242,11 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
     // une validation en échec pour l'une (YouTube sans titre) marquait à tort
     // les autres (relevé en revue).
     for (const platform of targets) {
+      // Revérifié plateforme par plateforme, pas seulement au sommet de
+      // l'essai : une déprogrammation peut arriver pendant qu'une autre
+      // plateforme de la même échéance est encore en train de téléverser —
+      // `targets` capturé avant la boucle ne le verrait pas (relevé en revue).
+      if (!outstandingPlatforms(db, clipId).includes(platform)) continue
       try {
         const { settled } = launchPublish({ db, clip, platforms: [platform], force: false, ignoreStaleRender: true, sleep })
         await settled

@@ -26,7 +26,7 @@ import { PublicationAlreadyPublishedError } from '@/server/publication/errors'
 import { adapterFor } from '@/server/publication'
 import { reserve, release } from '@/server/publication/registry'
 import { deliveryToDay } from '@/server/renders'
-import { pathsRender } from '@/server/steps/render'
+import { lireFingerprint, pathsRender } from '@/server/steps/render'
 
 /**
  * L'orchestration de `POST /api/clips/:id/publish` : ce que la route délègue
@@ -270,7 +270,16 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
     throw requestInvalid('Le rendu de ce clip est périmé ou absent : exporter avant de publier.')
   }
 
-  const paths = pathsRender(clip.projectId, clip.id, framing.ratio, RENDER_NATIVE)
+  // Le nom de l'empreinte ne dépend pas du ratio (`pathsRender`) : n'importe
+  // lequel donne le bon chemin pour la lire.
+  const fingerprintPath = pathsRender(clip.projectId, clip.id, framing.ratio, RENDER_NATIVE).fingerprint
+  // Le chemin ordonnancé peut publier un rendu dont le ratio a lui-même
+  // dérivé depuis l'export (spec §5.4) : chercher le livrable sous le ratio
+  // que l'empreinte affirme avoir produit, pas sous celui recalculé
+  // maintenant — sinon un clip passé de 1:1 à 9:16 chercherait `clip.mp4`
+  // alors que le dernier rendu validé est `clip-9x16.mp4` (relevé en revue).
+  const producedRatio = ignoreStaleRender ? (lireFingerprint(fingerprintPath)?.framing.ratio ?? framing.ratio) : framing.ratio
+  const paths = pathsRender(clip.projectId, clip.id, producedRatio, RENDER_NATIVE)
   const videoPath = platformFile({ mp4: paths.mp4, variant9x16: paths.variant9x16 })
   if (videoPath === null) throw requestInvalid('Aucun fichier à envoyer : exporter avant de publier.')
 

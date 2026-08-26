@@ -11,6 +11,7 @@ import {
   getPublications,
   putClip,
   schedulePublications,
+  unschedulePublications,
   upsertProject,
 } from '@/server/db'
 import type { PlatformOutcome, PublicationAdapter, PublicationJob } from '@/server/publication/adapter'
@@ -385,5 +386,31 @@ describe('runOnePass — --dry-run', () => {
     expect(outcome).toEqual({ kind: 'dry-run', due: null })
     expect(log).not.toHaveBeenCalled()
     log.mockRestore()
+  })
+})
+
+describe('runOnePass — déprogrammation pendant la passe', () => {
+  it('une plateforme déprogrammée pendant qu’une autre téléverse n’est pas republiée', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const seen: Platform[][] = []
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      seen.push([...platforms])
+      if (platforms[0] === 'instagram') {
+        // Un humain déprogramme le clip pendant que la première plateforme
+        // téléverse encore : les trois autres lignes `planned` disparaissent.
+        unschedulePublications(getDb(), [CLIP_ID])
+      }
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) outcomes[platform] = { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      return outcomes
+    })
+    fakeAdapter = adapterAlwaysPublishing(publish)
+
+    await runOnePass(deps())
+
+    expect(seen).toEqual([['instagram']])
+    expect(getPublications(getDb(), CLIP_ID)).toEqual([
+      expect.objectContaining({ platform: 'instagram', status: 'published' }),
+    ])
   })
 })

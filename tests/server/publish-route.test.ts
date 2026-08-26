@@ -168,7 +168,13 @@ afterEach(() => {
   forgetAll()
   closeDb()
   fs.rmSync(root, { recursive: true, force: true })
-  process.env = { ...envStart }
+  // Mutation, jamais réassignation : `process.env = { ... }` casse en silence
+  // `process.loadEnvFile` pour le reste du process (tests/scripts/dev-common.
+  // test.ts ; même défaut relevé en revue sur publication-scheduler.test.ts).
+  for (const name of Object.keys(process.env)) {
+    if (!(name in envStart)) delete process.env[name]
+  }
+  Object.assign(process.env, envStart)
 })
 
 /** Rend le clip, réellement — c'est ce qui rend `launchPublish` franchissable. */
@@ -617,5 +623,34 @@ describe('launchPublish — ignoreStaleRender (spec §5.4)', () => {
     expect(getPublications(getDb(), CLIP_ID).find((r) => r.platform === 'instagram')).toMatchObject({
       status: 'planned',
     })
+  })
+
+  it('publie sous le ratio que l’empreinte affirme avoir produit, pas celui recalculé maintenant', async () => {
+    // Exporté en 1:1 : sous `RENDER_NATIVE = false`, seule la variante 9:16
+    // existe (`clip_0001-9x16.mp4`) ; `clip_0001.mp4` n'a jamais été écrit.
+    await exportThenRevertToKept()
+    // Le ratio dérive lui aussi, sans passer par `discardRenderStale` : le
+    // fichier survit, comme le suppose `ignoreStaleRender`, mais sous un nom
+    // que le ratio actuel ne redonnerait plus.
+    putClip(getDb(), baseClip({ status: 'kept', ratio: '9:16' }))
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+    const variant = pathsRender(PROJECT_ID, CLIP_ID, '1:1', RENDER_NATIVE).variant9x16
+    if (variant === null) throw new Error('variante attendue')
+    expect(fs.existsSync(variant)).toBe(true)
+
+    const { settled } = launchPublish({
+      db: getDb(),
+      clip,
+      platforms: ['instagram'],
+      force: false,
+      ignoreStaleRender: true,
+      sleep: async () => {},
+    })
+    await settled
+
+    expect(getPublications(getDb(), CLIP_ID)).toEqual([
+      expect.objectContaining({ platform: 'instagram', status: 'published' }),
+    ])
   })
 })

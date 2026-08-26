@@ -134,7 +134,11 @@ CREATE TABLE IF NOT EXISTS clips (
   hookStyle   TEXT NOT NULL DEFAULT '{}',
   -- Le libellé court posé au-dessus de l'accroche (« DÉFI 10 »). Du contenu,
   -- comme \`hookText\` : ses deux couleurs, elles, sont un réglage.
-  hookBadge   TEXT NOT NULL DEFAULT ''
+  hookBadge   TEXT NOT NULL DEFAULT '',
+  -- La surcharge de cadrage par clip (issue #180, seconde moitié). Même
+  -- convention que \`hookStyle\` deux lignes plus haut : \`{}\` dit « aux
+  -- valeurs globales » (famille \`framing\` du registre, plus bas).
+  framingStyle TEXT NOT NULL DEFAULT '{}'
 );
 
 -- Composite, dans l'ordre exact de \`getClips\` : filtre sur \`projectId\`, tri
@@ -214,6 +218,10 @@ function migrate(db: Database.Database): void {
   // Le badge du hook, arrivé après les deux précédentes. Même défense.
   if (!columns.includes('hookBadge')) {
     db.exec(`ALTER TABLE clips ADD COLUMN hookBadge TEXT NOT NULL DEFAULT ''`)
+  }
+  // La surcharge de cadrage par clip (issue #180). Même défense.
+  if (!columns.includes('framingStyle')) {
+    db.exec(`ALTER TABLE clips ADD COLUMN framingStyle TEXT NOT NULL DEFAULT '{}'`)
   }
   // `seq`, son prédécesseur par ligne, n'a jamais quitté cette branche : le
   // laisser derrière nous ferait une colonne morte au nom presque identique à
@@ -1178,6 +1186,59 @@ function readHookStyle(raw: string, clipId: string): Partial<HookSettings> {
   return HOOK_STYLE_SCHEMA.parse(parsed)
 }
 
+/**
+ * La forme d'une surcharge de cadrage par clip, sur le patron de
+ * `HOOK_STYLE_SHAPE` : les bornes viennent de `FRAMING_BOUNDS`, la même
+ * source que la famille `framing` du registre plus haut.
+ */
+export const FRAMING_STYLE_SHAPE = {
+  splitScreen: z.boolean(),
+  splitMinShotMs: z
+    .number()
+    .int()
+    .min(FRAMING_BOUNDS.splitMinShotMs.min)
+    .max(FRAMING_BOUNDS.splitMinShotMs.max),
+  splitMinCellWidthPermille: z
+    .number()
+    .int()
+    .min(FRAMING_BOUNDS.splitMinCellWidthPermille.min)
+    .max(FRAMING_BOUNDS.splitMinCellWidthPermille.max),
+  splitBleedTolerancePermille: z
+    .number()
+    .int()
+    .min(FRAMING_BOUNDS.splitBleedTolerancePermille.min)
+    .max(FRAMING_BOUNDS.splitBleedTolerancePermille.max),
+  splitBleedSharePermille: z
+    .number()
+    .int()
+    .min(FRAMING_BOUNDS.splitBleedSharePermille.min)
+    .max(FRAMING_BOUNDS.splitBleedSharePermille.max),
+  sizeFloorPermille: z
+    .number()
+    .int()
+    .min(FRAMING_BOUNDS.sizeFloorPermille.min)
+    .max(FRAMING_BOUNDS.sizeFloorPermille.max),
+} satisfies Record<keyof FramingSettings, z.ZodType>
+
+const FRAMING_STYLE_SCHEMA = z.strictObject(FRAMING_STYLE_SHAPE).partial().catch({})
+
+/**
+ * Le style de cadrage qu'un clip surcharge, relu **sans jamais lever** — même
+ * contrat que `readHookStyle` juste au-dessus : un `JSON.parse` raté se dit
+ * (`console.warn`), une clé hors bornes ou inconnue retombe sur `{}` en
+ * silence via le `.catch({})` du schéma.
+ */
+function readFramingStyle(raw: string, clipId: string): Partial<FramingSettings> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (cause) {
+    console.warn(`Style de cadrage illisible pour le clip ${clipId} :`, cause)
+    return {}
+  }
+  return FRAMING_STYLE_SCHEMA.parse(parsed)
+}
+
 /** La forme brute d'une ligne de `clips`, avant reconversion. */
 type LineClip = {
   id: string
@@ -1194,6 +1255,7 @@ type LineClip = {
   hookText: string
   hookBadge: string
   hookStyle: string
+  framingStyle: string
 }
 
 // Les valeurs admises, écrites en `Record<union, true>` : TypeScript exige
@@ -1252,6 +1314,7 @@ function clipSinceLine(line: LineClip): Clip {
     hookText: line.hookText,
     hookBadge: line.hookBadge,
     hookStyle: readHookStyle(line.hookStyle, line.id),
+    framingStyle: readFramingStyle(line.framingStyle, line.id),
   }
 }
 
@@ -1271,31 +1334,35 @@ function lineSinceClip(clip: Clip): LineClip {
     hookText: clip.hookText,
     hookBadge: clip.hookBadge,
     hookStyle: JSON.stringify(clip.hookStyle),
+    framingStyle: JSON.stringify(clip.framingStyle),
   }
 }
 
-// **Trois endroits, pas un**, pour `hookText`/`hookBadge`/`hookStyle` : la
-// liste des colonnes, le `VALUES` et le `DO UPDATE SET`. Oublier le troisième
-// laisserait un `putClip` sur un clip existant garder le hook d'avant sans un
-// mot.
+// **Trois endroits, pas un**, pour `hookText`/`hookBadge`/`hookStyle`/
+// `framingStyle` : la liste des colonnes, le `VALUES` et le `DO UPDATE SET`.
+// Oublier le troisième laisserait un `putClip` sur un clip existant garder le
+// hook ou le cadrage d'avant sans un mot.
 const INSERT_CLIP = `
   INSERT INTO clips (id, projectId, segments, ratio, cropX, captions, branding,
-                     title, description, status, pass, hookText, hookBadge, hookStyle)
+                     title, description, status, pass, hookText, hookBadge, hookStyle,
+                     framingStyle)
   VALUES (@id, @projectId, @segments, @ratio, @cropX, @captions, @branding,
-          @title, @description, @status, @pass, @hookText, @hookBadge, @hookStyle)
+          @title, @description, @status, @pass, @hookText, @hookBadge, @hookStyle,
+          @framingStyle)
   ON CONFLICT(id) DO UPDATE SET
-    segments    = excluded.segments,
-    ratio       = excluded.ratio,
-    cropX       = excluded.cropX,
-    captions    = excluded.captions,
-    branding    = excluded.branding,
-    title       = excluded.title,
-    description = excluded.description,
-    status      = excluded.status,
-    pass        = excluded.pass,
-    hookText    = excluded.hookText,
-    hookBadge   = excluded.hookBadge,
-    hookStyle   = excluded.hookStyle`
+    segments     = excluded.segments,
+    ratio        = excluded.ratio,
+    cropX        = excluded.cropX,
+    captions     = excluded.captions,
+    branding     = excluded.branding,
+    title        = excluded.title,
+    description  = excluded.description,
+    status       = excluded.status,
+    pass         = excluded.pass,
+    hookText     = excluded.hookText,
+    hookBadge    = excluded.hookBadge,
+    hookStyle    = excluded.hookStyle,
+    framingStyle = excluded.framingStyle`
 
 /**
  * Refuse qu'un identifiant de clip change de projet.

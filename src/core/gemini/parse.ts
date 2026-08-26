@@ -371,6 +371,9 @@ export function parseDetailResponse(
         // proposé suit les défauts globaux du hook tant que personne n'y a
         // touché.
         hookStyle: {},
+        // Aucune surcharge de cadrage non plus : un clip fraîchement proposé
+        // suit les défauts globaux tant que personne n'y a touché.
+        framingStyle: {},
       },
     })
   }

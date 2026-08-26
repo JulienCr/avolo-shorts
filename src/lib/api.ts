@@ -604,6 +604,7 @@ export type ClipPatch = Partial<
     | 'hookText'
     | 'hookBadge'
     | 'hookStyle'
+    | 'framingStyle'
   >
 > & {
   /**

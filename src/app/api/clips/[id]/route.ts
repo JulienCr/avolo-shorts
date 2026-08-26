@@ -12,6 +12,7 @@ import {
   putClip,
   putClipOrdered,
   HOOK_STYLE_SHAPE,
+  FRAMING_STYLE_SHAPE,
 } from '@/server/db'
 import { body, notFound, json, route } from '@/server/http'
 import { clipOutputs } from '@/server/renders'
@@ -77,6 +78,9 @@ const EDIT = z.strictObject({
   // inconnue est un 400, pas un enregistrement silencieux qui ne serait
   // jamais relu.
   hookStyle: z.strictObject(HOOK_STYLE_SHAPE).partial().optional(),
+  // La surcharge de cadrage par clip (issue #180) : même contrat que
+  // `hookStyle` juste au-dessus — `z.strictObject`, clé inconnue refusée.
+  framingStyle: z.strictObject(FRAMING_STYLE_SHAPE).partial().optional(),
   /**
    * Le numéro d'ordre du **geste**, et non de l'arrivée.
    *

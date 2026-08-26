@@ -236,6 +236,11 @@ export function framingWith(
   const { analysis, origin } = source
   if (analysis === null) return fallback(clip, origin === 'computed' ? 'no-analysis' : origin)
 
+  // **La fusion, après le repli, jamais avant.** `fallback` ne calcule rien —
+  // un plan unique sur le `cropX` manuel — donc `clip.framingStyle` n'a rien à
+  // dire tant qu'on ne sait pas qu'il y a une analyse à lire.
+  const effective: FramingSettings = { ...framingGlobals, ...clip.framingStyle }
+
   const shots: Shot[] = analysis.shots
   const people: PersonBox[] = analysis.boxes
   const framing: ClipFraming = computeFraming({
@@ -249,12 +254,15 @@ export function framingWith(
     // **La seule conversion millièmes/ms → fractions/secondes du dépôt** :
     // une deuxième, ici ou à l'écran, diverge en silence — voir
     // `tests/server/clip-framing.test.ts` pour le test qui l'épingle.
-    splitScreen: framingGlobals.splitScreen,
-    splitMinShot: framingGlobals.splitMinShotMs / 1000,
-    splitMinCellWidth: framingGlobals.splitMinCellWidthPermille / 1000,
-    splitBleedTolerance: framingGlobals.splitBleedTolerancePermille / 1000,
-    splitBleedShare: framingGlobals.splitBleedSharePermille / 1000,
-    sizeFloor: framingGlobals.sizeFloorPermille / 1000,
+    splitScreen: effective.splitScreen,
+    splitMinShot: effective.splitMinShotMs / 1000,
+    splitMinCellWidth: effective.splitMinCellWidthPermille / 1000,
+    splitBleedTolerance: effective.splitBleedTolerancePermille / 1000,
+    splitBleedShare: effective.splitBleedSharePermille / 1000,
+    sizeFloor: effective.sizeFloorPermille / 1000,
+    // **Pas de `clip.framingStyle` ici, et ce n'est pas un oubli.** `fps`
+    // est mesuré par l'analyse, pas un réglage (PR #183) : hors du registre
+    // `framing`, donc hors de `FramingSettings` et de toute surcharge par clip.
     fps: analysis.fps,
   })
 

@@ -1,4 +1,5 @@
 import type { HookSettings } from '@/core/hook'
+import type { FramingSettings } from '@/core/framing'
 
 /**
  * L'EDL — la liste des morceaux de source qui composent un clip.
@@ -82,6 +83,11 @@ export type Clip = {
   hookBadge: string
   /** Les seules clés que ce clip surcharge. `{}` = aux valeurs globales. */
   hookStyle: Partial<HookSettings>
+  /**
+   * Les seules clés `framing` que ce clip surcharge. `{}` = aux valeurs
+   * globales — même convention que `hookStyle` juste au-dessus.
+   */
+  framingStyle: Partial<FramingSettings>
 }
 
 /**

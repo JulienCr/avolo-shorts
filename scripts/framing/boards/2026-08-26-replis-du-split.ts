@@ -62,7 +62,7 @@ const LABELLED_CASE_IDS = Object.keys(MANUAL_CROP_X)
 const cases: BoardCase[] = LABELLED_CASE_IDS.map((id) => {
   const c = findCase(id)
   if (c === undefined) {
-    throw new Error(`2026-08-27-replis-du-split : cas "${id}" introuvable dans le registre.`)
+    throw new Error(`2026-08-26-replis-du-split : cas "${id}" introuvable dans le registre.`)
   }
   return caseAsBoardCase(c)
 })
@@ -76,14 +76,14 @@ const labelledToday = selectCases('labelled')
 const expected = [...LABELLED_CASE_IDS].sort()
 if (labelledToday.join(',') !== expected.join(',')) {
   throw new Error(
-    `2026-08-27-replis-du-split : le registre porte les cas étiquetés [${labelledToday.join(', ')}], ` +
+    `2026-08-26-replis-du-split : le registre porte les cas étiquetés [${labelledToday.join(', ')}], ` +
       `cette planche en attend [${expected.join(', ')}]. Ajoute ou retire un \`cropX\` dans ` +
       '`MANUAL_CROP_X` pour la faire correspondre.',
   )
 }
 
 const spec: BoardSpec = {
-  id: 'replis-du-split-2026-08-27',
+  id: 'replis-du-split-2026-08-26',
   title: 'Les trois replis du split — issue #190',
   eyebrow: 'Cadrage',
   lede:

@@ -87,4 +87,19 @@ describe('aggregatePublicationStatus', () => {
   it('un reste en cours rend en cours', () => {
     expect(aggregatePublicationStatus({ instagram: 'in_progress', tiktok: 'planned' })).toBe('in_progress')
   })
+
+  it('un résultat terminal mélangé à du planned n’est pas « en cours », rien n’y tourne : partiel', () => {
+    expect(
+      aggregatePublicationStatus({
+        instagram: 'published',
+        facebook: 'planned',
+        tiktok: 'planned',
+        youtube: 'planned',
+      }),
+    ).toBe('partial')
+  })
+
+  it('in_progress signifie qu’un envoi tourne réellement, rien de moins', () => {
+    expect(aggregatePublicationStatus({ instagram: 'published', tiktok: 'in_progress' })).toBe('in_progress')
+  })
 })

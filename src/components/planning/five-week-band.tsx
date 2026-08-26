@@ -78,6 +78,7 @@ const AGGREGATE_BADGE_VARIANT = {
   published: 'secondary',
   submitted: 'secondary',
   in_progress: 'outline',
+  partial: 'outline',
 } as const
 
 function DeadlineCard({

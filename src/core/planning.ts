@@ -129,7 +129,13 @@ export function fiveWeekWindow(referenceMs: number): FiveWeekWindow {
  * publie sur toutes les plateformes en même temps », donc une ligne, pas
  * quatre.
  */
-export type PlanningAggregateStatus = 'planned' | 'failed' | 'published' | 'submitted' | 'in_progress'
+export type PlanningAggregateStatus =
+  | 'planned'
+  | 'failed'
+  | 'published'
+  | 'submitted'
+  | 'in_progress'
+  | 'partial'
 
 export const PLANNING_AGGREGATE_LABELS: Record<PlanningAggregateStatus, string> = {
   planned: 'programmé',
@@ -137,27 +143,27 @@ export const PLANNING_AGGREGATE_LABELS: Record<PlanningAggregateStatus, string> 
   published: 'publié',
   submitted: 'déposé',
   in_progress: 'en cours',
+  partial: 'partiel',
 }
 
 /**
- * Réduit les statuts par plateforme à un seul.
- *
- * **`failed` gagne toujours**, y compris mélangé à `published` : une
- * échéance en partie ratée reste une échéance ratée, et c'est elle que le
- * courriel d'alerte (spec §5.5) doit faire remonter — un agrégat qui
- * l'avalerait derrière un succès partiel la cacherait. `submitted` ne se
- * confond pas avec `published` (`core/publication.ts`, même distinction) :
- * un dépôt TikTok qui attend une main n'est pas en ligne.
+ * Réduit les statuts par plateforme à un seul, **dans cet ordre** — l'ordre
+ * est la règle. `failed` gagne toujours, même mélangé à `published` :
+ * l'alerte par courriel (spec §5.5) doit pouvoir le retrouver. `in_progress`
+ * ne veut dire qu'une chose, un envoi qui tourne réellement. `partial` est
+ * une passe interrompue entre deux plateformes — des lignes terminales à
+ * côté d'autres encore `planned` — et ne doit pas se lire « en cours ».
  */
 export function aggregatePublicationStatus(
   statuses: Partial<Record<Platform, PublicationStatus>>,
 ): PlanningAggregateStatus {
   const values = Object.values(statuses).filter((s): s is PublicationStatus => s !== undefined)
   if (values.some((s) => s === 'failed')) return 'failed'
+  if (values.some((s) => s === 'in_progress')) return 'in_progress'
   if (values.every((s) => s === 'planned')) return 'planned'
   if (values.every((s) => s === 'published')) return 'published'
   if (values.every((s) => s === 'published' || s === 'submitted') && values.some((s) => s === 'submitted')) {
     return 'submitted'
   }
-  return 'in_progress'
+  return 'partial'
 }

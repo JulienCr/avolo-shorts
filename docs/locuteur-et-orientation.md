@@ -523,3 +523,142 @@ large note à 1,00.
 - `chargerEnv()` résout les secrets 1Password au démarrage de tout script, y
   compris ceux qui n'appellent aucun modèle. Chaque script de mesure doit poser
   `GEMINI_API_KEY` à une valeur littérale pour ne pas rester bloqué.
+
+---
+
+## 26 août 2026 — `shoulderRatio` seul, contre les cas nommés par #190
+
+L'issue #190 nomme cette mesure comme **la première à faire**, sur des
+données déjà collectées : `shoulderRatio` seul, un des trois termes dont
+`frontality` fait la moyenne, sépare-t-il un profil franc (gardé) d'un
+trois-quarts dos (écarté) ? Il n'avait pas encore été vérifié sur les deux
+profils qui ont réfuté la règle complète (`nabla` 1798,867 s et 1607,967 s).
+Script : `scripts/spike/split-orientation-terms.ts`. Aucun changement à
+`src/core/framing.ts`.
+
+### La mise en garde d'abord, parce qu'elle induit en erreur si on la lit trop vite
+
+Plus haut dans ce document (§ « Le buste ne dit pas où va la tête »),
+`shoulderRatio` semble déjà réfuté : « les profils francs de la planche ont un
+rapport d'épaules de 0,77 à 1,31, c'est-à-dire élevé ». **Cette phrase répond à
+la question inverse.** Elle a été écrite en cherchant à *détecter* un profil
+pour l'exclure — et `shoulderRatio` échoue à cet usage-là parce qu'il reste
+élevé sur un vrai profil. Ce que #190 demande est l'exact opposé : *garder* le
+profil franc et *écarter* le trois-quarts dos. « Élevé sur un profil, bas sur
+un trois-quarts dos » n'est donc pas une réfutation ici — c'est la
+discrimination cherchée, dite en toutes lettres par la citation qui semblait
+la fermer.
+
+Second acquis à garder de la même section : **le terme d'œil ne vaut rien
+pour cette question**. Au-dessus de 0,46 il vaut 1,00 partout, parce que le
+modèle de pose place deux yeux confiants sur des visages vus de trois quarts
+arrière — un artefact du détecteur, pas un signal. Rien n'est bâti dessus ici.
+
+### 1. Les cinq cas nommés
+
+Agrégat par plan : le minimum des deux `shoulderRatio` par image, puis la
+médiane sur le plan — même construction que `frontality-min-median`
+(`scripts/framing/metrics.ts:92-100`), parce que le crop est fixe à
+l'intérieur d'un plan et qu'une seule mauvaise cellule suffit à le disqualifier
+(`2026-08-25-split-screen-design.md:78-81`).
+
+| cas | verdict | images appariées | agrégat `shoulderRatio` |
+|---|---|---|---|
+| `nabla-1798867` | garder | 83 | 0,526 |
+| `nabla-1607967` | garder | 21 | 0,441 |
+| `nabla-2056800` | garder | 13 | 0,825 |
+| `nabla-2077400` | **écarter** | 13 | **0,024** |
+| `nabla-6418667` | **écarter** | 17 | `null` — aucune image n'a `shoulderRatio` défini des deux côtés |
+
+Les trois cas à garder sortent nettement au-dessus du cas à écarter, avec une
+marge plus large que celle déjà mesurée sur `frontality` — 0,287 sur le plan
+gardé contre 0,029 sur le plan rejeté, chiffres de la mesure d'origine de
+#190, pas de ce tableau. `nabla-6418667` (une nuque) ne sort aucune
+valeur : la personne qui tourne le dos ne présente jamais ses deux épaules à
+un score suffisant sur les 17 images du plan, donc le terme est `null` et non
+`0` — c'est un cas pour la mesure 2, pas pour celle-ci.
+
+Vérifié à l'image (`framing-thumbnails.ts --cas <les cinq id>`) : les cinq
+vignettes confirment les étiquettes. Les trois profils gardés montrent un
+visage lisible de côté — l'un tenant un livre, exactement la description de
+#190 — quand les deux cas écartés montrent, l'un un dos tourné à trois quarts
+stable sans visage lisible, l'autre une nuque sans tête présentée du tout
+(`facing === 'unknown'` sur tout le plan).
+
+**Verdict de la mesure 1 : oui, `shoulderRatio` seul sépare les trois cas à
+garder du cas à écarter, sur ce jeu de cinq.** Le terme fait ce que la
+moyenne défaisait. C'est un résultat à cinq cas — assez pour réfuter un
+candidat, pas pour poser un seuil (la mesure 3 le confirme : la distribution
+est une pente).
+
+### 2. La branche `unknown`, isolée
+
+#190 note que le chiffre manque : la mesure à 41 plans sur 489 comptait
+`frontality < 0,2` et `facing === 'unknown'` sous le même veto, jamais
+séparément.
+
+Règle mesurée ici : sur chaque image appariée d'un plan (exactement deux
+personnes retenues), le perdant est la personne la moins de face ; dès que
+l'une des deux a `frontality === null`, elle est le perdant de fait, par
+l'invariant de `framing.ts` (`frontality === null` ssi `facing === 'unknown'`)
+qui rend la comparaison numérique inutile dans ce cas. Un plan est retiré si
+son perdant est `unknown` sur plus de 90 % de ses images appariées.
+
+Limite de cette règle (@chatgpt-codex-connector, PR #198) : rien ici
+n'établit de gagnant par plan sur les images décisives avant de vérifier
+`unknown` côté perdant, contrairement au veto de `addressable.ts`. Vérifié
+sur les 5 plans du résultat ci-dessous : le côté connu y est frontal
+(médiane 0,73 à 0,89 selon le plan), donc c'est bien lui le gagnant — mais
+rien ne le garantit sur une autre population.
+
+**Résultat : 5 plans sur 499 (1,0 %).** Un chiffre proche de zéro, cohérent
+avec le `unknownVeto` à 0,0 % déjà mesuré plus haut dans ce document à une
+autre échelle (temps de montage, règle de suivi du locuteur plutôt que du
+split). Ce n'est pas un near-miss de mesure : desserrer ce veto n'achèterait
+quasiment rien à lui seul, comme observé ailleurs dans ce document — mais il
+reste nécessaire pour `nabla-6418667`, que la mesure 1 ne peut pas voir.
+
+### 3. La distribution : pente ou falaise ?
+
+Sur la même population de 499 plans splittés, déciles de l'agrégat
+`shoulderRatio-min-median` (défini sur 491 / 499 ; 8 plans n'ont aucune image
+appariée avec les deux `shoulderRatio` disponibles) :
+
+| decile | 0 | 0,1 | 0,2 | 0,3 | 0,4 | 0,5 | 0,6 | 0,7 | 0,8 | 0,9 | 1,0 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| valeur | 0,024 | 0,442 | 0,553 | 0,619 | 0,679 | 0,744 | 0,795 | 0,869 | 0,950 | 1,045 | 2,346 |
+
+**C'est une pente, pas une falaise** — même verdict que pour `frontality`.
+Aucun creux où accrocher un seuil. Le résultat de la mesure 1 tient malgré
+tout, parce qu'il ne demande pas un seuil universel : il montre un écart net
+sur cinq cas précis, pas une frontière de catégorie sur la population entière.
+Poser un seuil de production sur `shoulderRatio` resterait un choix, pas une
+découverte — exactement l'avertissement que #190 formule déjà pour
+`frontality`.
+
+### La population mesurée, et ses réserves
+
+**499 plans splittés le 26 août 2026**, pas 489 : la figure citée par #190
+avait déjà bougé au 26 août (`docs/lessons.md:281-297`) et continue de bouger
+d'un jour sur l'autre — remesurée ici plutôt que recopiée.
+`2025-12-14-handicap` est ignoré, faute d'`analysis.json` sur le disque ; les
+cinq autres projets y sont.
+
+Quatre des cinq analyses sur le disque (`cqlp`, `caro-mdlm`, `nabla`,
+`entre-nous`) précèdent les frontières de bascule de composition posées par la
+PR #101 ; seule `2026-04-24-fmr` les porte. Cette mesure balaie donc deux
+régimes de frontière mélangés, comme toute mesure de corpus faite avant une
+ré-analyse complète.
+
+### Verdict
+
+**Oui : `shoulderRatio` seul sépare les trois cas à garder du cas à écarter
+que #190 nommait comme test de réfutation, avec une marge plus nette que la
+moyenne `frontality` qu'il compose.** Il ne couvre pas tout : la nuque de
+`nabla-6418667` n'a pas de `shoulderRatio` défini et retombe sur la branche
+`unknown`, qui retire 1,0 % des plans splittés à elle seule — un chiffre bas
+mais non nul, et nécessaire en complément plutôt qu'en remplacement. La
+distribution sur la population entière reste une pente sans creux, donc un
+seuil de production sur `shoulderRatio` serait, comme pour `frontality`, un
+choix assumé et non une frontière trouvée. La piste n'est pas fermée par ce
+résultat ; elle est confirmée sur le jeu d'épreuve qui devait la réfuter.

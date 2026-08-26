@@ -163,6 +163,7 @@ describe('cas synthétiques', () => {
       tags: [],
       origin: 'test',
       retired: null,
+      baseline: null,
     }
     const text = block(
       ['2026-05-31-nabla@100000#unique@105000 — 2026-05-31-nabla 100-110 @105', '  → garder'].join('\n'),

@@ -40,9 +40,17 @@ export type StillRequest = {
  * absorberait dans le morceau voisin.
  */
 export function stillArgs(r: StillRequest & { dst: string }): { window: Segment; pieces: ShotPiece[]; args: string[] } {
-  const { file, w, h, videoFps } = r.input.decoded
+  const { file, w, h, videoFps, durationSec } = r.input.decoded
   const span = Math.max(2 / videoFps, 0.2)
-  const window: Segment = { start: r.instant, end: Math.min(r.instant + span, r.shotEnd) }
+  // Le plan est une frontière d'analyse, pas la fin du fichier : borner à la
+  // durée décodée (issue #194) laisse `window.start` intact et ne change donc
+  // rien à la frame 0 extraite. Repli sur la fin du plan si la sonde n'a pas
+  // su donner de durée.
+  const ceiling = durationSec ?? r.shotEnd
+  if (r.instant >= ceiling) {
+    throw new Error(`stillArgs : instant ${r.instant} au-delà de la fin du fichier décodé (${ceiling}).`)
+  }
+  const window: Segment = { start: r.instant, end: Math.min(r.instant + span, ceiling) }
   if (window.end - window.start < 1.5 / videoFps) {
     throw new Error(
       `stillArgs : fenêtre [${window.start}, ${window.end}) trop courte pour tenir une image à ${videoFps} im/s.`,

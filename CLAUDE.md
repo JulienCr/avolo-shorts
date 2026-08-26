@@ -35,10 +35,16 @@ l'ASCII.
 **Tout le reste est en français** : libellés d'interface, commentaires,
 documentation, specs, corps de PR et réponses aux relecteurs.
 
-Deux exceptions qui suivent le code plutôt que la prose. Les **messages de
+Trois exceptions qui suivent le code plutôt que la prose. Les **messages de
 commit**, titre et corps, parce qu'ils vivent dans le dépôt aux côtés du code.
 Et les **titres de PR**, parce qu'une fusion en squash en fait le sujet du commit
 qui atterrit sur `main` — le corps de la PR, lui, reste en français.
+
+Une troisième, plus petite mais qui coûte à chaque fois : **le mot-clé qui ferme
+une issue**. `Closes #191` referme, « Ferme #191 » ne referme rien — GitHub ne lit
+que l'anglais. Le mot est lu par une machine, il suit donc le code et non la
+prose qui l'entoure. Constaté sur la PR #192, dont l'issue est restée ouverte
+après le merge.
 
 Le dépôt ne respecte pas encore la règle — 333 identifiants accentués dans 72
 fichiers. C'est l'**issue #73** ; la règle vaut dès maintenant pour tout code

@@ -4,6 +4,7 @@
  *     pnpm tsx scripts/framing-cases.ts list [selector]
  *     pnpm tsx scripts/framing-cases.ts show <id>
  *     pnpm tsx scripts/framing-cases.ts verify [selector] [--strict]
+ *     pnpm tsx scripts/framing-cases.ts verify --baseline [selector]
  *     pnpm tsx scripts/framing-cases.ts ingest [--from <fichier>|-] [--change] [--strict]
  *
  * `selector` : `all` (défaut), `active`, `labelled`, `unlabelled`, `keep`,
@@ -12,10 +13,15 @@
  *
  * `verify` est la commande de régression : elle doit tourner en quelques
  * secondes, imprime la dérive de chaque cas (information, pas un échec en
- * soi), et sort en 1 sous `--strict` si un cas est absent ou introuvable, ou
- * si son plan a bougé depuis l'étiquetage. Un split ou un ratio qui a changé
- * se lit dans la ligne imprimée (`split=…`), mais ne fait pas encore sortir
- * `--strict` en 1 — voir issue #193.
+ * soi), et sort en 1 sous `--strict` si un cas est absent ou introuvable, si
+ * son plan a bougé depuis l'étiquetage, ou si son ratio, son split ou sa
+ * raison de refus a changé depuis son témoin (`framingChanged` — un témoin
+ * absent ne compte jamais comme une dérive).
+ *
+ * `verify --baseline` ne vérifie rien : elle imprime, pour chaque cas sans
+ * témoin ou dont le témoin est périmé, le littéral `baseline: { … }` à coller
+ * dans `scripts/framing/cases.ts` — jamais n'écrit le fichier, même doctrine
+ * que `ingest` (voir `scripts/framing/ingest.ts`).
  *
  * `ingest` lit le bloc à copier-coller d'une planche (`board/verdicts.ts`) et
  * imprime les lignes à coller dans `scripts/framing/cases.ts` — jamais
@@ -29,11 +35,20 @@ import { computeShotSplit, FRAMING_DEFAULTS } from '@/core/framing'
 import { analysisPath, projectDir } from '@/server/paths'
 import {
   resolveCase,
+  todayFramingSnapshot,
   type CaseDrift,
   type CaseNote,
+  type FramingSnapshot,
   type ResolvedCase,
 } from './framing/case-registry'
-import { findCase, projectOf, selectCases, type FramingCase } from './framing/cases'
+import {
+  findCase,
+  projectOf,
+  selectCases,
+  type CaseBaseline,
+  type FramingCase,
+  type IsoDay,
+} from './framing/cases'
 import { BOARD_OWNER, hasAnyReport, hasBlockingIssues, ingestBlock, renderIngestReport } from './framing/ingest'
 import { chargerEnv, quit } from './dev-common'
 
@@ -63,6 +78,8 @@ function describeDrift(d: CaseDrift): string {
       return `instant ${d.instant.toFixed(3)} hors du plan [${d.shot.start.toFixed(3)}; ${d.shot.end.toFixed(3)}]`
     case 'nearBoundary':
       return `instant ${d.instant.toFixed(3)} à ${d.distance.toFixed(3)} s d'une frontière (image ${d.frame})`
+    case 'framingChanged':
+      return `${d.field} a changé depuis le témoin (témoin ${String(d.baseline)}, aujourd'hui ${String(d.today)})`
   }
 }
 
@@ -163,6 +180,49 @@ function verifyCases(selector: string, strict: boolean): number {
   return strict && hasDrift(resolvedDrift) ? 1 : 0
 }
 
+function isoToday(): IsoDay {
+  return new Date().toISOString().slice(0, 10) as IsoDay
+}
+
+function renderBaselineLiteral(b: CaseBaseline): string {
+  const rejection = b.rejection === null ? 'null' : JSON.stringify(b.rejection)
+  return `baseline: { ratio: ${JSON.stringify(b.ratio)}, split: ${b.split}, rejection: ${rejection}, on: ${JSON.stringify(b.on)} },`
+}
+
+function baselineStale(recorded: CaseBaseline | null, today: FramingSnapshot): boolean {
+  return (
+    recorded === null ||
+    recorded.ratio !== today.ratio ||
+    recorded.split !== today.split ||
+    recorded.rejection !== today.rejection
+  )
+}
+
+/**
+ * `verify --baseline` : imprime, sans jamais écrire `cases.ts`, le littéral à
+ * coller pour chaque cas sans témoin ou dont le témoin ne correspond plus à
+ * ce que le code produit aujourd'hui.
+ */
+function printBaselines(selector: string): number {
+  const cases = selectCases(selector)
+  const on = isoToday()
+  let staleCount = 0
+  for (const c of cases) {
+    try {
+      const r = resolveCase(c)
+      const today = todayFramingSnapshot(r.shot, r.analysis)
+      if (!baselineStale(c.baseline, today)) continue
+      staleCount += 1
+      console.log(`${c.id}  ${c.baseline === null ? 'sans témoin' : 'témoin périmé'} :`)
+      console.log(`  ${renderBaselineLiteral({ ...today, on })}`)
+    } catch (e) {
+      console.log(`${c.id}  ERREUR : ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  if (staleCount === 0) console.log('Tous les témoins sont à jour.')
+  return 0
+}
+
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = []
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer)
@@ -183,6 +243,7 @@ async function main(): Promise<number> {
   await chargerEnv()
   const [sub, ...rest] = process.argv.slice(2)
   const strict = rest.includes('--strict')
+  const baselineFlag = rest.includes('--baseline')
   const positional = rest.filter((a) => !a.startsWith('--'))
 
   switch (sub) {
@@ -198,7 +259,7 @@ async function main(): Promise<number> {
       return showCase(id)
     }
     case 'verify':
-      return verifyCases(positional[0] ?? 'all', strict)
+      return baselineFlag ? printBaselines(positional[0] ?? 'all') : verifyCases(positional[0] ?? 'all', strict)
     case 'ingest': {
       const change = rest.includes('--change')
       const fromIdx = rest.indexOf('--from')
@@ -207,7 +268,7 @@ async function main(): Promise<number> {
     }
     default:
       console.error(
-        'Usage : pnpm tsx scripts/framing-cases.ts <list|show|verify|ingest> [selector] [--strict] [--from <fichier>|-] [--change]',
+        'Usage : pnpm tsx scripts/framing-cases.ts <list|show|verify|ingest> [selector] [--strict] [--baseline] [--from <fichier>|-] [--change]',
       )
       return 1
   }

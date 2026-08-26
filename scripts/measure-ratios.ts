@@ -1351,10 +1351,6 @@ function bleedPass(
     for (const framed of withoutSplit.shots) {
       const shot = framed.shot
       const boxes = inSegments.filter((b) => withinInterval(b.t, shot.start, shot.end))
-      const mountedSeconds = segments.reduce(
-        (m, g) => m + Math.max(0, Math.min(shot.end, g.end) - Math.max(shot.start, g.start)),
-        0,
-      )
       const { cells, rejection, bleed, worstBleedAt } = computeShotSplit(
         boxes,
         shot,
@@ -1362,7 +1358,7 @@ function bleedPass(
         show.analysis.source.w,
         show.analysis.source.h,
         withSettings,
-        mountedSeconds,
+        segments,
       )
       const outcome: SplitOutcome =
         cells !== null ? 'split' : ((rejection as SplitRejection | null) ?? 'tooShort')
@@ -1458,7 +1454,7 @@ function splitYield(show: Show): void {
         show.analysis.source.w,
         show.analysis.source.h,
         options,
-        inClip,
+        segments,
       )
       const outcome: SplitOutcome = cells !== null ? 'split' : ((rejection as SplitRejection | null) ?? 'tooShort')
       seconds.set(outcome, (seconds.get(outcome) ?? 0) + inClip)
@@ -1504,11 +1500,11 @@ function sizeFloorHeadcountShift(show: Show): void {
   for (const cut of show.clips) {
     const segments = normalizeSegments(cut.segments)
     const boxes = show.analysis.boxes.filter((b) => segments.some((g) => withinInterval(b.t, g.start, g.end)))
-    // `0` désactive le complément à zéro : `boxes` couvre tous les plans du
+    // `[]` désactive le complément à zéro : `boxes` couvre tous les plans du
     // cut, pas un seul, donc aucune grille unique ne s'y applique. Comportement
     // inchangé, une comparaison image par image des deux mêmes regroupements.
-    const before = retainedCountByFrame(boxes, withoutFloor, 0)
-    const after = retainedCountByFrame(boxes, withFloor, 0)
+    const before = retainedCountByFrame(boxes, withoutFloor, [])
+    const after = retainedCountByFrame(boxes, withFloor, [])
     // Les deux comptes viennent du même regroupement par image et donc du même
     // ordre d'itération : `retainedCountByFrame` ne fait que varier le
     // plancher, jamais le regroupement lui-même.

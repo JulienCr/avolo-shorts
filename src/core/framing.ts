@@ -1222,19 +1222,32 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
 }
 
 /**
+ * Le nombre exact d'instants `k / fps` dans l'intervalle demi-ouvert
+ * `[a, b)` — l'horloge de la vidéo, pas celle de l'intervalle lui-même.
+ * `a` et `b` ne sont donc pas interchangeables avec une simple durée : un
+ * plan qui déborde de quelques centièmes de seconde ne gagne pas une image
+ * de plus pour autant, ce que `Math.round(durée × fps)` confondrait avec
+ * `Math.ceil`.
+ */
+function gridCount(a: number, b: number, fps: number): number {
+  if (!(b > a) || !(fps > 0)) return 0
+  return Math.ceil(b * fps) - Math.ceil(a * fps)
+}
+
+/**
  * Le nombre de personnes retenues par image, sur la **grille complète** —
  * même filtre que `spans`, sans la fusion en empan, mais complété d'un `0`
  * pour chaque instant échantillonné où personne n'a survécu. C'est ce que le
  * déclencheur du split lit pour juger l'effectif d'un plan.
  *
- * @param mountedSeconds Le recouvrement entre le plan et les segments montés
- *   (même valeur que `computeShotSplit` reçoit) — la durée sur laquelle la
- *   grille se compte, pas la durée du plan source.
+ * @param intervals Les intervalles montés du plan (mêmes bornes que
+ *   `computeShotSplit` intersecte) sur lesquels la grille se compte — pas
+ *   la durée du plan source.
  */
 export function retainedCountByFrame(
   boxes: PersonBox[],
   options: FramingOptions,
-  mountedSeconds: number,
+  intervals: { start: number; end: number }[],
 ): number[] {
   const floor = clampedSizeFloor(options)
   const byImage = retainedByFrame(boxes, options)
@@ -1242,9 +1255,7 @@ export function retainedCountByFrame(
     ({ boxes: frameBoxes }) => afterSizeFloor(frameBoxes, floor).length,
   )
   const fps = setting(options.fps, FRAMING_DEFAULTS.fps)
-  // Arrondi, pas `Math.ceil` : la grille réelle est ancrée sur l'horloge de la
-  // vidéo, pas sur le début du plan (corps de la PR, mesuré sur le corpus).
-  const expected = Math.round(mountedSeconds * fps)
+  const expected = intervals.reduce((n, i) => n + gridCount(i.start, i.end, fps), 0)
   const missing = Math.max(0, expected - counts.length)
   return missing > 0 ? [...counts, ...new Array(missing).fill(0)] : counts
 }
@@ -1381,10 +1392,10 @@ export type ShotSplit = {
  *
  * @param boxes Les boîtes du plan, restreintes à lui et aux segments montés.
  * @param ratio Le ratio que ce plan prendrait sans split (condition 3).
- * @param mountedSeconds Le recouvrement entre le plan et les segments montés —
- *   `shot.end - shot.start` par défaut, mais `boxes` ne porte que les images
- *   montées : un extrait de quelques secondes pris dans un plan bien plus long
- *   doit être jugé sur son propre recouvrement, pas sur la durée source.
+ * @param segments Les segments montés, en secondes source — tout le plan par
+ *   défaut. Intersectés avec `shot` pour juger le plancher de durée et la
+ *   grille de `retainedCountByFrame` sur le recouvrement réel, pas la durée
+ *   du plan source.
  * @returns Les deux cellules `[haut, bas]`, ou la cause du refus.
  */
 export function computeShotSplit(
@@ -1394,7 +1405,7 @@ export function computeShotSplit(
   srcW: number,
   srcH: number,
   options: FramingOptions,
-  mountedSeconds: number = shot.end - shot.start,
+  segments: Segment[] = [shot],
 ): ShotSplit {
   const refuse = (
     rejection: SplitRejection,
@@ -1407,11 +1418,16 @@ export function computeShotSplit(
     worstBleedAt,
   })
 
+  const mountedIntervals = segments
+    .map((s) => ({ start: Math.max(shot.start, s.start), end: Math.min(shot.end, s.end) }))
+    .filter((i) => i.end > i.start)
+  const mountedSeconds = mountedIntervals.reduce((n, i) => n + (i.end - i.start), 0)
+
   const minShot = setting(options.splitMinShot, FRAMING_DEFAULTS.splitMinShot)
   // `!(durée >= plancher)` et non `<` : une borne non finie doit refuser.
   if (!(mountedSeconds >= minShot)) return refuse('tooShort')
 
-  const counts = retainedCountByFrame(boxes, options, mountedSeconds)
+  const counts = retainedCountByFrame(boxes, options, mountedIntervals)
   if (counts.length === 0) return refuse('notTwoPeople')
   // Tronqué, jamais arrondi (`CLAUDE.md`) : 1,5 doit rester « pas deux »,
   // pas se hisser à 2 par arrondi.
@@ -1965,21 +1981,17 @@ export function computeFraming(req: FramingRequest): ClipFraming {
   // crop unique. Ça ne touche que la variante 9:16 — `shotRatiosAll` et le
   // natif l'ignorent totalement, voir `computeShotSplit`.
   const splitByShotIndex = flag(req.splitScreen, FRAMING_DEFAULTS.splitScreen)
-    ? shots.map((shot, i) => {
-        const mountedSeconds = segments.reduce(
-          (m, s) => m + Math.max(0, Math.min(shot.end, s.end) - Math.max(shot.start, s.start)),
-          0,
-        )
-        return computeShotSplit(
+    ? shots.map((shot, i) =>
+        computeShotSplit(
           boxesByShot[i],
           shot,
           shotRatiosAll[i],
           req.srcW,
           req.srcH,
           options,
-          mountedSeconds,
-        )
-      })
+          segments,
+        ),
+      )
     : null
 
   // Le ratio du natif : le plus large des plans. Sans plan, le plus large tout

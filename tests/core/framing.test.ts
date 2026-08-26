@@ -2097,9 +2097,11 @@ describe('computeShotSplit', () => {
 
   it('juge le plancher sur le recouvrement monté, pas la durée source du plan', () => {
     // Plan source de 20 s, mais 3 s seulement montées : `boxes` ne couvre que
-    // ces 3 s, et `mountedSeconds` doit être ce qui compte pour le plancher.
+    // ces 3 s, et le recouvrement doit être ce qui compte pour le plancher.
     const boxes = splitFrames(0, 3, LEFT_GEOMETRY, RIGHT_GEOMETRY)
-    const result = computeShotSplit(boxes, shot(0, 20), '1:1', SRC_W, SRC_H, RAW_BOUNDS, 3)
+    const result = computeShotSplit(boxes, shot(0, 20), '1:1', SRC_W, SRC_H, RAW_BOUNDS, [
+      { start: 0, end: 3 },
+    ])
     expect(result.cells).toBeNull()
     expect(result.rejection).toBe('tooShort')
   })

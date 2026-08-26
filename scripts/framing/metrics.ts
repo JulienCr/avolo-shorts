@@ -17,6 +17,7 @@ import {
   isForeground,
   orientationOf,
   requiredWidths,
+  retainedCountByFrame,
   type FramingOptions,
 } from '@/core/framing'
 import type { PersonBox } from '@/core/shots'
@@ -112,8 +113,15 @@ export const METRICS = {
     name: 'people-median',
     what: "médiane du nombre de personnes retenues par image",
     unit: 'personnes',
+    // La grille complète, zéros compris : sans elle, une image où le
+    // détecteur n'a personne retenu disparaît au lieu de compter pour zéro,
+    // ce qui biaise précisément les extrémités que le tamis cherche — la
+    // même leçon que #187 (relevé par copilot-pull-request-reviewer sur la
+    // #192).
     of: (s) => {
-      const counts = s.frames.map((f) => retainedInFrame(f, FRAMING_DEFAULTS).length)
+      const counts = retainedCountByFrame(flatten(s), { ...FRAMING_DEFAULTS, fps: s.analysisFps }, [
+        { start: s.shot.shot.start, end: s.shot.shot.end },
+      ])
       return median(counts)
     },
     perFrame: (f) => retainedInFrame(f, FRAMING_DEFAULTS).length,

@@ -7,6 +7,7 @@
  * petit catalogue de variantes nommées, pour un balayage rapide.
  */
 
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -111,8 +112,16 @@ function specFromCases(o: {
     return v
   })
   if (variants.length === 0) throw new Error('--variantes : au moins une variante est requise avec --cas.')
+  // La question posée, pas la date : deux planches `--cas` différentes le
+  // même jour ne doivent pas partager leurs verdicts sous une seule clé
+  // `localStorage`, et une planche régénérée le lendemain doit retrouver les
+  // siens (relevé par copilot-pull-request-reviewer sur la #192).
+  const question = createHash('sha1')
+    .update(`${o.selector}\n${o.classifier}\n${o.variantIds.join(',')}`)
+    .digest('hex')
+    .slice(0, 10)
   return {
-    id: `cas-${new Date().toISOString().slice(0, 10)}`,
+    id: `cas-${question}`,
     title: o.title ?? deriveDefaultTitle(o.selector, o.cases, o.variantIds),
     eyebrow: 'Cadrage',
     lede: `${o.cases.length} cas du registre, ${variants.length} variante(s).`,

@@ -76,7 +76,10 @@ const CARD_RE = /^(\S+)\s+(?:—|--)\s+(\S+)\s+[\d.]+-[\d.]+\s+@[\d.]+\s*$/
 const ARROW_RE = /^\s*(?:→|->)\s*(.+?)\s*$/
 const NOTE_RE = /^\s*note\s*:\s*(.*)$/
 const CONTINUATION_RE = /^ {4,}(.*)$/
-const SOUS_RE = /^\s*\(sous\s+(\S+)\)\s*$/
+// `.+` gourmand, pas `\S+` : `COMMIT` porte des espaces et ses propres
+// parenthèses (`ad4d957 (propre) · ...`), que `\S+` tronquerait à son
+// premier espace (relevé par copilot-pull-request-reviewer sur la #192).
+const SOUS_RE = /^\s*\(sous\s+(.+)\)\s*$/
 const SETTLED_RE = /^\s*(?:·|\*)\s+/
 
 type PendingCard = { key: string; call: Call | null; note: string[]; commit?: string; invalid: boolean }

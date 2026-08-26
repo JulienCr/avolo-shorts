@@ -485,6 +485,14 @@ async function main(): Promise<number> {
   }
 
   if (rawCas !== undefined) {
+    // `renderCase` ne les lit pas : les ignorer en silence produirait une
+    // vignette différente de celle demandée, dangereux pour un outil de
+    // mesure (relevé par copilot-pull-request-reviewer sur la #192).
+    const unsupported = ['--ratio', '--instant', '--analyse'].filter((f) => arguments_.includes(f))
+    if (unsupported.length > 0) {
+      console.error(`--cas ne prend pas en charge ${unsupported.join(', ')} pour l'instant.`)
+      return 1
+    }
     let cases: FramingCase[]
     try {
       cases = selectCases(rawCas)

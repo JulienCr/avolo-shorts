@@ -240,6 +240,23 @@ export function ingestBlock(
       outcomes.push({ kind: 'rejected', line: -1, text: answer.key, why: 'clé de carte illisible' })
       continue
     }
+    // Projet, début de plan et instant sont écrits deux fois dans le même
+    // bloc (la clé, l'en-tête lisible) : une ligne éditée à la main qui les
+    // ferait diverger doit se refuser plutôt que rattacher le verdict au
+    // mauvais cas (relevé par copilot-pull-request-reviewer sur la #192).
+    if (
+      header.projectId !== keyParts.projectId ||
+      Math.round(header.shotStart * 1000) !== keyParts.shotStartMs ||
+      Math.round(header.instant * 1000) !== keyParts.instantMs
+    ) {
+      outcomes.push({
+        kind: 'rejected',
+        line: -1,
+        text: answer.key,
+        why: `en-tête « ${header.projectId} ${header.shotStart}-${header.shotEnd} @${header.instant} » en désaccord avec la clé`,
+      })
+      continue
+    }
     if (answer.call === null) {
       outcomes.push({ kind: 'undecided', key: answer.key })
       continue

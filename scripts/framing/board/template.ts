@@ -334,13 +334,20 @@ export function renderScript(o: {
   // Seule exception au script gelé : indexé sur \`data-key\`, l'identité
   // stable du plan, jamais sur \`data-q\` (le rang), qui se décale dès qu'une
   // planche régénérée insère un cas au milieu — voir l'en-tête du fichier.
-  function save() {
-    var data = { remarks: remarks.value, commit: COMMIT, a: {}, n: {} };
+  //
+  // \`data.c\` porte un commit **par carte**, pas un seul pour la planche : un
+  // commit global se réécrirait à la moindre réponse touchée, et ferait
+  // paraître « posées sous ce rendu » toutes les réponses restaurées d'un
+  // commit antérieur, y compris celles que personne n'a reprises (relevé par
+  // copilot-pull-request-reviewer sur la #192).
+  function save(changedKey) {
+    var data = { remarks: remarks.value, a: {}, n: {}, c: {} };
     sections.forEach(function (s) {
       var q = s.getAttribute('data-q');
       var key = s.getAttribute('data-key');
       data.a[key] = answerOf(q);
       data.n[key] = noteOf(q);
+      data.c[key] = key === changedKey ? COMMIT : (s.getAttribute('data-answer-commit') || COMMIT);
     });
     try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* storage unavailable */ }
   }
@@ -353,7 +360,6 @@ export function renderScript(o: {
     try { data = JSON.parse(raw); } catch (e) { return; }
     if (!data || typeof data !== 'object') return;
     remarks.value = data.remarks || '';
-    var fromOtherCommit = data.commit && data.commit !== COMMIT;
     sections.forEach(function (s) {
       var q = s.getAttribute('data-q');
       var key = s.getAttribute('data-key');
@@ -362,7 +368,8 @@ export function renderScript(o: {
         var hit = Array.prototype.slice.call(document.querySelectorAll('input[name="q' + q + '"]'))
           .filter(function (i) { return i.value === v; })[0];
         if (hit) hit.checked = true;
-        if (fromOtherCommit) s.setAttribute('data-answer-commit', data.commit);
+        var c = data.c && data.c[key];
+        if (c && c !== COMMIT) s.setAttribute('data-answer-commit', c);
       }
       var note = document.querySelector('[data-note="' + q + '"]');
       if (note && data.n && data.n[key]) note.value = data.n[key];
@@ -370,10 +377,16 @@ export function renderScript(o: {
   }
 
   document.addEventListener('change', function (e) {
-    if (e.target && e.target.type === 'radio') { paint(); save(); }
+    if (e.target && e.target.type === 'radio') {
+      var s = e.target.closest('.q');
+      paint(); save(s && s.getAttribute('data-key'));
+    }
   });
   document.addEventListener('input', function (e) {
-    if (e.target && (e.target.hasAttribute('data-note') || e.target.id === 'remarks')) { paint(); save(); }
+    if (e.target && (e.target.hasAttribute('data-note') || e.target.id === 'remarks')) {
+      var s = e.target.closest('.q');
+      paint(); save(s && s.getAttribute('data-key'));
+    }
   });
 
   document.getElementById('copy').addEventListener('click', function () {

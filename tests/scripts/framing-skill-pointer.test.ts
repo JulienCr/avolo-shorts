@@ -33,10 +33,22 @@ function mesurerSection(skill: string): string {
  * espaces possibles entre les groupes — l'ASCII simple (celui réellement
  * utilisé dans ce fichier, vérifié à l'octet), plus l'insécable et la fine
  * en anticipation d'un futur alignement sur la convention typographique.
+ *
+ * **La décimale d'origine est cherchée telle quelle**, jamais seulement
+ * arrondie : `652.5` arrondirait à `653`, et une recopie exacte de `652,5`
+ * ou `652.5` passerait alors le garde-fou sans être vue (relevé par
+ * copilot-pull-request-reviewer sur la #192).
  */
 function timestampVariants(instant: number): string[] {
   const rounded = String(Math.round(instant))
-  if (rounded.length <= 3) return [rounded]
+  const variants = rounded.length <= 3 ? [rounded] : withGroupedVariants(rounded)
+  if (!Number.isInteger(instant)) {
+    variants.push(String(instant), String(instant).replace('.', ','))
+  }
+  return variants
+}
+
+function withGroupedVariants(rounded: string): string[] {
   const head = rounded.slice(0, rounded.length - 3)
   const tail = rounded.slice(rounded.length - 3)
   return [rounded, `${head} ${tail}`, `${head} ${tail}`, `${head} ${tail}`]

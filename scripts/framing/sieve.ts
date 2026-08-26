@@ -156,7 +156,12 @@ function extremesPicks(
   const high = family.n - low
   const decileLen = Math.max(1, Math.ceil(sorted.length * 0.1))
   const lowDecile = sorted.slice(0, decileLen)
-  const highDecile = sorted.slice(Math.max(0, sorted.length - decileLen))
+  // Un corpus plus petit que les deux déciles demandées fait chevaucher les
+  // tranches : sans exclure ce que le bas a déjà pris, le même plan se
+  // choisirait des deux côtés (relevé par copilot-pull-request-reviewer sur
+  // la #192).
+  const lowSet = new Set(lowDecile)
+  const highDecile = sorted.slice(Math.max(0, sorted.length - decileLen)).filter((e) => !lowSet.has(e))
 
   let lowPicked: Scored[]
   let highPicked: Scored[]

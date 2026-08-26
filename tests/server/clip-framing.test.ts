@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Clip } from '@/core/edl'
 import { framingWith, clipFraming, projectAnalysis, forgetAnalyses } from '@/server/clip-framing'
 import { FRAMING_SETTINGS_DEFAULTS } from '@/core/framing'
+import type { FramingSettings } from '@/core/framing'
 import { POINT, POINT_COUNT } from '@/core/shots'
 import type { PersonBox } from '@/core/shots'
 import { applySettings, closeDb, effectiveSettings, openDb } from '@/server/db'
@@ -307,42 +308,69 @@ describe('framingWith', () => {
  * test ici, l'équivalence elle-même l'est déjà au niveau `FramingOptions`
  * (`tests/core/framing.test.ts`, « le split-screen dans computeFraming »).
  */
+/**
+ * Les dix-sept points COCO d'une personne, en fractions — assez pour que le
+ * tronc par défaut (`torso: 'bust'`, nez/yeux/oreilles/épaules) se calcule
+ * sans repli sur la boîte brute. Partagé par les deux blocs qui construisent
+ * des analyses à deux personnes plus bas dans ce fichier.
+ */
+function personKeypoints(centerX: number, eyeY: number, shoulderY: number, halfWidth: number): number[] {
+  const k = Array.from({ length: POINT_COUNT * 3 }, () => 0)
+  const put = (point: keyof typeof POINT, x: number, y: number, score: number): void => {
+    k[POINT[point] * 3] = x
+    k[POINT[point] * 3 + 1] = y
+    k[POINT[point] * 3 + 2] = score
+  }
+  put('NOSE', centerX, eyeY, 0.9)
+  put('LEFT_EYE', centerX - 0.01, eyeY, 0.9)
+  put('RIGHT_EYE', centerX + 0.01, eyeY, 0.9)
+  put('LEFT_EAR', centerX - halfWidth, eyeY, 0.9)
+  put('RIGHT_EAR', centerX + halfWidth, eyeY, 0.9)
+  put('LEFT_SHOULDER', centerX - halfWidth, shoulderY, 0.9)
+  put('RIGHT_SHOULDER', centerX + halfWidth, shoulderY, 0.9)
+  return k
+}
+
+function personBox(
+  t: number,
+  centerX: number,
+  eyeY: number,
+  shoulderY: number,
+  halfWidth: number,
+  y0: number = eyeY - 0.1,
+  y1: number = shoulderY + 0.5,
+): PersonBox {
+  return {
+    t,
+    x0: centerX - halfWidth * 2,
+    x1: centerX + halfWidth * 2,
+    y0,
+    y1,
+    score: 0.9,
+    k: personKeypoints(centerX, eyeY, shoulderY, halfWidth),
+  }
+}
+
+/** Une analyse `version: 2` à deux points de pose, sur un unique plan `[0, end]`. */
+function writeTwoPersonAnalysis(id: string, boxes: PersonBox[], end: number): void {
+  fs.mkdirSync(path.join(projects, id), { recursive: true })
+  fs.writeFileSync(
+    analysisPath(id),
+    JSON.stringify({
+      version: 2,
+      keypoints: 'coco17',
+      fps: 2,
+      source: { w: 1920, h: 1080 },
+      proxy: { w: 960, h: 540 },
+      shots: [{ start: 0, end }],
+      boxes,
+    }),
+  )
+  forgetAnalyses()
+}
+
 describe('le split-screen à travers le registre des réglages', () => {
   const SPLIT_ID = 'projet-a-deux'
-
-  /**
-   * Les dix-sept points COCO d'une personne, en fractions — assez pour que le
-   * tronc par défaut (`torso: 'bust'`, nez/yeux/oreilles/épaules) se calcule
-   * sans repli sur la boîte brute.
-   */
-  function personKeypoints(centerX: number, eyeY: number, shoulderY: number, halfWidth: number): number[] {
-    const k = Array.from({ length: POINT_COUNT * 3 }, () => 0)
-    const put = (point: keyof typeof POINT, x: number, y: number, score: number): void => {
-      k[POINT[point] * 3] = x
-      k[POINT[point] * 3 + 1] = y
-      k[POINT[point] * 3 + 2] = score
-    }
-    put('NOSE', centerX, eyeY, 0.9)
-    put('LEFT_EYE', centerX - 0.01, eyeY, 0.9)
-    put('RIGHT_EYE', centerX + 0.01, eyeY, 0.9)
-    put('LEFT_EAR', centerX - halfWidth, eyeY, 0.9)
-    put('RIGHT_EAR', centerX + halfWidth, eyeY, 0.9)
-    put('LEFT_SHOULDER', centerX - halfWidth, shoulderY, 0.9)
-    put('RIGHT_SHOULDER', centerX + halfWidth, shoulderY, 0.9)
-    return k
-  }
-
-  function personBox(t: number, centerX: number, eyeY: number, shoulderY: number, halfWidth: number): PersonBox {
-    return {
-      t,
-      x0: centerX - halfWidth * 2,
-      x1: centerX + halfWidth * 2,
-      y0: eyeY - 0.1,
-      y1: shoulderY + 0.5,
-      score: 0.9,
-      k: personKeypoints(centerX, eyeY, shoulderY, halfWidth),
-    }
-  }
 
   /** Deux personnes bien séparées, à chaque image d'un plan unique de 20 s. */
   function writeSplitAnalysis(): void {
@@ -351,18 +379,7 @@ describe('le split-screen à travers le registre des réglages', () => {
       boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
       boxes.push(personBox(t, 0.64, 0.35, 0.45, 0.04))
     }
-    fs.writeFileSync(
-      analysisPath(SPLIT_ID),
-      JSON.stringify({
-        version: 2,
-        keypoints: 'coco17',
-        fps: 2,
-        source: { w: 1920, h: 1080 },
-        proxy: { w: 960, h: 540 },
-        shots: [{ start: 0, end: 20 }],
-        boxes,
-      }),
-    )
+    writeTwoPersonAnalysis(SPLIT_ID, boxes, 20)
   }
 
   function splitClip(): Clip {
@@ -411,5 +428,140 @@ describe('le split-screen à travers le registre des réglages', () => {
     } finally {
       closeDb()
     }
+  })
+})
+
+/**
+ * Une conversion inversée (`* 1000` au lieu de `/ 1000`) sature en silence à
+ * `1,0` via `bound(...)` (`computeShotSplit`) : un scénario « tout accepter »
+ * ne voit donc pas la différence entre 0,08 et 1,0. Chaque test choisit une
+ * valeur médiane où le résultat correct diffère du résultat saturé, et a été
+ * vérifié en inversant sa conversion une seule à la fois.
+ *
+ * Géométrie à points de pose complets, pas la fixture `torso: 'off'` de
+ * `@/core/framing` : elle ne survit pas aux réglages par défaut réels.
+ */
+describe('la conversion millièmes/ms → fraction/seconde, réglage par réglage', () => {
+  function withSettings(patch: Partial<FramingSettings>): FramingSettings {
+    return { ...FRAMING_SETTINGS_DEFAULTS, ...patch }
+  }
+
+  function clipOn(id: string, end: number): Clip {
+    return {
+      id: 'clip_pin',
+      projectId: id,
+      segments: [{ start: 0, end }],
+      ratio: '1:1',
+      cropX: 0.5,
+      captions: true,
+      branding: false,
+      title: 'Épingle de conversion',
+      description: '',
+      status: 'kept',
+      pass: 1,
+      hookText: '',
+      hookBadge: '',
+      hookStyle: {},
+    }
+  }
+
+  it('`splitMinShotMs` : un plan de 3 s accepte à 2500 ms (2,5 s)', () => {
+    const id = 'pin-min-shot'
+    const boxes: PersonBox[] = []
+    for (let t = 0; t < 3; t += 0.5) {
+      boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+      boxes.push(personBox(t, 0.64, 0.35, 0.45, 0.04))
+    }
+    writeTwoPersonAnalysis(id, boxes, 3)
+    const framing = framingWith(
+      clipOn(id, 3),
+      projectAnalysis(id),
+      withSettings({ splitMinShotMs: 2500 }),
+    )
+    // Une conversion inversée donnerait 2 500 000 s : bien au-delà des 3 s
+    // montées, donc `tooShort` au lieu d'un split.
+    expect(framing.shots[0].split).toBeDefined()
+  })
+
+  it('`splitMinCellWidthPermille` : une cellule de largeur 0,6 à 600 ‰', () => {
+    const id = 'pin-min-width'
+    const boxes: PersonBox[] = []
+    for (let t = 0; t < 20; t += 0.5) {
+      boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+      boxes.push(personBox(t, 0.64, 0.35, 0.45, 0.04))
+    }
+    writeTwoPersonAnalysis(id, boxes, 20)
+    const framing = framingWith(
+      clipOn(id, 20),
+      projectAnalysis(id),
+      withSettings({ splitMinCellWidthPermille: 600 }),
+    )
+    // Une conversion inversée sature à 1,0 : la cellule dépasse la hauteur
+    // atteignable et le split se refuse (`tooNarrowForSource`).
+    expect(framing.shots[0].split?.[0]).toBeDefined()
+    const cell = framing.shots[0].split![0]
+    expect(cell.x1 - cell.x0).toBeCloseTo(0.6, 5)
+  })
+
+  it('`splitBleedTolerancePermille` : un débordement de 0,12 refuse à 50 ‰ (0,05)', () => {
+    const id = 'pin-tolerance'
+    const boxes: PersonBox[] = []
+    for (let t = 0; t < 20; t += 0.5) {
+      boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+      // Assez proche du premier pour déborder dans sa boîte de 0,12 —
+      // mesuré, pas visé au jugé (voir le corps de la PR).
+      boxes.push(personBox(t, 0.42, 0.35, 0.45, 0.04))
+    }
+    writeTwoPersonAnalysis(id, boxes, 20)
+    const framing = framingWith(
+      clipOn(id, 20),
+      projectAnalysis(id),
+      withSettings({ splitBleedTolerancePermille: 50 }),
+    )
+    // Une conversion inversée sature à 1,0 : n'importe quel débordement passe,
+    // et ce test verrait `split` défini au lieu de `undefined`.
+    expect(framing.shots[0].split).toBeUndefined()
+  })
+
+  it('`splitBleedSharePermille` : 9 images conformes sur 10 acceptent à 500 ‰ (0,5)', () => {
+    const id = 'pin-share'
+    const boxes: PersonBox[] = []
+    for (let i = 0; i < 10; i += 1) {
+      const t = i * 0.5
+      boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+      // Une seule image déborde (débordement mesuré : 0,105, au-dessus de la
+      // tolérance par défaut de 0,08) ; les neuf autres non.
+      boxes.push(i === 0 ? personBox(t, 0.42, 0.35, 0.45, 0.04) : personBox(t, 0.64, 0.35, 0.45, 0.04))
+    }
+    writeTwoPersonAnalysis(id, boxes, 5)
+    const framing = framingWith(
+      clipOn(id, 5),
+      projectAnalysis(id),
+      withSettings({ splitBleedSharePermille: 500 }),
+    )
+    // Une conversion inversée sature à 1,0 (100 % des images exigées) : avec
+    // 90 % de conformes, ce test verrait `split` refusé au lieu d'accepté.
+    expect(framing.shots[0].split).toBeDefined()
+  })
+
+  it('`sizeFloorPermille` : une troisième boîte à 0,3 de la plus haute refuse le split à 200 ‰ (0,2)', () => {
+    const id = 'pin-size-floor'
+    const boxes: PersonBox[] = []
+    for (let t = 0; t < 20; t += 0.5) {
+      boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05, 0.2, 0.9)) // hauteur 0,7
+      boxes.push(personBox(t, 0.64, 0.35, 0.45, 0.04, 0.25, 0.95)) // hauteur 0,7
+      // Hauteur 0,35, soit 0,5 de la plus haute — au-dessus du plancher à
+      // 0,2, donc comptée comme une troisième personne.
+      boxes.push(personBox(t, 0.44, 0.5, 0.6, 0.05, 0.4, 0.75))
+    }
+    writeTwoPersonAnalysis(id, boxes, 20)
+    const framing = framingWith(
+      clipOn(id, 20),
+      projectAnalysis(id),
+      withSettings({ sizeFloorPermille: 200 }),
+    )
+    // Une conversion inversée sature à 1,0 : seule la plus haute boîte compte,
+    // la troisième sort du décompte, et ce test verrait `split` défini.
+    expect(framing.shots[0].split).toBeUndefined()
   })
 })

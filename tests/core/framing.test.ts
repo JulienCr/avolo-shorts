@@ -2490,22 +2490,14 @@ describe('le split-screen dans computeFraming', () => {
 })
 
 /**
- * Issue #180, première moitié : les six réglages exposés dans le registre
- * doivent chacun bouger `RenderedFraming` (`src/server/steps/render.ts`), sans
- * quoi un export se croirait à jour sur un cadrage que le réglage a changé.
+ * Issue #180 : les six réglages doivent chacun bouger `RenderedFraming`, sans
+ * quoi un export se croirait à jour sur un cadrage qui a changé.
  *
- * **Démontré ici sur `ClipFraming.shots[]`, jamais sur `RenderedFraming`
- * directement** : `renderedFraming()` n'est qu'une projection de `ratio`,
- * `cropX`, `cropXNative` et `split` — exactement les champs que ce fichier
- * compare — et l'appeler exigerait d'importer `src/server/steps/render.ts`
- * (donc `better-sqlite3` et toute la pile serveur) dans un fichier de test qui
- * ne porte que du calcul pur.
- *
- * Chaque test flippe un seul réglage et montre que l'un de ces quatre champs
- * bouge. Aucun n'a besoin d'un champ neuf sur `RenderedFraming` : les six
- * passent déjà par `ratio`/`cropX`/`cropXNative` (les deux crops et le choix
- * du ratio par plan) ou par `split` (le split-screen et les cellules qu'il
- * pose).
+ * **Démontré sur `ClipFraming.shots[]`, jamais sur `RenderedFraming`** :
+ * `renderedFraming()` n'est qu'une projection de `ratio`/`cropX`/`cropXNative`/
+ * `split`, et l'importer exigerait `better-sqlite3` dans un fichier qui ne
+ * porte que du calcul pur. Aucun champ neuf n'est donc nécessaire : les six
+ * passent déjà par l'un de ces quatre.
  */
 describe('les six réglages de la famille `framing` bougent RenderedFraming', () => {
   it('`splitScreen` : présence de `split`', () => {

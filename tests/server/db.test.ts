@@ -482,12 +482,32 @@ describe('la famille `framing`', () => {
     expect(after.framing.splitMinShotMs).toBe(FRAMING_SETTINGS_DEFAULTS.splitMinShotMs)
   })
 
+  /**
+   * **`max`, pas `min`**, sur les cinq champs numériques : `validateSetting`
+   * défaute `min` à 0 (`const min = field.min ?? 0`), qui est déjà le plancher
+   * de chacun — retirer leur `min` explicite ne changerait rien. Vérifié par
+   * suppression sur les cinq, un par un (voir le corps de la PR pour le
+   * verdict complet) : la seule borne qui meurt sans qu'un test s'en
+   * aperçoive quand on la retire est `min`, jamais `max`.
+   */
   it('refuse une valeur hors des bornes de `FRAMING_BOUNDS`', () => {
-    // `max`, pas `min` : `validateSetting` défaute `min` à 0, qui est déjà le
-    // plancher de ces cinq réglages — `max` seul démontre que `FRAMING_BOUNDS`
-    // est branché.
     expect(() =>
       applySettings(db, { framing: { splitMinShotMs: FRAMING_BOUNDS.splitMinShotMs.max + 1 } }),
+    ).toThrow(InvalidSettingError)
+    expect(() =>
+      applySettings(db, {
+        framing: { splitMinCellWidthPermille: FRAMING_BOUNDS.splitMinCellWidthPermille.max + 1 },
+      }),
+    ).toThrow(InvalidSettingError)
+    expect(() =>
+      applySettings(db, {
+        framing: { splitBleedTolerancePermille: FRAMING_BOUNDS.splitBleedTolerancePermille.max + 1 },
+      }),
+    ).toThrow(InvalidSettingError)
+    expect(() =>
+      applySettings(db, {
+        framing: { splitBleedSharePermille: FRAMING_BOUNDS.splitBleedSharePermille.max + 1 },
+      }),
     ).toThrow(InvalidSettingError)
     expect(() =>
       applySettings(db, { framing: { sizeFloorPermille: FRAMING_BOUNDS.sizeFloorPermille.max + 1 } }),

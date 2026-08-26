@@ -452,17 +452,14 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
 })
 
 /**
- * Les six réglages `framing` globaux (issue #180, première moitié), tels que
- * le registre (`src/server/db.ts`) et l'écran des paramètres les persistent.
+ * Les six réglages `framing` globaux (issue #180), tels que le registre
+ * (`src/server/db.ts`) et l'écran des paramètres les persistent.
  *
- * **Ici et pas dans `src/lib/api.ts`, comme `HookSettings` (`@/core/hook`)** :
- * la PR suivante ajoute `framingStyle` à `Clip`, et `src/core/**` ne peut
- * importer que de lui-même (`tests/core/purete.test.ts`) — `lib/api.ts` le
- * réexporte, il ne l'authore pas.
- *
- * **Entiers et booléens, jamais de fraction** (`src/server/db.ts` n'a pas de
- * type décimal) : la conversion vers `FramingOptions` vit dans
- * `src/server/clip-framing.ts`, seul endroit qui la fait.
+ * **Ici, pas dans `src/lib/api.ts`, comme `HookSettings`** : la PR suivante
+ * ajoute `framingStyle` à `Clip`, et `src/core/**` ne peut importer que de
+ * lui-même (`tests/core/purete.test.ts`) — `lib/api.ts` réexporte, il n'authore
+ * pas. Entiers et booléens, jamais de fraction : la conversion vers
+ * `FramingOptions` vit dans `src/server/clip-framing.ts`.
  */
 export type FramingSettings = {
   splitScreen: boolean

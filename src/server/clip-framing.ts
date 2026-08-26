@@ -206,14 +206,12 @@ export function projectAnalysis(projectId: string): FramingSource {
  * Le cadrage de ce clip : le ratio, un crop par plan, et d'où tout cela vient.
  *
  * **Sur les segments du clip qu'on lui passe**, jamais sur ceux qu'il porte en
- * base : le `PATCH` a besoin du cadrage d'avant l'écriture pour savoir quels
- * fichiers écarter, et de celui d'après pour le publier.
+ * base : le `PATCH` en a besoin d'avant l'écriture pour savoir quoi écarter.
  *
- * **`framingGlobals` se lit sur la base par défaut**, comme `hookGlobals` dans
- * `src/server/renders.ts` : cette fonction touche déjà le disque, donc lui
- * ajouter une lecture de `settings` ne change pas sa nature. Les deux routes
- * de `/api/clips/:id` la passent explicitement, pour ne lire les réglages
- * qu'une fois.
+ * **`framingGlobals` se lit sur la base par défaut**, comme `hookGlobals`
+ * (`renders.ts`) : cette fonction touche déjà le disque. Les deux routes de
+ * `/api/clips/:id` la passent explicitement, pour ne lire les réglages qu'une
+ * fois.
  */
 export function clipFraming(
   clip: Clip,
@@ -224,15 +222,11 @@ export function clipFraming(
 
 /**
  * Le même cadrage, sur une analyse **déjà lue**. Pure : aucun accès au disque,
- * donc rien qui puisse lever.
+ * donc rien qui puisse lever — voir `FramingSource` pour ce que ça protège.
  *
- * C'est la moitié que `PATCH /api/clips/:id` appelle après avoir écrit en base —
- * voir `FramingSource` pour ce que la séparation protège.
- *
- * **`framingGlobals` défaut sur la constante, jamais sur la base.** Un défaut
- * qui appellerait `getDb()` casserait la garantie « aucun accès au disque » que
- * cette fonction documente déjà, et coupleraient chaque appelant à la connexion
- * partagée de `db.ts` sans le dire.
+ * **`framingGlobals` défaut sur la constante, jamais sur la base** : un
+ * défaut qui appellerait `getDb()` casserait cette garantie et coupleraient
+ * chaque appelant à la connexion partagée de `db.ts` sans le dire.
  */
 export function framingWith(
   clip: Clip,

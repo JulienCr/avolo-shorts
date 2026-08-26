@@ -646,18 +646,13 @@ const HOOK_FIELDS: readonly SettingField[] = (
 ).map((name) => ({ family: 'hook' as const, name, ...HOOK_FIELD_SHAPES[name] }))
 
 /**
- * Les champs de la famille `framing` (issue #180, première moitié) : les
- * six leviers globaux du split-screen (PR #176) et du plancher de taille
- * (PR #177), jusqu'ici en dur dans `FRAMING_DEFAULTS`.
+ * Les six champs `framing` (issue #180) : split-screen (PR #176) et plancher
+ * de taille (PR #177), jusqu'ici en dur dans `FRAMING_DEFAULTS`.
  *
- * **Même patron que `HOOK_FIELD_SHAPES`**, `satisfies` compris : la clé est
- * `keyof FramingSettings`, les défauts viennent de `FRAMING_SETTINGS_DEFAULTS`
- * et les bornes de `FRAMING_BOUNDS` (les deux `@/lib/api`, réexportés de
- * `@/core/framing`) — aucune n'est recopiée ici.
- *
- * **Sans prose** (issue #78) : le libellé et l'explication de chaque champ
- * vivent dans `src/components/settings/framing-section.tsx`, qui les
- * regroupe pour son propre découpage. Ce registre ne décrit que la forme.
+ * **Même patron que `HOOK_FIELD_SHAPES`** : `keyof FramingSettings`, défauts
+ * et bornes tirés de `FRAMING_SETTINGS_DEFAULTS`/`FRAMING_BOUNDS`, jamais
+ * recopiés. **Sans prose** (issue #78) : le libellé de chaque champ vit dans
+ * `framing-section.tsx`, pas ici.
  */
 const FRAMING_FIELD_SHAPES = {
   splitScreen: { type: 'boolean', defaultValue: FRAMING_SETTINGS_DEFAULTS.splitScreen },

@@ -10,17 +10,13 @@ import { Label } from '@/components/ui/label'
 import { FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS, type FramingSettings } from '@/lib/api'
 
 /**
- * La section « Cadrage » des réglages : les six leviers globaux du
- * split-screen (PR #176) et du plancher de taille (PR #177), jusqu'ici en dur
- * dans `FRAMING_DEFAULTS` et hors d'atteinte depuis l'écran (issue #180).
+ * La section « Cadrage » : split-screen (PR #176) et plancher de taille
+ * (PR #177), jusqu'ici en dur et hors d'atteinte depuis l'écran (issue #180).
  *
- * **Entiers et millièmes** : le registre n'a pas de type décimal
- * (`src/server/db.ts`). La conversion vers `FramingOptions` vit dans
- * `src/server/clip-framing.ts`, seul endroit qui la fait.
- *
- * **`values` peut être `undefined`**, comme dans `HookSection` : la section
- * reste montée avant que `GET /api/settings` n'ait répondu, et montre alors
- * les défauts avec chaque contrôle inerte.
+ * **Entiers et millièmes** (le registre n'a pas de type décimal) : la
+ * conversion vers `FramingOptions` vit dans `clip-framing.ts`. **`values`
+ * peut être `undefined`**, comme `HookSection` : avant la réponse de
+ * `GET /api/settings`, la section montre les défauts, tout inerte.
  */
 
 type NumericKey = Exclude<keyof FramingSettings, 'splitScreen'>

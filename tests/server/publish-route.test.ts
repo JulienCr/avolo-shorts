@@ -692,4 +692,29 @@ describe('launchPublish — ignoreStaleRender (spec §5.4)', () => {
       expect.objectContaining({ platform: 'instagram', status: 'published' }),
     ])
   })
+
+  it('ignore la durée des segments actuels, qui ne décrivent plus le fichier programmé', async () => {
+    await exportThenRevertToKept()
+    // Réédité à plus de 180 s : la voie manuelle refuserait sur la durée,
+    // mais le fichier programmé, lui, dure toujours ce qu'il durait à
+    // l'export — mesurer le vrai fichier demanderait un `ffprobe` que le
+    // script exclut (spec §2.1).
+    putClip(getDb(), baseClip({ status: 'kept', segments: [{ start: 0, end: 200 }] }))
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+
+    const { settled } = launchPublish({
+      db: getDb(),
+      clip,
+      platforms: ['instagram'],
+      force: false,
+      ignoreStaleRender: true,
+      sleep: async () => {},
+    })
+    await settled
+
+    expect(getPublications(getDb(), CLIP_ID)).toEqual([
+      expect.objectContaining({ platform: 'instagram', status: 'published' }),
+    ])
+  })
 })

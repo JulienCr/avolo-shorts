@@ -230,6 +230,43 @@ describe('runOnePass — le verrou', () => {
     warn.mockRestore()
   })
 
+  it('deux reprises concurrentes du même verrou périmé ne produisent qu’un seul propriétaire', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const lockFile = path.join(lockDir, '.publish-scheduled.lock')
+    const guardFile = path.join(lockDir, '.publish-scheduled.reclaim')
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: 999999, since: Date.now() - 31 * 60 * 1000, owner: 'ancien' }))
+    // Un autre processus a déjà entamé sa propre reprise : son verrou de
+    // reprise est posé, frais — on simule la course sans avoir à lancer un
+    // second processûs réel, puisque `acquireLock` est entièrement synchrone
+    // et que la garde est le seul point qui décide.
+    fs.writeFileSync(guardFile, JSON.stringify({ pid: 555555, since: Date.now(), owner: 'concurrent' }))
+
+    const outcome = await runOnePass(deps({ pidAlive: () => false }))
+
+    expect(outcome.kind).toBe('locked')
+    // Ni le verrou de reprise d'autrui...
+    expect(JSON.parse(fs.readFileSync(guardFile, 'utf8'))).toMatchObject({ owner: 'concurrent' })
+    // ...ni le verrou principal périmé, qu'on n'a pas le droit de reprendre
+    // pendant qu'un autre le tient déjà.
+    expect(JSON.parse(fs.readFileSync(lockFile, 'utf8'))).toMatchObject({ owner: 'ancien' })
+  })
+
+  it('un verrou de reprise périmé (titulaire mort en plein milieu) est repris sur son seul âge', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const lockFile = path.join(lockDir, '.publish-scheduled.lock')
+    const guardFile = path.join(lockDir, '.publish-scheduled.reclaim')
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: 999999, since: Date.now() - 31 * 60 * 1000, owner: 'ancien' }))
+    // Le précédent repreneur est mort avant de relever son propre verrou de
+    // reprise : celui-ci est vieux de plus d'une minute, donc périmé lui
+    // aussi — sur l'âge seul, aucun pid à vérifier pour cette garde-là.
+    fs.writeFileSync(guardFile, JSON.stringify({ pid: 888888, since: Date.now() - 2 * 60 * 1000, owner: 'mort-en-reprise' }))
+
+    const outcome = await runOnePass(deps({ pidAlive: () => false }))
+
+    expect(outcome.kind).toBe('done')
+    expect(fs.existsSync(guardFile)).toBe(false)
+  })
+
   it('un verrou au JSON incomplet vieillit sur l’horodatage du fichier, pas sur l’instant de lecture', async () => {
     schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
     const lockFile = path.join(lockDir, '.publish-scheduled.lock')

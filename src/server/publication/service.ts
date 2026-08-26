@@ -295,7 +295,13 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
     if (isAAbsence(error)) throw requestInvalid('Aucun fichier à envoyer : exporter avant de publier.')
     throw error
   }
-  const eligibility = platformEligibility(clipDuration(clip.segments), stat.size)
+  // La voie ordonnancée publie un fichier que les segments actuels ne
+  // décrivent plus (spec §5.4) : sa durée réelle n'exige un `ffprobe` que le
+  // script exclut (spec §2.1, aucun processus enfant), donc seule la taille —
+  // que `fs.statSync` donne honnêtement — est vérifiée ici. Un fichier trop
+  // long pour une plateforme y échouera, `failed` et alerté comme tout autre
+  // échec (décision de l'orchestrateur).
+  const eligibility = platformEligibility(ignoreStaleRender ? 0 : clipDuration(clip.segments), stat.size)
   if (!eligibility.eligible) throw requestInvalid(eligibility.reason)
 
   // YouTube exige un titre (spec §6.1) ; un clip sans titre le paierait par un

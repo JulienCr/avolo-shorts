@@ -292,10 +292,9 @@ function groupByFrame(boxes: PersonBox[]): Map<number, PersonBox[]> {
  */
 function gridTimestamps(start: number, end: number, fps: number): number[] {
   if (!(fps > 0) || !(end > start)) return []
-  // Bornes en `k` élargies d'un cran : une frontière de plan qui tombe pile sur
+  // Bornes en `k` élargies d'un cran : une frontière de plan tombant pile sur
   // un pas de grille peut voir `k / fps` s'arrondir de l'autre côté que le `t`
-  // stocké dans `analysis.boxes`. La membership se décide donc sur le
-  // timestamp arrondi, pas sur les bornes non arrondies.
+  // stocké dans `analysis.boxes` ; la membership se décide donc sur `t` arrondi.
   const firstK = Math.floor(start * fps) - 1
   const lastK = Math.ceil(end * fps) + 1
   const out: number[] = []

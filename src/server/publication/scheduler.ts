@@ -23,6 +23,11 @@ export type SchedulerDeps = {
   sleep: (ms: number) => Promise<void>
   sendMail: Mailer
   lockDir: string
+  /**
+   * Sonde si le pid d'un verrou périmé tient toujours — injectable pour les
+   * tests, `process.kill(pid, 0)` par défaut (`pidAlive` ci-dessous).
+   */
+  pidAlive?: (pid: number) => boolean
 }
 
 export type DueSummary = { clipId: string; title: string; scheduledAt: number; platforms: readonly Platform[] }
@@ -81,16 +86,36 @@ function lockSince(file: string, now: number): number {
 }
 
 /**
- * Prise atomique (`wx`) ; reprise d'un verrou périmé par un `renameSync`
- * exclusif du fichier périmé vers un nom à soi, **jamais** par une paire
- * suppression-puis-création : ces deux appels séparés laissaient une fenêtre
- * où deux processus qui trouvent tous deux le même verrou périmé pouvaient
- * chacun supprimer puis recréer, se croyant tous deux propriétaires (relevé
- * en revue, à deux reprises). `renameSync` sur une **source** partagée est
- * la seule des deux moitiés qui soit atomique : un seul appelant la trouve
- * encore là, les autres reçoivent `ENOENT` et se retirent.
+ * `process.kill(pid, 0)` n'envoie aucun signal, il sonde seulement
+ * l'existence du processus. `EPERM` dit qu'il existe mais appartient à un
+ * autre utilisateur — l'information est ambiguë, et le défaut prudent face à
+ * une ambiguïté est de le croire vivant plutôt que de risquer une reprise
+ * sur un faux mort (décision de l'orchestrateur, pas une déduction locale).
  */
-function acquireLock(lockDir: string, now: number): { acquired: true; owner: string } | { acquired: false; since: number } {
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
+  }
+}
+
+/**
+ * Prise atomique (`wx`) ; reprise d'un verrou périmé seulement si son pid
+ * n'est plus vivant, par un `renameSync` exclusif du fichier périmé vers un
+ * nom à soi puis une nouvelle création `wx` (décision de l'orchestrateur).
+ *
+ * **L'âge seul ne suffit pas** (relevé en revue) : une passe qui dépasse
+ * trente minutes de bonne foi — quatre fichiers de plusieurs centaines de
+ * Mio en série — verrait sinon son verrou volé par le réveil suivant pendant
+ * qu'elle publie encore. Le pid vivant l'emporte sur l'âge, quel qu'il soit.
+ */
+function acquireLock(
+  lockDir: string,
+  now: number,
+  isAlive: (pid: number) => boolean,
+): { acquired: true; owner: string } | { acquired: false; since: number } {
   const file = lockPath(lockDir)
   const owner = `${process.pid}-${randomUUID()}`
   const payload: LockPayload = { pid: process.pid, since: now, owner }
@@ -99,6 +124,12 @@ function acquireLock(lockDir: string, now: number): { acquired: true; owner: str
 
   const since = lockSince(file, now)
   if (now - since < STALE_LOCK_MS) return { acquired: false, since }
+
+  const holder = readLock(file)
+  if (holder !== null && isAlive(holder.pid)) {
+    console.warn(`Verrou de publication vieux de plus de 30 min mais pid ${holder.pid} toujours vivant : pas repris.`)
+    return { acquired: false, since }
+  }
 
   const evicted = `${file}.${owner}.evicted`
   try {
@@ -109,13 +140,12 @@ function acquireLock(lockDir: string, now: number): { acquired: true; owner: str
     // relâché entretemps : on se retire, comme devant un verrou frais.
     return { acquired: false, since: lockSince(file, now) }
   }
-  console.warn(`Verrou de publication périmé (posé il y a plus de 30 min) : repris.`)
+  console.warn(`Verrou de publication périmé (posé il y a plus de 30 min, pid ${holder?.pid ?? '?'} mort) : repris.`)
   fs.rmSync(evicted, { force: true })
 
   if (tryCreateLock(file, payload)) return { acquired: true, owner }
-  // Un troisième processus a posé un verrou frais entre notre reprise
-  // exclusive et notre nouvelle création : on se retire plutôt que de
-  // l'écraser.
+  // Un troisième processus a posé un verrou frais entre notre reprise et
+  // notre nouvelle création : on se retire plutôt que de l'écraser.
   return { acquired: false, since: lockSince(file, now) }
 }
 
@@ -289,7 +319,7 @@ function dueSummary(db: Database.Database, clipId: string, scheduledAt: number):
  * n'imprime rien — l'appelant (le script) décide seul de ce qu'il affiche.
  */
 export async function runOnePass(deps: SchedulerDeps, options?: { dryRun?: boolean }): Promise<SchedulerOutcome> {
-  const { db, now, lockDir } = deps
+  const { db, now, lockDir, pidAlive: isAlive = pidAlive } = deps
 
   if (options?.dryRun === true) {
     const due = nextDueSchedule(db, now())
@@ -299,7 +329,7 @@ export async function runOnePass(deps: SchedulerDeps, options?: { dryRun?: boole
   // La présentation de `locked` appartient au script (comme `dry-run`,
   // spec §6, correction) : imprimer ici doublerait la ligne que `describe`
   // écrit déjà, dans un autre libellé.
-  const lock = acquireLock(lockDir, now())
+  const lock = acquireLock(lockDir, now(), isAlive)
   if (!lock.acquired) return { kind: 'locked', since: lock.since }
 
   try {

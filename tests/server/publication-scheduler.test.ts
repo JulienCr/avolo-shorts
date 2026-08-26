@@ -201,16 +201,32 @@ describe('runOnePass — le verrou', () => {
     expect(outcomes.some((o) => o.kind === 'done')).toBe(true)
   })
 
-  it('un verrou de plus de trente minutes est repris, avec un avertissement', async () => {
+  it('un verrou de plus de trente minutes dont le pid est mort est repris, avec un avertissement', async () => {
     schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
     const lockFile = path.join(lockDir, '.publish-scheduled.lock')
     fs.writeFileSync(lockFile, JSON.stringify({ pid: 999999, since: Date.now() - 31 * 60 * 1000 }))
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    const outcome = await runOnePass(deps())
+    const outcome = await runOnePass(deps({ pidAlive: () => false }))
 
     expect(outcome.kind).toBe('done')
     expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('un verrou de plus de trente minutes dont le pid est encore vivant n’est pas repris', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const lockFile = path.join(lockDir, '.publish-scheduled.lock')
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: 424242, since: Date.now() - 31 * 60 * 1000 }))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    // L'âge seul ne suffit pas (relevé en revue) : une passe encore vivante
+    // ne doit pas se faire voler son verrou par le réveil suivant.
+    const outcome = await runOnePass(deps({ pidAlive: () => true }))
+
+    expect(outcome.kind).toBe('locked')
+    expect(warn).toHaveBeenCalled()
+    expect(JSON.parse(fs.readFileSync(lockFile, 'utf8'))).toMatchObject({ pid: 424242 })
     warn.mockRestore()
   })
 

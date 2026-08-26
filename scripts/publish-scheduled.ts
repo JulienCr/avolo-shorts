@@ -46,16 +46,16 @@ function formatParis(ms: number): string {
  * était impossible (relevé en revue).
  */
 function describe(outcome: Exclude<SchedulerOutcome, { kind: 'dry-run' }>, now: number): string {
-  const heure = formatParis(now)
+  const passTime = formatParis(now)
   switch (outcome.kind) {
     case 'idle':
       return 'Rien à publier.'
     case 'locked':
       return `Verrou déjà posé depuis ${formatParis(outcome.since)}.`
     case 'done':
-      return `${heure} — Publié : ${outcome.clipId} (${outcome.attempts} essai(s)).`
+      return `${passTime} — Publié : ${outcome.clipId} (${outcome.attempts} essai(s)).`
     case 'abandoned':
-      return `${heure} — Abandonné après ${outcome.attempts} essai(s) : ${outcome.clipId}.`
+      return `${passTime} — Abandonné après ${outcome.attempts} essai(s) : ${outcome.clipId}.`
   }
 }
 

@@ -34,8 +34,16 @@ cette machine.
 Depuis PowerShell, en remplaçant `<Distro>` par le nom trouvé ci-dessus :
 
 ```
-schtasks /Create /F /SC MINUTE /MO 5 /RL LIMITED /TN "AvoloShorts-PublishScheduled" /TR "wsl.exe -d <Distro> -- bash -lc 'cd /home/julien/dev/avolo-shorts && pnpm tsx scripts/publish-scheduled.ts >> projects/publish-scheduled.log 2>&1'"
+schtasks /Create /F /SC MINUTE /MO 5 /RL LIMITED /TN "AvoloShorts-PublishScheduled" /TR 'wsl.exe -d <Distro> -- bash -lc "cd /home/julien/dev/avolo-shorts && pnpm tsx scripts/publish-scheduled.ts >> projects/publish-scheduled.log 2>&1"'
 ```
+
+**L'apostrophe n'est pas une apostrophe Windows.** Le découpage en arguments que
+`CreateProcess` applique quand la tâche se déclenche ne reconnaît que les
+guillemets doubles pour grouper une valeur avec des espaces — une apostrophe y
+est un caractère ordinaire. La commande `bash -lc` doit donc être entre
+guillemets doubles ; c'est la valeur entière de `/TR`, elle, qui est entre
+apostrophes PowerShell, pour que PowerShell la transmette telle quelle à
+`schtasks.exe` sans y toucher.
 
 - `/SC MINUTE /MO 5` : toutes les cinq minutes, comme la conception le fixe.
 - `/RL LIMITED` : pas de privilèges élevés, la tâche n'en a pas besoin.

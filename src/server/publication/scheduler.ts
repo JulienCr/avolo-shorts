@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -37,34 +38,21 @@ const ATTEMPTS = 3
 const STALE_LOCK_MS = 30 * 60 * 1000
 const LOCK_FILENAME = '.publish-scheduled.lock'
 
-type LockPayload = { pid: number; since: number }
+type LockPayload = { pid: number; since: number; owner: string }
 
 function lockPath(lockDir: string): string {
   return path.join(lockDir, LOCK_FILENAME)
 }
 
-/**
- * Prise atomique (`wx` : échoue si le fichier existe déjà), donc deux passes
- * concurrentes ne peuvent pas croire toutes les deux l'avoir posée. Un verrou
- * de plus de trente minutes est repris — un verrou périmé qui bloque tout en
- * silence est exactement l'échec que `CLAUDE.md` proscrit.
- */
-function acquireLock(lockDir: string, now: number): { acquired: true } | { acquired: false; since: number } {
-  const file = lockPath(lockDir)
-  const payload: LockPayload = { pid: process.pid, since: now }
+function tryCreateLock(file: string, payload: LockPayload): boolean {
   try {
     const fd = fs.openSync(file, 'wx')
     fs.writeSync(fd, JSON.stringify(payload))
     fs.closeSync(fd)
-    return { acquired: true }
+    return true
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-    const existing = readLock(file)
-    const since = existing?.since ?? now
-    if (now - since < STALE_LOCK_MS) return { acquired: false, since }
-    console.warn(`Verrou de publication périmé (posé il y a plus de 30 min, pid ${existing?.pid ?? '?'}) : repris.`)
-    fs.writeFileSync(file, JSON.stringify(payload))
-    return { acquired: true }
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
+    throw error
   }
 }
 
@@ -76,8 +64,59 @@ function readLock(file: string): LockPayload | null {
   }
 }
 
-function releaseLock(lockDir: string): void {
-  fs.rmSync(lockPath(lockDir), { force: true })
+/**
+ * L'instant posé par le titulaire, ou l'horodatage du fichier si le JSON est
+ * incomplet — un processus tué entre `openSync` et l'écriture ne doit pas
+ * laisser un verrou qui paraît frais à chaque lecture : `now` changerait à
+ * chaque appel, l'horodatage du fichier non (relevé en revue).
+ */
+function lockSince(file: string, now: number): number {
+  const existing = readLock(file)
+  if (existing !== null) return existing.since
+  try {
+    return fs.statSync(file).mtimeMs
+  } catch {
+    return now
+  }
+}
+
+/**
+ * Prise atomique (`wx`), reprise d'un verrou périmé par suppression puis
+ * nouvelle tentative `wx` — jamais par écrasement inconditionnel : deux
+ * passes qui trouvent toutes deux le même verrou périmé pouvaient auparavant
+ * se croire propriétaires ensemble (relevé en revue). Le perdant de la
+ * reprise se retire, comme devant un verrou frais.
+ */
+function acquireLock(lockDir: string, now: number): { acquired: true; owner: string } | { acquired: false; since: number } {
+  const file = lockPath(lockDir)
+  const owner = `${process.pid}-${randomUUID()}`
+  const payload: LockPayload = { pid: process.pid, since: now, owner }
+
+  if (tryCreateLock(file, payload)) return { acquired: true, owner }
+
+  const since = lockSince(file, now)
+  if (now - since < STALE_LOCK_MS) return { acquired: false, since }
+
+  console.warn(`Verrou de publication périmé (posé il y a plus de 30 min) : repris.`)
+  try {
+    fs.unlinkSync(file)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  if (tryCreateLock(file, payload)) return { acquired: true, owner }
+  // Un autre processus a gagné la reprise entre notre suppression et notre
+  // nouvelle tentative : on se retire, plutôt que de forcer une seconde fois.
+  return { acquired: false, since: lockSince(file, now) }
+}
+
+/**
+ * Ne supprime que le verrou qu'on a posé soi-même : un titulaire périmé qui
+ * se réveille après avoir été repris ne doit pas effacer le verrou frais du
+ * processus qui a repris sa place (relevé en revue).
+ */
+function releaseLock(lockDir: string, owner: string): void {
+  const file = lockPath(lockDir)
+  if (readLock(file)?.owner === owner) fs.rmSync(file, { force: true })
 }
 
 /** Les plateformes qui n'ont ni réussi ni été déposées — ce qu'un essai doit encore cibler. */
@@ -159,6 +198,10 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
   const { db, sleep, sendMail } = deps
   const clip = getClip(db, clipId)
   if (clip === undefined) {
+    // Sans ceci, les lignes restent `planned` : `nextDueSchedule` reprendrait
+    // indéfiniment cette même échéance, empêchant les suivantes de jamais
+    // passer (relevé en revue).
+    markFailed(db, clipId, outstandingPlatforms(db, clipId), `Clip programmé introuvable : ${clipId}.`)
     console.error(`Clip programmé introuvable : ${clipId}.`)
     await notifyAbandoned(sendMail, db, clipId, clipId, scheduledAt)
     return { kind: 'abandoned', clipId, attempts: 0, statuses: statusesFor(db, clipId) }
@@ -170,11 +213,19 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
     if (targets.length === 0) break
     attempts = attempt
 
-    try {
-      const { settled } = launchPublish({ db, clip, platforms: targets, force: false, ignoreStaleRender: true, sleep })
-      await settled
-    } catch (error) {
-      markFailed(db, clipId, targets, messageSafe(error))
+    // Une plateforme après l'autre, jamais groupées (spec §5.4) : un seul
+    // `launchPublish` sur plusieurs cibles les lance en parallèle
+    // (`groupByAdapter` + `Promise.all` dans `service.ts`, et `meta.ts` fait
+    // de même pour Instagram/Facebook), ce que §5.4 écarte explicitement, et
+    // une validation en échec pour l'une (YouTube sans titre) marquait à tort
+    // les autres (relevé en revue).
+    for (const platform of targets) {
+      try {
+        const { settled } = launchPublish({ db, clip, platforms: [platform], force: false, ignoreStaleRender: true, sleep })
+        await settled
+      } catch (error) {
+        markFailed(db, clipId, [platform], messageSafe(error))
+      }
     }
 
     if (outstandingPlatforms(db, clipId).length === 0) break
@@ -219,6 +270,6 @@ export async function runOnePass(deps: SchedulerDeps, options?: { dryRun?: boole
     if (due === undefined) return { kind: 'idle' }
     return await processDueClip(deps, due.clipId, due.scheduledAt)
   } finally {
-    releaseLock(lockDir)
+    releaseLock(lockDir, lock.owner)
   }
 }

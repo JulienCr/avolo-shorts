@@ -135,7 +135,13 @@ afterEach(() => {
   closeDb()
   fs.rmSync(root, { recursive: true, force: true })
   fs.rmSync(lockDir, { recursive: true, force: true })
-  process.env = { ...envStart }
+  // Mutation, jamais réassignation : `process.env = { ... }` casse en silence
+  // `process.loadEnvFile` pour le reste du process (tests/scripts/dev-common.
+  // test.ts, relevé en revue).
+  for (const name of Object.keys(process.env)) {
+    if (!(name in envStart)) delete process.env[name]
+  }
+  Object.assign(process.env, envStart)
 })
 
 function deps(overrides: Partial<SchedulerDeps> = {}): SchedulerDeps {
@@ -206,6 +212,45 @@ describe('runOnePass — le verrou', () => {
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })
+
+  it('un verrou au JSON incomplet vieillit sur l’horodatage du fichier, pas sur l’instant de lecture', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const lockFile = path.join(lockDir, '.publish-scheduled.lock')
+    // Un processus tué entre `openSync` et l'écriture laisse un fichier vide
+    // ou tronqué : `since` ne doit pas se recalculer sur `now` à chaque
+    // lecture, sinon le verrou paraît frais indéfiniment.
+    fs.writeFileSync(lockFile, '')
+    const old = new Date(Date.now() - 31 * 60 * 1000)
+    fs.utimesSync(lockFile, old, old)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const outcome = await runOnePass(deps())
+
+    expect(outcome.kind).toBe('done')
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('le relâchement ne supprime que le verrou qu’on a posé soi-même', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const lockFile = path.join(lockDir, '.publish-scheduled.lock')
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) outcomes[platform] = { status: 'failed', error: 'Panne simulée' }
+      return outcomes
+    })
+    fakeAdapter = adapterAlwaysPublishing(publish)
+    const foreignLock = { pid: 424242, since: Date.now(), owner: 'un-autre-processus' }
+    const sleep = vi.fn(async () => {
+      // Un autre processus reprend le verrou pendant notre attente entre deux
+      // essais : le nôtre ne doit relâcher que ce qu'il a posé lui-même.
+      fs.writeFileSync(lockFile, JSON.stringify(foreignLock))
+    })
+
+    await runOnePass(deps({ sleep }))
+
+    expect(JSON.parse(fs.readFileSync(lockFile, 'utf8'))).toEqual(foreignLock)
+  })
 })
 
 describe('runOnePass — les réessais', () => {
@@ -242,15 +287,67 @@ describe('runOnePass — les réessais', () => {
     expect(outcome.statuses.youtube).toBe('published')
 
     expect(delays).toEqual([5000, 10000])
-    expect(publish).toHaveBeenCalledTimes(3)
-    expect(new Set(publish.mock.calls[0]?.[1])).toEqual(new Set(['instagram', 'facebook', 'tiktok', 'youtube']))
-    expect(publish.mock.calls[1]?.[1]).toEqual(['instagram', 'facebook'])
-    expect(publish.mock.calls[2]?.[1]).toEqual(['instagram', 'facebook'])
+    // Une plateforme à la fois (spec §5.4) : huit appels — quatre au premier
+    // essai, deux à chacun des deux suivants, qui ne reciblent que les échecs
+    // — jamais un appel qui en groupe plusieurs.
+    expect(publish).toHaveBeenCalledTimes(8)
+    expect(publish.mock.calls.every((call) => (call[1] as readonly Platform[]).length === 1)).toBe(true)
+    const platformsCalled = publish.mock.calls.map((call) => (call[1] as readonly Platform[])[0])
+    expect([...platformsCalled.slice(0, 4)].sort()).toEqual([...PLATFORMS].sort())
+    expect([...platformsCalled.slice(4, 6)].sort()).toEqual(['facebook', 'instagram'])
+    expect([...platformsCalled.slice(6, 8)].sort()).toEqual(['facebook', 'instagram'])
 
     expect(mails).toHaveLength(1)
     expect(mails[0]?.subject).toContain('La chute')
     expect(mails[0]?.body).toContain('instagram')
     expect(mails[0]?.body).toContain('Panne simulée')
+  })
+
+  it('un titre YouTube manquant isole son échec sans marquer les autres plateformes', async () => {
+    putClip(getDb(), baseClip({ title: '' }))
+    await renderClip(CLIP_ID, { db: getDb() })
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const sendMail = vi.fn(async () => {})
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome.kind).toBe('abandoned')
+    if (outcome.kind !== 'abandoned') throw new Error('unreachable')
+    expect(outcome.statuses.youtube).toBe('failed')
+    expect(outcome.statuses.instagram).toBe('published')
+    expect(outcome.statuses.facebook).toBe('published')
+    expect(outcome.statuses.tiktok).toBe('published')
+    expect(sendMail).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('runOnePass — clip disparu', () => {
+  it('marque les plateformes en échec plutôt que de reprendre indéfiniment la même échéance', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    // `publications.clipId` porte `ON DELETE CASCADE` : supprimer le clip
+    // efface aussi ses lignes, donc ce cas ne survient normalement pas. On
+    // désactive la contrainte le temps de fabriquer la défense en profondeur
+    // que ce test vérifie — une base incohérente pour une autre raison ne
+    // doit pas non plus bloquer les échéances suivantes indéfiniment.
+    getDb().pragma('foreign_keys = OFF')
+    getDb().prepare('DELETE FROM clips WHERE id = ?').run(CLIP_ID)
+    getDb().pragma('foreign_keys = ON')
+    const sendMail = vi.fn(async () => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome.kind).toBe('abandoned')
+    expect(sendMail).toHaveBeenCalledTimes(1)
+    expect(
+      PLATFORMS.every((p) => getPublications(getDb(), CLIP_ID).find((r) => r.platform === p)?.status === 'failed'),
+    ).toBe(true)
+
+    // La ligne n'est plus `planned` : la passe suivante ne la reprend pas.
+    const second = await runOnePass(deps({ sendMail }))
+    expect(second.kind).toBe('idle')
+
+    error.mockRestore()
   })
 })
 

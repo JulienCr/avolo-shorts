@@ -12,24 +12,15 @@ import { RATIOS, type FramingOptions, type FramingSettings } from '@/core/framin
 import type { Ratio } from '@/core/edl'
 
 /**
- * Une colonne de la planche : soit les six réglages persistés (`FramingSettings`,
- * ce que la production peut réellement appliquer), soit des `FramingOptions`
- * arbitraires accompagnées de `why` — parce qu'un déplacement de `margin`,
- * `sideTrim` ou `torso` ne passe pas par la conversion de production, et la
- * planche doit le dire d'elle-même plutôt que de laisser croire à un réglage
- * livrable.
+ * Une colonne de la planche : soit les six réglages persistés (`FramingSettings`),
+ * soit des `FramingOptions` arbitraires accompagnées de `why` — l'échappatoire
+ * pour ce que la conversion de production ne couvre pas.
  *
- * `kind: 'options'` porte en plus les trois champs de `FramingRequest` que
- * `FramingOptions` ne couvre pas — ratio épinglé, mode de crop et crop manuel
- * — pour exprimer les replis d'un split rejeté (issue #190) : plan large
- * (`splitScreen: false`, côté `'settings'`), ratio plus large épinglé, ou
- * crop manuel sur une seule personne. `cropX` est une fraction, jamais indexée
- * par `shotStartMs` : `resolveVariant` résout lui-même le plan du cas. Une
- * même variante sert souvent plusieurs cas dans une planche (une colonne par
- * réglage, pas par cas) ; quand la position de la bonne personne diffère d'un
- * cas à l'autre, `cropX` prend la forme d'une table **par `BoardCase.id`**
- * plutôt qu'un nombre unique — jamais par `shotStartMs`, que l'auteur de la
- * planche n'a aucune raison de connaître.
+ * `kind: 'options'` porte aussi `ratio`/`cropMode`/`cropX`, les trois champs de
+ * `FramingRequest` hors `FramingOptions` (replis d'un split rejeté, #190).
+ * `cropX` est un nombre, ou une table par `BoardCase.id` quand la bonne
+ * position varie selon le cas — jamais par `shotStartMs`, que `resolveVariant`
+ * résout seul. Voir `scripts/framing/crop-x.ts` pour dériver ces valeurs.
  */
 export type FramingVariant =
   | {

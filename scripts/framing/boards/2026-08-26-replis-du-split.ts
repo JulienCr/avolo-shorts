@@ -24,26 +24,10 @@ function caseAsBoardCase(c: FramingCase): BoardCase {
 
 /**
  * Le `cropX` de la variante « 9:16 sur une personne », par cas — dérivé, pas
- * choisi à l'œil, contre l'`analysis.json` du 26 août 2026 (voir la bande de
- * reproductibilité de la planche pour le commit du jour du rendu).
- *
- * Méthode, appliquée hors ligne sur chaque plan : sur ses images à exactement
- * deux personnes retenues (`retainedBoxes`), triées gauche/droite par le
- * centre de `personBounds`, on choisit le côté dont la tête (`headBounds`,
- * points de nez/yeux/oreilles au-dessus du seuil) est présente sur le plus
- * grand nombre de ces images ; à égalité de présence, le côté dont le score
- * moyen de ces points est le plus haut. Le `cropX` rendu est la **médiane**
- * du centre de `headBounds` de ce côté, sur les seules images où sa tête est
- * présente.
- *
- * C'est cette règle qui, sur `entre-nous` 3495,867 s, retient la personne
- * opposée à celle que le propriétaire nomme « trop bord cadre » (score de
- * tête moyen 0,864 contre 0,347) — sans connaître son nom, seulement le fait
- * que sa tête se voit mieux. Sur `nabla` 6418,667 s (nuque, `facing ==
- * 'unknown'`), le même calcul retient sans ambiguïté le seul côté dont la
- * tête est identifiable (score 0,826 contre 0,217). Sur `fmr` 1115,733 s,
- * un seul côté a jamais une tête détectée (10/10 contre 0/10) — le cas
- * binaire que #190 nomme explicitement.
+ * choisi à l'œil, avec `scripts/framing/crop-x.ts` (voir son en-tête pour la
+ * méthode et les deux refus). Recalculer : `pnpm tsx scripts/framing/crop-x.ts
+ * labelled`. Contre l'`analysis.json` du 26 août 2026 — voir la bande de
+ * reproductibilité de la planche pour le commit du jour du rendu.
  */
 const MANUAL_CROP_X: Readonly<Record<string, number>> = {
   'nabla-2056800': 0.2635,

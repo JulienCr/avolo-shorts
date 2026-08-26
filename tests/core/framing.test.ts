@@ -2156,6 +2156,17 @@ describe('computeShotSplit', () => {
     expect(rejection).not.toBe('notTwoPeople')
   })
 
+  it("refuse quand la moitié du plan n'a retenu personne, même si les images représentées portent toutes deux personnes", () => {
+    // Dix images à deux personnes sur [0, 5), et rien du tout sur [5, 10) —
+    // aucune boîte, pas même une candidate écartée par le filtre. La grille
+    // complète à 2 im/s attend vingt instants ; sans le complément à zéro des
+    // dix manquants, la médiane ne se lit que sur les dix représentés et vaut
+    // deux à tort.
+    const boxes = splitFrames(0, 5, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const { rejection } = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(rejection).toBe('notTwoPeople')
+  })
+
   it('refuse un ratio déjà 9:16 : le splitter ne gagnerait rien', () => {
     const boxes = splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY)
     const { cells, rejection } = computeShotSplit(boxes, shot(0, 10), '9:16', SRC_W, SRC_H, RAW_BOUNDS)

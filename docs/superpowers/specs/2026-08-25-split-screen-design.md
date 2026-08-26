@@ -40,15 +40,20 @@ chercher à deviner l'intention de la scène. C'est la seule règle qui n'invent
 pas un critère que la mesure ne soutient pas.
 
 Conséquence, mesurée avant d'être acceptée : le split devient le format dominant
-de la sortie verticale.
+de la sortie verticale — mais cette projection ne portait que sur le
+déclencheur (durée, effectif, ratio), avant que `bleedsIntoOther` existe. Le
+critère de débordement livré par la PR #176 (§ « Le débordement, et le seuil
+qui l'arbitre » ci-dessous) refuse une partie des plans que le déclencheur
+seul aurait acceptés, ce que la table suivante républie sous les deux
+lectures.
 
-| Émission | Montage en split | dont 16:9 | dont 1:1 | dont 4:5 |
-|---|---|---|---|---|
-| `nabla` | 83,9 % | 64,5 % | 11,6 % | 7,9 % |
-| `entre-nous` | 82,0 % | 44,4 % | 35,3 % | 2,4 % |
-| `cqlp` | 72,6 % | 19,0 % | 40,0 % | 13,6 % |
-| `caro-mdlm` | 43,6 % | 34,7 % | 8,9 % | — |
-| `fmr` | 0 % | — | — | — |
+| Émission | Projection (déclencheur seul) | Délivré (0,08 / 0,9) |
+|---|---|---|
+| `nabla` | 83,9 % | 65,3 % |
+| `entre-nous` | 82,0 % | 17,9 % |
+| `cqlp` | 72,6 % | 57,3 % |
+| `caro-mdlm` | 43,6 % | 22,6 % |
+| `fmr` | 0 % | 0 % |
 
 `fmr` ne rend rien parce que 94,2 % de son montage tient dans des plans qui ne
 portent pas deux personnes.
@@ -101,7 +106,10 @@ un rapport de 1,125.
 de part et d'autre — donc trois fois la largeur du tronc au total. Un plancher
 de largeur l'accompagne, faute de quoi un tronc étroit produirait un
 grossissement absurde ; les maquettes l'ont posé à 60 % de la largeur d'une
-cellule pleine hauteur, et il reste à balayer. Le cadrage large — prendre toute la hauteur de la source — a
+cellule pleine hauteur, soit `splitMinCellWidth: 0,38` dans `FRAMING_DEFAULTS`
+— livré par la PR #176, ce réglage n'est plus à balayer.
+
+Le cadrage large — prendre toute la hauteur de la source — a
 été essayé et rejeté sur image. Il ne s'agit pas d'un réglage à corriger mais
 d'une impossibilité arithmétique : une cellule de rapport 1,125 prise sur toute
 la hauteur d'une source 1920 × 1080 mesure 1215 pixels de large, donc deux
@@ -117,6 +125,44 @@ durée.
 
 Sans cette règle, la cellule se centre sur l'image et coupe les têtes : c'est ce
 que les premières maquettes ont montré.
+
+## Le débordement, et le seuil qui l'arbitre
+
+Une géométrie valide ne suffit pas : encore faut-il qu'aucune cellule ne morde
+trop dans la **boîte brute** (pas le tronc) de l'autre personne. C'est
+`bleedsIntoOther`, ajouté après cette conception, sur les deux corrections que
+la PR #176 a dû faire après escalade.
+
+**Le recouvrement des cellules est autorisé.** Les deux plans approuvés le 25
+août (`cqlp`, `entre-nous`) se recouvraient déjà à l'image sans qu'aucun
+contrôle n'existe alors — un premier garde-fou qui rejetait tout recouvrement
+aurait donc rejeté deux compositions déjà validées par le repérage humain. Seul
+compte le débordement dans la boîte de l'autre.
+
+**`splitBleedTolerance` (0,08) et `splitBleedShare` (0,9) travaillent
+ensemble** : la tolérance borne l'ampleur du débordement, la part borne sa
+fréquence sur le plan — 90 % des images appariées doivent tenir sous la
+tolérance, pas 100 %. Exiger 100 % aurait tenu le split à une norme plus
+stricte que celle que le dépôt applique déjà au ratio lui-même
+(`chooseRatioFromSpans` accepte un ratio dont 10 % des images débordent
+entièrement).
+
+`splitBleedTolerance` **repose sur trois points, pas sur un balayage** : les
+deux plans approuvés mordent à 0,010 et 0,020, le seul plan rejeté (une
+variante à cellule large sur `nabla`) à 0,123. Sa valeur a bougé une fois, sur
+un point d'arrêt humain : à 0,05, le plan `cqlp` 2096 s ne splittait pas — 44
+de ses 61 images appariées (72 %) tenaient sous la tolérance, sous les 90 %
+requis — et le propriétaire du dépôt a validé sur image que ce plan doit
+splitter, bras d'une comédienne qui traverse dans la cellule de l'autre compris.
+0,08 dépasse le point à 90 % de **ce plan précis** (0,077), pas son pire cas ;
+`splitBleedShare` n'a pas bougé, pour que la part continue d'absorber la
+transience et la tolérance l'ampleur, sans que les deux ne se retournent l'un
+contre l'autre.
+
+`ShotSplit` porte `bleed` (le pire débordement mesuré) et `worstBleedAt`
+(l'instant de cette image) à titre de **diagnostic**, jamais de critère : ils
+existent pour pouvoir rendre à nouveau l'image la plus tendue d'un plan accepté,
+pas pour peser sur la décision.
 
 ## L'ordre des deux cellules
 
@@ -182,12 +228,14 @@ Cette conception arrête la forme de la règle, pas son seuil.
 
 ## Ce qui reste ouvert
 
-- **Le rythme.** Trois émissions sur cinq passeraient à plus de 70 % de split.
+- **Le rythme.** Délivré, le split couvre 17,9 à 65,3 % du montage selon
+  l'émission (§ « Le débordement, et le seuil qui l'arbitre » ci-dessus).
   Personne n'a encore regardé une minute entière de cette sortie avec le son. Le
   point d'arrêt qui compte est une vidéo, pas une image fixe.
-- **Le 4:5.** Il représente 2,4 à 13,6 % du montage selon l'émission, et aucun
-  plan 4:5 n'a été soumis au jugement. Il est inclus par cohérence avec le 1:1,
-  qui l'a été.
+- **Le 4:5.** La projection du seul déclencheur le donnait à 2,4-13,6 % du
+  montage selon l'émission, et aucun plan 4:5 n'a été soumis au jugement — il
+  est inclus par cohérence avec le 1:1, qui l'a été. `bleedsIntoOther` n'en a
+  pas mesuré la part propre.
 - **Le croisement des comédiens.** Rien ne suit une identité d'une image à
   l'autre. Deux personnes qui se croisent échangent leurs rangs, et la majorité
   par plan fixe alors un ordre arbitraire pour toute la durée.

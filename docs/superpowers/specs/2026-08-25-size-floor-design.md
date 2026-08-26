@@ -1,10 +1,10 @@
 # Le plancher de taille
 
 Conception arrêtée le 25 août 2026, extraite de celle du split-screen
-(`docs/superpowers/specs/2026-08-25-split-screen-design.md`, non fusionnée à
-ce jour) parce que ce plancher part dans sa **propre PR, avant le split** :
-il change ce que « deux personnes » veut dire, donc le déclencheur du split
-doit être mesuré après lui.
+(`docs/superpowers/specs/2026-08-25-split-screen-design.md`) parce que ce
+plancher part dans sa **propre PR, avant le split** (#177, fusionnée) : il
+change ce que « deux personnes » veut dire, donc le déclencheur du split doit
+être mesuré après lui.
 
 ## Le problème mesuré
 
@@ -28,5 +28,5 @@ Il **déplace le fichier natif** sur les plans à affiche, ce qui est voulu : il
 ne dit pas « ne cadre pas sur cette personne », il dit « ce n'est pas une
 personne », comme `isForeground` le fait déjà pour le public au premier rang.
 
-Sa valeur par défaut vient d'un balayage, quantifié dans le corps de la PR qui
-introduit ce plancher.
+Sa valeur par défaut, `0,5` (`FRAMING_DEFAULTS.sizeFloor`), vient d'un
+balayage, quantifié dans le corps de la PR #177.

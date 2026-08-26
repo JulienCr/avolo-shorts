@@ -330,6 +330,13 @@ export type FramingOptions = {
    * stricte que celle que le dépôt applique déjà au ratio lui-même.
    */
   splitBleedShare?: number
+  /**
+   * La cadence d'échantillonnage de l'analyse, en images par seconde. Sert à
+   * `retainedCountByFrame` pour tailler la grille complète d'un plan — voir
+   * `mountedSeconds` — et à rien d'autre : les images elles-mêmes portent leur
+   * propre `t`, cette valeur ne fait que compter combien sont attendues.
+   */
+  fps?: number
 }
 
 /**
@@ -449,6 +456,9 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
   splitMinCellWidth: 0.38,
   splitBleedTolerance: 0.08,
   splitBleedShare: 0.9,
+  // Le worker échantillonne à 2 images par seconde ; c'est aussi le défaut que
+  // `gaps.ts` retient (`a.fps ?? 2`) quand une analyse ne le porte pas.
+  fps: 2,
 })
 
 /**
@@ -1212,14 +1222,31 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
 }
 
 /**
- * Le nombre de personnes retenues par image — même filtre que `spans`, sans
- * la fusion en empan. C'est ce que le déclencheur du split lit pour juger
- * l'effectif d'un plan (contrat, § « Le déclencheur »).
+ * Le nombre de personnes retenues par image, sur la **grille complète** —
+ * même filtre que `spans`, sans la fusion en empan, mais complété d'un `0`
+ * pour chaque instant échantillonné où personne n'a survécu. C'est ce que le
+ * déclencheur du split lit pour juger l'effectif d'un plan.
+ *
+ * @param mountedSeconds Le recouvrement entre le plan et les segments montés
+ *   (même valeur que `computeShotSplit` reçoit) — la durée sur laquelle la
+ *   grille se compte, pas la durée du plan source.
  */
-export function retainedCountByFrame(boxes: PersonBox[], options: FramingOptions): number[] {
+export function retainedCountByFrame(
+  boxes: PersonBox[],
+  options: FramingOptions,
+  mountedSeconds: number,
+): number[] {
   const floor = clampedSizeFloor(options)
   const byImage = retainedByFrame(boxes, options)
-  return [...byImage.values()].map(({ boxes: frameBoxes }) => afterSizeFloor(frameBoxes, floor).length)
+  const counts = [...byImage.values()].map(
+    ({ boxes: frameBoxes }) => afterSizeFloor(frameBoxes, floor).length,
+  )
+  const fps = setting(options.fps, FRAMING_DEFAULTS.fps)
+  // Même formule que le script de mesure du contrat (`gaps.ts`) : reproduire
+  // le chiffre publié demande la même approximation, pas une grille exacte.
+  const expected = Math.round(mountedSeconds * fps)
+  const missing = Math.max(0, expected - counts.length)
+  return missing > 0 ? [...counts, ...new Array(missing).fill(0)] : counts
 }
 
 /**
@@ -1384,7 +1411,7 @@ export function computeShotSplit(
   // `!(durée >= plancher)` et non `<` : une borne non finie doit refuser.
   if (!(mountedSeconds >= minShot)) return refuse('tooShort')
 
-  const counts = retainedCountByFrame(boxes, options)
+  const counts = retainedCountByFrame(boxes, options, mountedSeconds)
   if (counts.length === 0) return refuse('notTwoPeople')
   // Tronqué, jamais arrondi (`CLAUDE.md`) : 1,5 doit rester « pas deux »,
   // pas se hisser à 2 par arrondi.
@@ -1904,6 +1931,7 @@ export function computeFraming(req: FramingRequest): ClipFraming {
     splitMinCellWidth: req.splitMinCellWidth,
     splitBleedTolerance: req.splitBleedTolerance,
     splitBleedShare: req.splitBleedShare,
+    fps: req.fps,
   }
 
   // Seules les images des segments retenus comptent (spec §10) : le clip ne

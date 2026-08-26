@@ -1504,8 +1504,9 @@ function sizeFloorHeadcountShift(show: Show): void {
   for (const cut of show.clips) {
     const segments = normalizeSegments(cut.segments)
     const boxes = show.analysis.boxes.filter((b) => segments.some((g) => withinInterval(b.t, g.start, g.end)))
-    const before = retainedCountByFrame(boxes, withoutFloor)
-    const after = retainedCountByFrame(boxes, withFloor)
+    const mountedSeconds = segments.reduce((n, g) => n + (g.end - g.start), 0)
+    const before = retainedCountByFrame(boxes, withoutFloor, mountedSeconds)
+    const after = retainedCountByFrame(boxes, withFloor, mountedSeconds)
     // Les deux comptes viennent du même regroupement par image et donc du même
     // ordre d'itération : `retainedCountByFrame` ne fait que varier le
     // plancher, jamais le regroupement lui-même.

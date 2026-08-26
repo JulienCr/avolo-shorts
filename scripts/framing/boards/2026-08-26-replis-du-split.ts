@@ -82,13 +82,13 @@ const spec: BoardSpec = {
       'lequel des trois replis convient au défaut nommé par le propriétaire.',
   },
   variants: [
-    { id: 'split-on', label: 'Split activé', kind: 'settings', settings: {} },
+    { id: 'split-on', label: 'Split activé', kind: 'settings', settings: { splitScreen: true } },
     { id: 'split-off', label: 'Split désactivé', kind: 'settings', settings: { splitScreen: false } },
     {
       id: 'wide-1-1',
       label: '1:1 épinglé',
       kind: 'options',
-      options: {},
+      options: { splitScreen: false },
       ratio: '1:1',
       why:
         "Repli nommé sur `entre-nous` 3495,867 s : « un seul plan 1:1 ou 4:5 serait bien plus " +

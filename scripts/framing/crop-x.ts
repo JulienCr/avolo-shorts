@@ -40,6 +40,13 @@ function headScore(box: PersonBox): number {
   const k = box.k
   if (k === undefined) return 0
   const ranks = [POINT.NOSE, POINT.LEFT_EYE, POINT.RIGHT_EYE, POINT.LEFT_EAR, POINT.RIGHT_EAR]
+  const lastNeeded = Math.max(...ranks) * 3 + 2
+  if (k.length <= lastNeeded) {
+    // Le schéma garantit 51 éléments, mais `deriveCropX` est exporté : un appelant
+    // qui viole ce contrat produirait sinon un `NaN` par point manquant, silencieux
+    // à travers la moyenne et invisible au test d'égalité exacte des scores.
+    throw new Error(`headScore : keypoints tronqués (${k.length} élément(s), ${lastNeeded + 1} attendus).`)
+  }
   const scores = ranks.map((r) => k[r * 3 + 2])
   return scores.reduce((a, b) => a + b, 0) / scores.length
 }
@@ -61,11 +68,15 @@ export type CropXResult =
   | { outcome: 'refused'; why: string }
 
 export function deriveCropX(boxesInShot: PersonBox[]): CropXResult {
+  // Grouper au millième de seconde, comme `retainedByFrame` (`src/core/
+  // framing.ts`) : deux boîtes de la même image peuvent porter un `t` flottant
+  // légèrement différent, et un `t` brut les séparerait à tort.
   const byT = new Map<number, PersonBox[]>()
   for (const box of boxesInShot) {
-    const arr = byT.get(box.t) ?? []
+    const key = Math.round(box.t * 1000)
+    const arr = byT.get(key) ?? []
     arr.push(box)
-    byT.set(box.t, arr)
+    byT.set(key, arr)
   }
 
   const left = emptyStats()

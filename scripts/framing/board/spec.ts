@@ -118,11 +118,14 @@ export function validateSpec(spec: BoardSpec): void {
     if (!v.label) fail(`variants["${v.id}"].label`, 'vide')
     if (v.kind === 'options') {
       if (!v.why) fail(`variants["${v.id}"].why`, 'requis quand kind vaut "options"')
-      if (v.ratio !== undefined && !(v.ratio in RATIOS)) {
+      if (v.ratio !== undefined && !Object.hasOwn(RATIOS, v.ratio)) {
         fail(`variants["${v.id}"].ratio`, `inconnu "${v.ratio}"`)
       }
       if (v.cropMode === 'manual' && v.cropX === undefined) {
         fail(`variants["${v.id}"].cropX`, 'requis quand cropMode vaut "manual"')
+      }
+      if (v.cropX !== undefined && v.cropMode !== 'manual') {
+        fail(`variants["${v.id}"].cropX`, 'fourni sans `cropMode: "manual"` — serait ignoré en silence')
       }
       if (typeof v.cropX === 'number') {
         if (!Number.isFinite(v.cropX) || v.cropX < 0 || v.cropX > 1) {
@@ -139,7 +142,7 @@ export function validateSpec(spec: BoardSpec): void {
         // mode automatique malgré `cropMode: 'manual'`.
         if (v.cropMode === 'manual') {
           for (const caseId of caseIds) {
-            if (!(caseId in v.cropX)) {
+            if (!Object.hasOwn(v.cropX, caseId)) {
               fail(`variants["${v.id}"].cropX`, `aucune entrée pour le cas "${caseId}"`)
             }
           }

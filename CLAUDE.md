@@ -80,7 +80,7 @@ La sixième ligne demande une précision depuis que l'écran de clip porte une b
 de temps : elle monte du temps, le transcript monte des mots, et les deux
 coexistent. Le détail est dans [`docs/lessons.md`](docs/lessons.md).
 
-## Deux règles tirées des revues
+## Trois règles tirées des revues
 
 - **Une valeur notée qu'on compare à un seuil inclusif se tronque vers le bas,
   jamais ne s'arrondit.** Et quand une revue trouve un défaut de forme dans un
@@ -90,6 +90,9 @@ coexistent. Le détail est dans [`docs/lessons.md`](docs/lessons.md).
   information ambiguë.** Deux hypothèses à une voix chacune ne se départagent pas
   par le défaut : ça rend un faux résultat avec l'aplomb d'un vrai. Rejeter,
   plutôt que trancher au hasard.
+- **Changer la recette ffmpeg oblige à monter `VERSION_FINGERPRINT`**
+  (`src/server/steps/render.ts`) : aucun champ de l'empreinte ne porte le graphe,
+  donc les rendus périmés se disent à jour et l'ordonnanceur les republie.
 
 Les cas qui les ont produites, avec leurs chiffres : [`docs/lessons.md`](docs/lessons.md).
 
@@ -162,7 +165,7 @@ avec les labels du dépôt, et son numéro est consigné dans la réponse au rel
 
 ## Agent skills
 
-Configuration lue par les skills d'ingénierie. Trois fichiers, une règle chacun.
+Configuration lue par les skills d'ingénierie. Quatre fichiers, une règle chacun.
 
 ### Issue tracker
 
@@ -173,6 +176,12 @@ Les issues vivent dans les GitHub Issues du dépôt, pilotées par `gh`. Voir
 
 Les cinq rôles canoniques, chaque libellé égal à son nom. Voir
 [`docs/agents/triage-labels.md`](docs/agents/triage-labels.md).
+
+### Review bots
+
+Aristarque ne se déclenche pas au push et poste un commentaire, pas une review ;
+`BLOCKED` veut dire conversation non résolue. Voir
+[`docs/agents/review-bots.md`](docs/agents/review-bots.md).
 
 ### Domain docs
 

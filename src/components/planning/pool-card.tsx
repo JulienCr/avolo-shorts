@@ -72,24 +72,32 @@ export function PoolCard({
           />
         </div>
 
+        {/* Centré, pas ancré à un coin : à sept colonnes le bandeau ancré à
+            droite chevauchait la case (mesuré : −54 px). `pointer-events-none`
+            ici évite que son emprise vide n'intercepte les clics vers elle. */}
         <div
           className={cn(
-            'absolute top-2 right-2 flex items-center gap-1.5 opacity-0 transition-opacity',
+            'pointer-events-none absolute inset-0 flex items-center justify-center p-2 opacity-0 transition-opacity',
             'group-hover/card:opacity-100 group-focus-within/card:opacity-100 hoverless:opacity-100',
           )}
         >
-          <Button size="sm" onClick={onPreview} tabIndex={tabIndex}>
-            <Play aria-hidden />
-            Aperçu
-          </Button>
-          <Link
-            href={linkClip(clip.clipId)}
-            tabIndex={tabIndex}
-            className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }))}
-          >
-            <Film aria-hidden />
-            Éditer
-          </Link>
+          {/* `flex-wrap` sans largeur fixée : le bandeau (164 px) déborde
+              encore d'une carte de 119 px même centré, donc les boutons
+              s'empilent dès que la place manque. Le fond ne mord que sur eux. */}
+          <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-1.5 rounded-lg bg-black/55 p-1.5 backdrop-blur-sm">
+            <Button size="sm" onClick={onPreview} tabIndex={tabIndex}>
+              <Play aria-hidden />
+              Aperçu
+            </Button>
+            <Link
+              href={linkClip(clip.clipId)}
+              tabIndex={tabIndex}
+              className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }))}
+            >
+              <Film aria-hidden />
+              Éditer
+            </Link>
+          </div>
         </div>
       </div>
 

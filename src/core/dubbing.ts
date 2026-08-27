@@ -17,6 +17,7 @@
  */
 
 import type { Cell } from '@/core/framing'
+import { POINT, POINT_COUNT } from '@/core/shots'
 import type { PersonBox } from '@/core/shots'
 
 /** Les trois pavés d'une composition de doublage, en fractions de la source. */
@@ -59,43 +60,51 @@ export const DUBBING_ANCHORS: readonly DubbingAnchor[] = [
 export const DUBBING_FILM_WIDTH = 1
 
 /**
- * Le pavé comédiens, en fractions du **disque** et non de l'image : la
- * composition ne garde que les visages, pas le disque entier. `{x0:0, y0:0,
- * x1:1, y1:1}` = le disque en entier. Une mesure d'un spike sœur remplacera
- * cette seule constante dans une PR ultérieure.
+ * La hauteur du bandeau comédiens, en fraction de la hauteur du disque.
+ * 0,476 = le serrage « têtes + épaules » retenu sur maquette (200 px sur 420).
  */
-export const DUBBING_PIP_BAND: Cell = { x0: 0, y0: 0, x1: 1, y1: 1 }
+export const DUBBING_PIP_BAND_HEIGHT = 0.476
 
 /**
- * `outer` en fractions de la source, `inner` en fractions de `outer` : la
- * position de `inner` dans la source. Exportée pour être éprouvée sur un
- * pavé quelconque, indépendamment de la valeur actuelle de
- * `DUBBING_PIP_BAND`, qui vaut l'identité tant que le spike n'a pas mesuré
- * le vrai pavé visages.
+ * Les trois pavés déduits d'une ancre et du regard le plus haut mesuré sur la
+ * séquence (amendement A7). Le bandeau comédiens est **placé**, pas recadré à
+ * une fraction fixe : son bord haut vaut `eyeLevel - hauteur/3`, glissé —
+ * jamais réduit — pour rester dans le disque, puis sa demi-largeur est bornée
+ * par le pire des deux bords horizontaux pour qu'aucun coin ne sorte du
+ * disque. `anchor.pip` reste la mesure exacte du disque (voir son
+ * commentaire) : mélanger la mesure et le placement rendrait l'une
+ * impossible à corriger sans perturber l'autre.
  */
-export function mapCellInto(outer: Cell, inner: Cell): Cell {
-  const w = outer.x1 - outer.x0
-  const h = outer.y1 - outer.y0
-  return {
-    x0: outer.x0 + inner.x0 * w,
-    x1: outer.x0 + inner.x1 * w,
-    y0: outer.y0 + inner.y0 * h,
-    y1: outer.y0 + inner.y1 * h,
+export function dubbingCellsFor(anchor: DubbingAnchor, eyeLevel: number): DubbingCells {
+  const { pip } = anchor
+  const cx = (pip.x0 + pip.x1) / 2
+  const cy = (pip.y0 + pip.y1) / 2
+  // Le disque est un vrai cercle en pixels, pas en fractions : la source
+  // n'est pas carrée (1920x1080), donc les demi-axes x et y de `pip` diffèrent
+  // en fraction. On les garde distincts (ellipse en repère fraction, cercle en
+  // pixels) plutôt que de confondre les deux, ce qui collerait du film hors
+  // du disque sur l'un des deux axes.
+  const rx = (pip.x1 - pip.x0) / 2
+  const ry = (pip.y1 - pip.y0) / 2
+
+  const height = DUBBING_PIP_BAND_HEIGHT * ry * 2
+  let top = eyeLevel - height / 3
+  let bottom = top + height
+  if (top < pip.y0) {
+    bottom += pip.y0 - top
+    top = pip.y0
   }
-}
+  if (bottom > pip.y1) {
+    top -= bottom - pip.y1
+    bottom = pip.y1
+  }
 
-/**
- * Les trois pavés déduits d'une ancre. Pure, testable sans corpus.
- *
- * **`pip` n'est pas rendu tel quel** : `DUBBING_PIP_BAND` le recadre sur les
- * visages, `anchor.pip` restant la mesure exacte du disque (voir son
- * commentaire) — mélanger les deux rendrait l'une impossible à corriger sans
- * perturber l'autre.
- */
-export function dubbingCellsFor(anchor: DubbingAnchor): DubbingCells {
+  const d = Math.max(Math.abs(top - cy), Math.abs(bottom - cy))
+  const hw = ry === 0 ? 0 : rx * Math.sqrt(Math.max(0, 1 - (d / ry) ** 2))
+
   return {
     film: { x0: 0, y0: 0, x1: DUBBING_FILM_WIDTH, y1: 1 },
-    pip: mapCellInto(anchor.pip, DUBBING_PIP_BAND),
+    pip: { x0: cx - hw, x1: cx + hw, y0: top, y1: bottom },
     strip: anchor.strip,
   }
 }
@@ -134,6 +143,12 @@ export type DubbingOptions = {
    * sans que le doublage s'arrête.
    */
   offDelaySeconds?: number
+  /**
+   * La confiance minimale d'un point de pose (yeux, nez) pour compter dans le
+   * calcul du regard le plus haut — même défaut que `torsoMinScore` dans
+   * `framing.ts`, mesuré sur le même détecteur de pose.
+   */
+  pointMinScore?: number
 }
 
 /**
@@ -147,6 +162,7 @@ export const DUBBING_DEFAULTS: Readonly<Required<DubbingOptions>> = Object.freez
   minVoteShare: 0.2,
   onDelaySeconds: 30,
   offDelaySeconds: 45,
+  pointMinScore: 0.5,
 })
 
 /** Un réglage, ou son défaut — `??` laisserait passer un `NaN`. */
@@ -154,7 +170,46 @@ function setting(value: number | undefined, defaultValue: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : defaultValue
 }
 
-export type DubbingRun = { start: number; end: number; anchor: DubbingAnchor }
+export type DubbingRun = {
+  start: number
+  end: number
+  anchor: DubbingAnchor
+  /**
+   * Le regard le plus haut du cercle, fraction de hauteur source, médiane sur
+   * la séquence. La composition y pose le tiers supérieur de son bandeau.
+   */
+  eyeLevel: number
+}
+
+/**
+ * Le regard d'une boîte : les deux yeux si confiants, sinon le nez, sinon le
+ * haut de la boîte. Même doctrine que `eyeLevelOf` dans `src/core/framing.ts`
+ * (priorités du split-écran) — réimplémentée ici pour l'amendement A2 (zéro
+ * import de valeur depuis `framing.ts`) ; les deux copies doivent évoluer
+ * ensemble si la doctrine change.
+ */
+function eyeLevelOf(box: PersonBox, threshold: number): number {
+  const k = box.k
+  if (k !== undefined && k.length === POINT_COUNT * 3) {
+    const leftY = k[POINT.LEFT_EYE * 3 + 1]
+    const leftScore = k[POINT.LEFT_EYE * 3 + 2]
+    const rightY = k[POINT.RIGHT_EYE * 3 + 1]
+    const rightScore = k[POINT.RIGHT_EYE * 3 + 2]
+    if (Number.isFinite(leftY) && Number.isFinite(rightY) && leftScore >= threshold && rightScore >= threshold) {
+      return (leftY + rightY) / 2
+    }
+    const noseY = k[POINT.NOSE * 3 + 1]
+    const noseScore = k[POINT.NOSE * 3 + 2]
+    if (Number.isFinite(noseY) && noseScore >= threshold) return noseY
+  }
+  return box.y0
+}
+
+/** La médiane d'un tableau déjà trié — même convention que `framing.ts`. */
+function median(sorted: readonly number[]): number {
+  const m = sorted.length >> 1
+  return sorted.length % 2 === 1 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2
+}
 
 /** Une géométrie exploitable, dupliquée à dessein — voir le docblock du module. */
 function hasFiniteGeometry(box: Pick<PersonBox, 'x0' | 'x1' | 'y0' | 'y1'>): boolean {
@@ -179,14 +234,18 @@ function fullyContained(box: Pick<PersonBox, 'x0' | 'x1' | 'y0' | 'y1'>, cell: C
 }
 
 /**
- * Le vote d'une image pour une ancre : au moins une boîte retenue entièrement
- * dans le disque. Score et géométrie seuls décident — aucune heuristique de
- * taille au-delà du confinement (amendement A4/A2) : `isForeground` et le
- * plancher de taille de `framing.ts` sont hors de propos ici, voir le docblock
- * du module.
+ * Les boîtes votantes d'une image pour une ancre : entièrement dans le
+ * disque. Score et géométrie seuls décident — aucune heuristique de taille
+ * au-delà du confinement (amendement A4/A2) : `isForeground` et le plancher de
+ * taille de `framing.ts` sont hors de propos ici, voir le docblock du module.
+ * Rend la liste, pas un booléen : le regard le plus haut (A7) en a besoin.
  */
-function frameVotes(boxes: readonly PersonBox[], anchor: DubbingAnchor, options: Required<DubbingOptions>): boolean {
-  return boxes.some(
+function votingBoxesOf(
+  boxes: readonly PersonBox[],
+  anchor: DubbingAnchor,
+  options: Required<DubbingOptions>,
+): PersonBox[] {
+  return boxes.filter(
     (b) =>
       // `b.score >= seuil`, jamais `<` : un score `NaN` doit être exclu, pas retenu.
       b.score >= options.minScore &&
@@ -297,6 +356,35 @@ function hysteresis(
 }
 
 /**
+ * Le regard le plus haut du cercle à chaque image votante de la séquence,
+ * médiane sur l'ensemble — jamais par image, car le bandeau est fixe pour
+ * toute la séquence (même doctrine que la médiane du split-écran). Une boîte
+ * hors du disque ne peut jamais y contribuer : seules les boîtes votantes
+ * entrent dans `perFrame`. `fallback` ne sert qu'en dernier recours théorique
+ * (aucune image votante dans l'intervalle), qui ne se produit pas en pratique
+ * puisque l'hystérésis n'ouvre une séquence qu'où le vote est déjà là.
+ */
+function eyeLevelForRun(
+  timeline: readonly Instant[],
+  votingByInstant: readonly (readonly PersonBox[])[],
+  run: { start: number; end: number },
+  pointMinScore: number,
+  fallback: number,
+): number {
+  const perFrame: number[] = []
+  for (let i = 0; i < timeline.length; i++) {
+    const t = timeline[i].t
+    if (t < run.start || t > run.end) continue
+    const voting = votingByInstant[i]
+    if (voting.length === 0) continue
+    perFrame.push(Math.min(...voting.map((b) => eyeLevelOf(b, pointMinScore))))
+  }
+  if (perFrame.length === 0) return fallback
+  perFrame.sort((a, b) => a - b)
+  return median(perFrame)
+}
+
+/**
  * Les séquences de doublage détectées, une ancre à la fois puis concaténées
  * (amendement A4). Prend la liste **complète** des boîtes, jamais filtrée aux
  * segments d'un clip : l'extent d'une séquence est une propriété de
@@ -313,6 +401,7 @@ export function detectDubbingRuns(
     minVoteShare: setting(options.minVoteShare, DUBBING_DEFAULTS.minVoteShare),
     onDelaySeconds: Math.max(0, setting(options.onDelaySeconds, DUBBING_DEFAULTS.onDelaySeconds)),
     offDelaySeconds: Math.max(0, setting(options.offDelaySeconds, DUBBING_DEFAULTS.offDelaySeconds)),
+    pointMinScore: setting(options.pointMinScore, DUBBING_DEFAULTS.pointMinScore),
   }
 
   const timeline = timelineOf(people)
@@ -320,10 +409,15 @@ export function detectDubbingRuns(
 
   const runs: DubbingRun[] = []
   for (const anchor of DUBBING_ANCHORS) {
-    const votesAt = timeline.map(({ boxes }) => frameVotes(boxes, anchor, opts))
+    const votingByInstant = timeline.map(({ boxes }) => votingBoxesOf(boxes, anchor, opts))
+    const votesAt = votingByInstant.map((v) => v.length > 0)
     const shares = shareSeries(timeline, votesAt, opts.windowSeconds)
     const rawRuns = hysteresis(timeline, shares, opts.minVoteShare, opts.onDelaySeconds, opts.offDelaySeconds)
-    for (const r of rawRuns) runs.push({ ...r, anchor })
+    const fallbackEyeLevel = (anchor.pip.y0 + anchor.pip.y1) / 2
+    for (const r of rawRuns) {
+      const eyeLevel = eyeLevelForRun(timeline, votingByInstant, r, opts.pointMinScore, fallbackEyeLevel)
+      runs.push({ ...r, anchor, eyeLevel })
+    }
   }
   return runs.sort((a, b) => a.start - b.start)
 }

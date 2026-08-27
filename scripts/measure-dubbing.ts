@@ -14,11 +14,14 @@
  * 3. **Les faux positifs** — toute séquence détectée hors des fenêtres connues
  *    (section 2 du contrat). Le seul chiffre qui compte pour le critère
  *    d'acceptation 3.
+ * 4. **Le regard mesuré et le bandeau qui en découle** (amendement A7) — la
+ *    preuve que la position du bandeau s'adapte à la séquence plutôt que
+ *    d'être fixe.
  */
 
 import fs from 'node:fs'
 
-import { DUBBING_ANCHORS, detectDubbingRuns } from '@/core/dubbing'
+import { DUBBING_ANCHORS, detectDubbingRuns, dubbingCellsFor } from '@/core/dubbing'
 import type { DubbingRun } from '@/core/dubbing'
 import { analysisPath, projectDir } from '@/server/paths'
 import { lireAnalysis, type Analysis } from '@/server/steps/analysis'
@@ -104,6 +107,11 @@ function measure(projectId: string): number {
           ` (pip x[${run.anchor.pip.x0}; ${run.anchor.pip.x1}] y[${run.anchor.pip.y0}; ${run.anchor.pip.y1}])`,
       )
     }
+    const band = dubbingCellsFor(run.anchor, run.eyeLevel).pip
+    console.log(
+      `    regard le plus haut (médiane) : y=${run.eyeLevel.toFixed(3)}` +
+        ` — bandeau x[${band.x0.toFixed(3)}; ${band.x1.toFixed(3)}] y[${band.y0.toFixed(3)}; ${band.y1.toFixed(3)}]`,
+    )
   }
   console.log(`  faux positifs (hors fenêtres connues) : ${falsePositives}`)
   return falsePositives

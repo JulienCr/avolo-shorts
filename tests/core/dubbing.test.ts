@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   DUBBING_ANCHORS,
   DUBBING_FILM_WIDTH,
-  DUBBING_PIP_BAND,
+  DUBBING_PIP_BAND_HEIGHT,
   detectDubbingRuns,
   dubbingCellsFor,
-  mapCellInto,
 } from '@/core/dubbing'
+import type { Cell } from '@/core/framing'
 import type { DubbingAnchor } from '@/core/dubbing'
+import { POINT, POINT_COUNT } from '@/core/shots'
 import type { PersonBox } from '@/core/shots'
 
 const ANCHOR = DUBBING_ANCHORS[0]
@@ -18,8 +19,31 @@ const INSIDE = { x0: PIP.x0 + 0.05, y0: PIP.y0 + 0.05, x1: PIP.x1 - 0.05, y1: PI
 /** Ailleurs dans l'image, sans rapport avec le disque. */
 const OUTSIDE = { x0: 0.1, y0: 0.1, x1: 0.3, y1: 0.3 }
 
-function box(t: number, geometry: { x0: number; y0: number; x1: number; y1: number }, score = 1): PersonBox {
-  return { t, score, ...geometry }
+function box(
+  t: number,
+  geometry: { x0: number; y0: number; x1: number; y1: number },
+  score = 1,
+  k?: number[],
+): PersonBox {
+  return { t, score, ...geometry, ...(k ? { k } : {}) }
+}
+
+/** Un squelette COCO minimal, seuls le nez et les yeux étant renseignés. */
+function poseK(overrides: {
+  nose?: { y: number; score: number }
+  leftEye?: { y: number; score: number }
+  rightEye?: { y: number; score: number }
+}): number[] {
+  const k = new Array<number>(POINT_COUNT * 3).fill(0)
+  const set = (idx: number, y: number, score: number) => {
+    k[idx * 3] = 0.5
+    k[idx * 3 + 1] = y
+    k[idx * 3 + 2] = score
+  }
+  if (overrides.nose) set(POINT.NOSE, overrides.nose.y, overrides.nose.score)
+  if (overrides.leftEye) set(POINT.LEFT_EYE, overrides.leftEye.y, overrides.leftEye.score)
+  if (overrides.rightEye) set(POINT.RIGHT_EYE, overrides.rightEye.y, overrides.rightEye.score)
+  return k
 }
 
 /** Une boîte à chaque `step` s de `from` à `to` inclus, toutes à la même géométrie. */
@@ -35,27 +59,77 @@ function series(
   return out
 }
 
+const CX = (PIP.x0 + PIP.x1) / 2
+const CY = (PIP.y0 + PIP.y1) / 2
+const RX = (PIP.x1 - PIP.x0) / 2
+const RY = (PIP.y1 - PIP.y0) / 2
+const BAND_HEIGHT = DUBBING_PIP_BAND_HEIGHT * RY * 2
+
+/** `(x, y)` dans le disque de l'ancre — même équation d'ellipse que `dubbingCellsFor`. */
+function insideDisc([x, y]: readonly [number, number]): boolean {
+  return ((x - CX) / RX) ** 2 + ((y - CY) / RY) ** 2 <= 1 + 1e-9
+}
+
+function corners(cell: Cell): [number, number][] {
+  return [
+    [cell.x0, cell.y0],
+    [cell.x1, cell.y0],
+    [cell.x0, cell.y1],
+    [cell.x1, cell.y1],
+  ]
+}
+
 describe('dubbingCellsFor', () => {
   it('rend le film pleine largeur et la bande telle quelle', () => {
-    const cells = dubbingCellsFor(ANCHOR)
+    const cells = dubbingCellsFor(ANCHOR, CY)
     expect(cells.film).toEqual({ x0: 0, y0: 0, x1: DUBBING_FILM_WIDTH, y1: 1 })
     expect(cells.strip).toEqual(ANCHOR.strip)
   })
 
-  it("rend le disque entier tant que DUBBING_PIP_BAND vaut l'identité", () => {
-    expect(DUBBING_PIP_BAND).toEqual({ x0: 0, y0: 0, x1: 1, y1: 1 })
-    expect(dubbingCellsFor(ANCHOR).pip).toEqual(ANCHOR.pip)
+  it('place le bord haut du bandeau au tiers sous le regard mesuré, loin des bords du disque', () => {
+    const cells = dubbingCellsFor(ANCHOR, CY)
+    expect(cells.pip.y0).toBeCloseTo(CY - BAND_HEIGHT / 3, 9)
+    expect(cells.pip.y1 - cells.pip.y0).toBeCloseTo(BAND_HEIGHT, 9)
   })
 
-  it('mapCellInto place un pavé selon les fractions de son conteneur, pas de la source', () => {
-    const outer = { x0: 0.6, y0: 0.0, x1: 1.0, y1: 0.4 }
-    const band = { x0: 0.25, y0: 0.5, x1: 0.75, y1: 1 }
-    expect(mapCellInto(outer, band)).toEqual({ x0: 0.7, x1: 0.9, y0: 0.2, y1: 0.4 })
+  it('glisse le bandeau, sans le réduire, quand le regard mesuré est au bord haut du disque', () => {
+    const cells = dubbingCellsFor(ANCHOR, PIP.y0)
+    expect(cells.pip.y0).toBeCloseTo(PIP.y0, 9)
+    expect(cells.pip.y1 - cells.pip.y0).toBeCloseTo(BAND_HEIGHT, 9)
   })
 
-  it("l'identité renvoie le conteneur inchangé, quel qu'il soit", () => {
-    const outer = { x0: 0.12, y0: 0.34, x1: 0.56, y1: 0.78 }
-    expect(mapCellInto(outer, { x0: 0, y0: 0, x1: 1, y1: 1 })).toEqual(outer)
+  it('glisse le bandeau, sans le réduire, quand le regard mesuré déborde sous le disque', () => {
+    const cells = dubbingCellsFor(ANCHOR, PIP.y1 + 0.05)
+    expect(cells.pip.y1).toBeCloseTo(PIP.y1, 9)
+    expect(cells.pip.y1 - cells.pip.y0).toBeCloseTo(BAND_HEIGHT, 9)
+  })
+
+  it('borne la demi-largeur au pire des deux bords horizontaux, jamais au milieu', () => {
+    // Assez loin des deux bords du disque pour qu'aucun glissement ne se
+    // déclenche : le bord haut du bandeau reste plus loin du centre que son
+    // bord bas, ce que la demi-largeur doit refléter.
+    const eyeLevel = PIP.y0 + BAND_HEIGHT / 3 + 0.03
+    const cells = dubbingCellsFor(ANCHOR, eyeLevel)
+    const d = Math.max(Math.abs(cells.pip.y0 - CY), Math.abs(cells.pip.y1 - CY))
+    const expectedHw = RX * Math.sqrt(Math.max(0, 1 - (d / RY) ** 2))
+    expect(cells.pip.x1 - CX).toBeCloseTo(expectedHw, 9)
+    expect(CX - cells.pip.x0).toBeCloseTo(expectedHw, 9)
+  })
+
+  it('les quatre coins du pavé comédiens restent dans le disque sur toute la plage plausible du regard, glissement compris', () => {
+    const plausible = [
+      PIP.y0,
+      PIP.y0 + 0.01,
+      CY,
+      PIP.y1 - 0.01,
+      PIP.y1,
+      PIP.y0 - 0.05, // au-dessus du disque : force le glissement vers le bas
+      PIP.y1 + 0.05, // sous le disque : force le glissement vers le haut
+    ]
+    for (const eyeLevel of plausible) {
+      const cells = dubbingCellsFor(ANCHOR, eyeLevel)
+      for (const c of corners(cells.pip)) expect(insideDisc(c)).toBe(true)
+    }
   })
 })
 
@@ -185,6 +259,63 @@ describe("detectDubbingRuns — l'hystérésis", () => {
     expect(runs).toHaveLength(2)
     expect(runs[0]).toMatchObject({ start: 0, end: 30 })
     expect(runs[1]).toMatchObject({ start: 35, end: 59 })
+  })
+})
+
+describe('detectDubbingRuns — le regard le plus haut (amendement A7)', () => {
+  it('les deux yeux, confiants, donnent leur moyenne', () => {
+    const k = poseK({
+      leftEye: { y: 0.1, score: 0.9 },
+      rightEye: { y: 0.12, score: 0.9 },
+      nose: { y: 0.5, score: 0.9 },
+    })
+    const runs = detectDubbingRuns(series(0, 40, 1, INSIDE).map((b) => ({ ...b, k })), {})
+    expect(runs).toHaveLength(1)
+    expect(runs[0].eyeLevel).toBeCloseTo(0.11, 9)
+  })
+
+  it("un œil peu confiant cède le regard au nez", () => {
+    const k = poseK({
+      leftEye: { y: 0.1, score: 0.1 },
+      rightEye: { y: 0.12, score: 0.9 },
+      nose: { y: 0.2, score: 0.9 },
+    })
+    const runs = detectDubbingRuns(series(0, 40, 1, INSIDE).map((b) => ({ ...b, k })), {})
+    expect(runs[0].eyeLevel).toBeCloseTo(0.2, 9)
+  })
+
+  it('sans point de pose exploitable, le haut de la boîte fait office de regard', () => {
+    const runs = detectDubbingRuns(series(0, 40, 1, INSIDE), {})
+    expect(runs[0].eyeLevel).toBeCloseTo(INSIDE.y0, 9)
+  })
+
+  it('le regard le plus haut par image, puis la médiane sur toute la séquence — jamais la moyenne', () => {
+    // Une boîte par seconde sur 100 s, le regard cyclant sur cinq valeurs à
+    // parts égales : la médiane tombe dans le bloc du milieu (0,07), très loin
+    // de la moyenne (0,118).
+    const highs = [0.05, 0.06, 0.07, 0.2, 0.21]
+    const people: PersonBox[] = []
+    for (let t = 0; t <= 99; t++) {
+      const eyeY = highs[t % highs.length]
+      const k = poseK({ leftEye: { y: eyeY, score: 0.9 }, rightEye: { y: eyeY, score: 0.9 } })
+      people.push(box(t, INSIDE, 1, k))
+    }
+    const runs = detectDubbingRuns(people, {})
+    expect(runs).toHaveLength(1)
+    expect(runs[0].eyeLevel).toBeCloseTo(0.07, 9)
+  })
+
+  it('un comédien du film hors du disque ne déplace jamais le regard mesuré', () => {
+    const insideK = poseK({ leftEye: { y: 0.1, score: 0.9 }, rightEye: { y: 0.1, score: 0.9 } })
+    const outsideK = poseK({ leftEye: { y: 0.9, score: 0.9 }, rightEye: { y: 0.9, score: 0.9 } })
+    const people: PersonBox[] = []
+    for (let t = 0; t <= 40; t++) {
+      people.push(box(t, INSIDE, 1, insideK))
+      people.push(box(t, OUTSIDE, 1, outsideK))
+    }
+    const runs = detectDubbingRuns(people, {})
+    expect(runs).toHaveLength(1)
+    expect(runs[0].eyeLevel).toBeCloseTo(0.1, 9)
   })
 })
 

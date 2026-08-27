@@ -7,6 +7,8 @@ import { POST as postHook } from '@/app/api/clips/[id]/hook/route'
 import { GeminiBlockedError } from '@/server/steps/candidates'
 import type { Clip } from '@/core/edl'
 import { applySettings, closeDb, getClip, getDb, putClip, upsertProject } from '@/server/db'
+import { forgetAnalyses } from '@/server/clip-framing'
+import { analysisPath } from '@/server/paths'
 import { scheduleHookBackfill } from '@/server/steps/hook-backfill'
 import { generateHook } from '@/server/steps/hook'
 
@@ -62,6 +64,20 @@ function writeTranscriptFixture(): void {
   )
 }
 
+function writeAnalysisFixture(): void {
+  fs.writeFileSync(
+    analysisPath(PROJECT),
+    JSON.stringify({
+      version: 1,
+      fps: 2,
+      source: { w: 1920, h: 1080 },
+      proxy: { w: 960, h: 540 },
+      shots: [{ start: 0, end: 400 }],
+      boxes: [{ t: 60, x0: 0.1, x1: 0.55, y0: 0.2, y1: 0.95, score: 0.9 }],
+    }),
+  )
+}
+
 function ollamaResponse(hook: string, badge = ''): Response {
   return new Response(JSON.stringify({ message: { content: JSON.stringify({ hook, badge }) } }), {
     status: 200,
@@ -87,6 +103,7 @@ beforeEach(() => {
   })
   putClip(getDb(), baseClip())
   writeTranscriptFixture()
+  forgetAnalyses()
 
   // Une adresse fixe : sans elle, `createOllamaCall` shellerait `ip route
   // show default` pour résoudre la passerelle WSL, un aller au système que ce
@@ -99,6 +116,7 @@ afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true })
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
+  forgetAnalyses()
 })
 
 function context(id: string): { params: Promise<{ id: string }> } {
@@ -291,6 +309,53 @@ describe('POST /api/clips/:id/hook', () => {
     expect(written?.title).toBe('Titre changé pendant l’appel')
     expect(written?.hookText).toBe('Un hook régénéré')
   })
+
+  /**
+   * **Le point corrigé par l'issue #210.** `discardRenderStale` doit recevoir
+   * un résolveur bâti sur l'analyse déjà lue, comme `PATCH /api/clips/:id` —
+   * sinon il rouvre `analysis.json` après l'écriture en base, et une panne
+   * passagère de ce fichier (monté sur un Drive qui décroche) redescend le
+   * clip `exported` à `kept`.
+   */
+  it('une panne d’analyse survenue après la lecture ne redescend plus le clip exporté', async () => {
+    writeAnalysisFixture()
+    // Le modèle rend le même texte que celui déjà écrit : le rendu reste frais
+    // par construction (`renderIsStale` compare le hook), ce qui isole le bug —
+    // seule la panne de relecture peut démoter le clip ici, pas un hook changé.
+    const clip = baseClip({ status: 'exported', hookText: 'Un hook régénéré', hookBadge: '' })
+    putClip(getDb(), clip)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('Un hook régénéré')))
+
+    // `statSync`, pas `readFileSync` : le montage mort s'y trahit d'abord, et un
+    // cache chaud sur la même taille/mtime n'atteindrait plus `readFileSync` au
+    // second appel — masquant justement le bug que ce test vérifie.
+    const statSync = fs.statSync
+    let reads = 0
+    const spy = vi.spyOn(fs, 'statSync').mockImplementation((file, options) => {
+      if (file === analysisPath(PROJECT)) {
+        reads += 1
+        // La première lecture — celle d'avant l'écriture en base — réussit ;
+        // toute lecture suivante simule le décrochage passager du montage.
+        if (reads > 1) {
+          const error = new Error('EIO: i/o error') as NodeJS.ErrnoException
+          error.code = 'EIO'
+          throw error
+        }
+      }
+      return (statSync as (file: fs.PathLike, options?: unknown) => fs.Stats)(file, options)
+    })
+
+    try {
+      const response = await postHook(new Request('http://test', { method: 'POST' }), context(clip.id))
+      expect(response.status).toBe(200)
+    } finally {
+      spy.mockRestore()
+    }
+
+    expect(reads).toBe(1)
+    expect(getClip(getDb(), clip.id)?.status).toBe('exported')
+  })
+
 describe('le badge, à la régénération', () => {
   it('rend le badge du modèle, normalisé', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('Une accroche', '  «\u00a0DÉFI 10\u00a0»  ')))

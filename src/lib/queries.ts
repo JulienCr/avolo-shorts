@@ -53,7 +53,7 @@ import {
   unschedulePublication,
 } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
-import type { Platform, PublicationRecord } from '@/core/publication'
+import type { Platform, PublicationRecord, PublicationView } from '@/core/publication'
 
 export const keys = {
   projets: ['projects'] as const,
@@ -859,7 +859,12 @@ export function usePublicationAvailability() {
 export function usePublications(clipId: string) {
   return useQuery({
     queryKey: keys.publications(clipId),
-    queryFn: () => getPublications(clipId).then((r) => r.publications),
+    // `stale` est décidé côté serveur (issue #145) : la route rend des
+    // `PublicationView`, pas des `PublicationRow` — `lib/api.ts` documente
+    // encore l'ancienne forme, d'où le recast. Élargir son type y est déféré
+    // à après #222, qui touche ce fichier en ce moment (relevé par Copilot).
+    queryFn: () =>
+      getPublications(clipId).then((r) => r.publications as unknown as PublicationView[]),
     refetchInterval: (query) =>
       query.state.data?.some((p) => p.status === 'in_progress') ? 2_000 : false,
   })
@@ -880,7 +885,9 @@ export function usePublicationRecordsByClip(clipIds: readonly string[]) {
   const results = useQueries({
     queries: clipIds.map((clipId) => ({
       queryKey: keys.publications(clipId),
-      queryFn: () => getPublications(clipId).then((r) => r.publications),
+      // Même recast que `usePublications` ci-dessus, même raison.
+      queryFn: () =>
+        getPublications(clipId).then((r) => r.publications as unknown as PublicationView[]),
       refetchInterval: (query: { state: { data?: { status: string }[] } }) =>
         query.state.data?.some((p) => p.status === 'in_progress') ? 2_000 : false,
     })),
@@ -910,6 +917,7 @@ export function usePublicationRecordsByClip(clipIds: readonly string[]) {
           remoteUrl: row.remoteUrl,
           publishedFingerprint: row.publishedFingerprint,
           error: row.error,
+          stale: row.stale,
         },
       ]),
     )

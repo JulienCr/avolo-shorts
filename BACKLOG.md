@@ -246,6 +246,8 @@ Contenu envisagé :
 
 ### Vérifier les publications après envoi
 
+Lié à [l’issue #154](https://github.com/JulienCr/avolo-shorts/issues/154), qui documente déjà un état distant ambigu pouvant provoquer une fausse erreur après publication.
+
 **Priorité : élevée pour les publications automatiques**
 
 Après un envoi techniquement réussi, vérifier autant que possible que le
@@ -273,6 +275,8 @@ confirmation manuelle de publication et la saisie ou récupération de l’URL
 publique.
 
 ### Empêcher les doublons et sécuriser les relances partielles
+
+Lié à [l’issue #154](https://github.com/JulienCr/avolo-shorts/issues/154), où un timeout Facebook peut aujourd’hui autoriser la republication d’un Reel déjà envoyé.
 
 **Priorité : critique**
 
@@ -463,6 +467,17 @@ les images.
   musiques non autorisées et utilise Artlist avec les réseaux sociaux déclarés.
 - Pas d’éditeur complexe de miniatures : la première image de la vidéo fait
   autorité comme couverture.
+
+## Synchronisation avec les issues
+
+Lorsqu’une entrée du backlog recoupe une issue :
+
+- ajouter le numéro et le lien de l’issue dans l’entrée du backlog ;
+- ajouter dans l’issue un lien retour vers ce fichier ;
+- préciser si l’issue couvre toute l’entrée ou seulement une partie ;
+- ne pas créer une nouvelle issue lorsqu’une issue existante peut être étendue ;
+- conserver dans le backlog les idées exploratoires, et dans les issues le
+  travail suffisamment cadré pour être implémenté.
 
 ## Règle de promotion en issue
 

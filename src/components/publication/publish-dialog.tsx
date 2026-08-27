@@ -237,14 +237,9 @@ export function PublishDialog({
     ),
   )
 
-  // **Recoupé avec `selectedAndAvailable`, pas `selected` seul.**
-  // Cocher une plateforme puis la voir devenir indisponible pendant que la
-  // boîte reste ouverte laissait « Suivant » actif alors que `targets` était
-  // déjà vide — la passe 2 avait renommé l'identifiant sans corriger le
-  // calcul. (relevé par Copilot, passe 3)
-  // **`recordsLoading` et `recordsError` bloquent pareil.** Le critère est
-  // « connu avec certitude », pas « n'est pas encore en train de charger » —
-  // un échec n'est pas moins incertain qu'un chargement (issue #150).
+  // Recoupé avec `selectedAndAvailable`, pas `selected` seul, et bloqué par
+  // `recordsLoading` autant que `recordsError` : le critère est « connu avec
+  // certitude », pas « pas encore en train de charger ».
   const canContinue =
     !recordsLoading && !recordsError && (selectable.length === 0 || selectedAndAvailable.length > 0)
 

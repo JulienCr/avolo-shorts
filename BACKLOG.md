@@ -244,6 +244,130 @@ Contenu envisagé :
 - Le changement de texte ou de logo force bien un nouveau rendu.
 - La vidéo publiée contient exactement le bumper prévisualisé.
 
+### Vérifier les publications après envoi
+
+**Priorité : élevée pour les publications automatiques**
+
+Après un envoi techniquement réussi, vérifier autant que possible que le
+contenu est réellement publié et exploitable sur Instagram, Facebook et
+YouTube.
+
+Pour chaque plateforme compatible, récupérer et conserver :
+
+- l’identifiant distant ;
+- l’URL publique ;
+- l’état de traitement ;
+- la visibilité réelle ;
+- la date de la dernière vérification ;
+- l’erreur distante éventuelle.
+
+Ne pas considérer la simple réception des octets comme une preuve de
+publication.
+
+**Cas TikTok**
+
+TikTok reste un dépôt automatique en brouillon suivi d’une publication manuelle
+dans l’application. Le système peut confirmer le dépôt du brouillon, mais ne
+doit pas prétendre que la vidéo est publiée. Prévoir éventuellement une
+confirmation manuelle de publication et la saisie ou récupération de l’URL
+publique.
+
+### Empêcher les doublons et sécuriser les relances partielles
+
+**Priorité : critique**
+
+Une relance doit cibler uniquement les plateformes qui n’ont pas déjà reçu la
+vidéo. Une publication réussie sur deux plateformes et échouée sur deux autres
+ne doit jamais republier le Reel sur les deux premières.
+
+**Règles**
+
+- Porter un état indépendant par clip, version d’export et plateforme.
+- Conserver l’identifiant distant et l’URL dès qu’ils existent.
+- Rendre les commandes de publication idempotentes.
+- Lors d’une relance, sélectionner explicitement uniquement les plateformes en
+  échec.
+- Ne jamais relancer automatiquement un état distant inconnu ou ambigu.
+- Tenter d’abord une réconciliation avec la plateforme ; à défaut, demander une
+  décision humaine.
+- Afficher clairement le périmètre d’une relance avant son exécution.
+- Journaliser chaque tentative sans écraser la précédente.
+
+**Cas à tester**
+
+- deux réussites et deux échecs ;
+- timeout local après une réussite distante ;
+- arrêt du processus pendant un upload ;
+- réponse API positive suivie d’un refus lors du traitement ;
+- double clic ou deux ordonnanceurs concurrents ;
+- relance utilisant une nouvelle version du fichier.
+
+### Contrôle qualité automatisé après export
+
+Ne retenir ce chantier que sous une forme automatisée. Le contrôle doit
+s’exécuter après l’export, avant la planification ou la publication.
+
+Contrôles envisagés :
+
+- fichier lisible jusqu’à la dernière image ;
+- durée, poids, conteneur et codecs compatibles avec les plateformes ciblées ;
+- dimensions, ratio, cadence et pistes audio attendus ;
+- absence d’image noire ou figée accidentelle au début et à la fin ;
+- sous-titres présents, lisibles et dans la zone sûre ;
+- bumper présent et conforme lorsqu’il est activé ;
+- première image valide comme couverture ;
+- description et métadonnées obligatoires présentes.
+
+Les erreurs doivent bloquer la publication ; les avertissements doivent rester
+consultables sans imposer une validation manuelle systématique.
+
+### Utiliser la première image comme couverture
+
+**Décision produit**
+
+La première image de toutes les vidéos sert de couverture. Elle contient déjà
+le hook et évite de dépendre des possibilités différentes de chaque plateforme
+pour définir une miniature.
+
+À garantir :
+
+- le premier frame est propre, stable et représentatif ;
+- le hook est immédiatement lisible ;
+- aucun frame noir ou transitoire ne le précède ;
+- l’ajout du bumper final ne modifie pas ce comportement ;
+- l’aperçu de publication montre explicitement cette première image.
+
+Ne pas prévoir, à ce stade, d’éditeur complexe de miniatures.
+
+### Versionner et historiser les exports
+
+**Priorité : importante**
+
+Les exports sont actuellement stockés à plat, sans historique ni traçabilité.
+Un nouvel export ne doit plus faire disparaître silencieusement le précédent.
+
+**Résultat attendu**
+
+- Chaque export reçoit une version ou un identifiant immuable.
+- L’ancienne version reste disponible lorsqu’une nouvelle est produite.
+- Une version active est clairement identifiée.
+- Chaque tentative de publication référence exactement la version envoyée.
+- Les métadonnées associées sont conservées : date, empreinte de rendu,
+  configuration, ratio, texte, bumper et plateformes.
+- Une restauration ou une comparaison avec la version précédente reste
+  possible.
+- Une politique de conservation permet ultérieurement de purger les versions
+  inutiles sans supprimer celles qui ont été publiées.
+
+**À trancher dans une conception dédiée**
+
+- organisation par dossiers, persistance en base ou combinaison des deux ;
+- convention de nommage ;
+- relation entre version du clip, version du transcript et version du rendu ;
+- comportement lors d’une modification après publication ;
+- déduplication des fichiers identiques ;
+- migration des exports plats existants.
+
 ## Planning
 
 ### Afficher le détail des échecs de publication
@@ -328,6 +452,17 @@ les images.
 - Comparer l’aperçu navigateur et le rendu exporté.
 - Ajouter un test de non-régression avec un sous-titre proche de la limite sur
   deux et trois lignes.
+
+## Décisions et sujets différés
+
+- Pas d’écran dédié à la santé des comptes pour le moment : l’interface est peu
+  utilisée et le gain ne justifie pas ce chantier.
+- Le suivi détaillé des performances reste tout au fond du backlog : coût
+  d’intégration trop important à ce stade.
+- Pas de chantier spécifique sur les droits musicaux : la production évite les
+  musiques non autorisées et utilise Artlist avec les réseaux sociaux déclarés.
+- Pas d’éditeur complexe de miniatures : la première image de la vidéo fait
+  autorité comme couverture.
 
 ## Règle de promotion en issue
 

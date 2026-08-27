@@ -304,6 +304,12 @@ export function useAutosave({
     inWait.current = variables
 
     const timer = setTimeout(() => {
+      // `clear()` (pagehide, démontage) ne peut pas annuler ce minuteur — il
+      // n'a pas la main dessus, seul l'effet qui l'a programmé l'a. Sur une
+      // page restaurée depuis le bfcache, il survit à `clear()` et se réveille
+      // sur un `inWait` déjà vidé ou repris par un geste plus récent : c'est ce
+      // que ce garde vérifie avant d'écrire.
+      if (inWait.current !== variables) return
       inWait.current = null
       const attempt = ++lastAttempt.current
       const isLast = () => attempt === lastAttempt.current
@@ -343,9 +349,9 @@ export function useAutosave({
   //
   // Les deux, parce qu'aucun des deux ne couvre l'autre. React n'exécute pas
   // toujours son nettoyage quand la page se ferme ; et `pagehide` ne se
-  // déclenche pas quand on passe simplement d'un clip à l'autre. Le drapeau
-  // `inWait` est remis à `null` par celui qui vide en premier, donc le second
-  // ne double pas l'écriture.
+  // déclenche pas quand on passe simplement d'un clip à l'autre. Les trois
+  // départs — `pagehide`, démontage, et le minuteur lui-même — vérifient tous
+  // `inWait` avant d'écrire, donc celui qui vide en premier empêche les autres.
   //
   // **Ce vidage-là n'attend pas de réponse**, et c'est volontaire : il part au
   // moment où la page s'en va. Un refus qui reviendrait après n'a plus de

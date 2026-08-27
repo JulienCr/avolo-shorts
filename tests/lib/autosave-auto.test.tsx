@@ -394,6 +394,32 @@ describe('useAutosave', () => {
     expect(reconciled).not.toHaveBeenCalled()
   })
 
+  // **Le minuteur du départ précédent n'est jamais annulé, seulement dépassé.**
+  // `clear()` tourne dans un écouteur d'événement qui n'a pas la main sur le
+  // `setTimeout` de l'effet ; il ne peut que vider `inWait` et écrire. Sur une
+  // page restaurée depuis le bfcache, le composant reste monté et ce minuteur
+  // se réveille : sans garde, il réécrit le patch que `clear()` vient déjà
+  // d'envoyer. (issue #65)
+  it('ne réécrit pas ce que le vidage du départ a déjà envoyé', async () => {
+    const { replay, calls } = mount({ ...rest, cropX: 0.8 })
+
+    // Un geste programmé, mais pas encore parti.
+    replay({ cropX: 0.9 })
+    act(() => void vi.advanceTimersByTime(DEBOUNCE_MS - 100))
+    expect(calls).toHaveLength(0)
+
+    // La page se cache : `clear()` envoie l'intention en attente.
+    act(() => void window.dispatchEvent(new Event('pagehide')))
+    expect(calls).toHaveLength(1)
+    expect(calls[0].patch).toEqual({ cropX: 0.9 })
+
+    // La page revient du bfcache : le minuteur, suspendu et non annulé, se
+    // réveille et tenterait de renvoyer la même intention.
+    act(() => void vi.advanceTimersByTime(200))
+
+    expect(calls).toHaveLength(1)
+  })
+
   describe('quand le serveur refuse pour jeton périmé', () => {
     it('n’affiche pas d’échec de l’enregistrement', async () => {
       const { result, calls } = mount({ ...rest, cropX: 0.8 })

@@ -16,7 +16,16 @@ import type { PlanningPoolClip } from '@/lib/api'
 afterEach(cleanup)
 
 function clip(id: string): PlanningPoolClip {
-  return { clipId: id, projectId: '2026-06-15-cqlp', title: `Clip ${id}`, duration: 42 }
+  return {
+    clipId: id,
+    projectId: '2026-06-15-cqlp',
+    title: `Clip ${id}`,
+    duration: 42,
+    thumbnailUrl: null,
+    description: '',
+    outputs: { mp4Url: null, mp4Due: false, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
+    statuses: {},
+  }
 }
 
 const CLIPS = [clip('a'), clip('b'), clip('c')]

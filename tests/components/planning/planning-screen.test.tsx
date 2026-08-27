@@ -62,7 +62,17 @@ const SETTINGS: Settings = {
 }
 
 function clip(fields: Partial<PlanningPoolClip> = {}): PlanningPoolClip {
-  return { clipId: 'c1', projectId: '2026-06-15-cqlp', title: 'La chute', duration: 42, ...fields }
+  return {
+    clipId: 'c1',
+    projectId: '2026-06-15-cqlp',
+    title: 'La chute',
+    duration: 42,
+    thumbnailUrl: null,
+    description: '',
+    outputs: { mp4Url: null, mp4Due: false, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
+    statuses: {},
+    ...fields,
+  }
 }
 
 function entry(fields: Partial<ScheduledEntry> = {}): ScheduledEntry {

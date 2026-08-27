@@ -16,20 +16,28 @@ import {
   upsertProject,
   upsertPublication,
 } from '@/server/db'
+import { proxyPath } from '@/server/paths'
 
 /**
  * Les quatre routes `/api/planning/**`, appelées comme Next les appelle —
  * même convention que `tests/server/publish-route.test.ts`.
  *
- * **`deliveryToDay` est simulé** : sa vraie forme lit un fichier d'empreinte
- * sur le disque (`tests/server/empreinte.test.ts` la prouve via un vrai
- * rendu), ce que ces routes n'ont pas à refaire — seul leur propre calcul
- * (vivier, calendrier, `stale`) est sous test ici.
+ * **`deliveryToDay` et `clipOutputs` sont simulés** : leur vraie forme lit un
+ * fichier d'empreinte ou un rendu sur le disque (`tests/server/empreinte.test.ts`
+ * le prouve via un vrai rendu), ce que ces routes n'ont pas à refaire — seul
+ * leur propre calcul (vivier, calendrier, `stale`) est sous test ici.
  */
 const fresh = new Set<string>()
 
 vi.mock('@/server/renders', () => ({
   deliveryToDay: (clip: Clip) => fresh.has(clip.id),
+  clipOutputs: (clip: Clip) => ({
+    mp4Url: null,
+    mp4Due: false,
+    variant9x16Url: `/api/clips/${encodeURIComponent(clip.id)}/renders/${encodeURIComponent(clip.id)}-9x16.mp4`,
+    variant9x16Due: true,
+    textsUrl: null,
+  }),
 }))
 
 const PROJECT_ID = '2026-04-01-emission'
@@ -144,6 +152,54 @@ describe('GET /api/planning/pool', () => {
     const response = await poolRoute()
     const payload = (await response.json()) as { clips: { clipId: string }[] }
     expect(payload.clips.map((c) => c.clipId)).toEqual([])
+  })
+
+  it('rend la description, les sorties et les statuts du clip', async () => {
+    putClip(getDb(), baseClip('complet', { description: 'Une scène.' }))
+    fresh.add('complet')
+    upsertPublication(getDb(), {
+      clipId: 'complet',
+      platform: 'instagram',
+      status: 'published',
+      remoteId: 'p1',
+      remoteUrl: 'https://example.test/p1',
+      requestId: null,
+      error: null,
+      publishedFingerprint: null,
+      createdAt: 1000,
+      updatedAt: 1000,
+      scheduledAt: null,
+    })
+
+    const response = await poolRoute()
+    const payload = (await response.json()) as {
+      clips: { clipId: string; description: string; outputs: { variant9x16Url: string | null }; statuses: Record<string, string> }[]
+    }
+    const clip = payload.clips[0]
+    expect(clip.description).toBe('Une scène.')
+    expect(clip.outputs.variant9x16Url).not.toBeNull()
+    expect(clip.statuses).toEqual({ instagram: 'published' })
+  })
+
+  it('rend `thumbnailUrl` à `null` quand le proxy manque', async () => {
+    putClip(getDb(), baseClip('sans-proxy'))
+    fresh.add('sans-proxy')
+
+    const response = await poolRoute()
+    const payload = (await response.json()) as { clips: { thumbnailUrl: string | null }[] }
+    expect(payload.clips[0].thumbnailUrl).toBeNull()
+  })
+
+  it("rend l'URL de la vignette quand le proxy est présent", async () => {
+    putClip(getDb(), baseClip('avec-proxy'))
+    fresh.add('avec-proxy')
+    const proxy = proxyPath(PROJECT_ID)
+    fs.mkdirSync(path.dirname(proxy), { recursive: true })
+    fs.writeFileSync(proxy, '')
+
+    const response = await poolRoute()
+    const payload = (await response.json()) as { clips: { thumbnailUrl: string | null }[] }
+    expect(payload.clips[0].thumbnailUrl).toBe(`/api/clips/${encodeURIComponent('avec-proxy')}/thumb`)
   })
 })
 

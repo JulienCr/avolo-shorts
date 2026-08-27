@@ -1381,6 +1381,13 @@ export type PlanningPoolClip = {
   title: string
   /** La durée du montage, en secondes. */
   duration: number
+  /** La vignette tirée du proxy, `null` quand le proxy manque. */
+  thumbnailUrl: string | null
+  description: string
+  /** Ce que l'export a produit, et où le lire. */
+  outputs: ClipOutputs
+  /** Ce qui est déjà parti, par plateforme. */
+  statuses: Partial<Record<Platform, PublicationStatus>>
 }
 
 /** Une échéance posée, telle que le calendrier la lit. */

@@ -64,6 +64,21 @@ function currentFingerprint(fingerprintPath: string): string | null {
 }
 
 /**
+ * L'empreinte du rendu actuel d'un clip, ou `null` si le rendu est absent ou
+ * illisible — même chemin que `launchPublish` (`pathsRender` sous
+ * `RENDER_NATIVE`), pour que la publication ne compare jamais deux dérivations
+ * différentes du même chemin.
+ *
+ * Utilisée par `GET /api/clips/:id/publications` pour décider `stale` côté
+ * serveur plutôt que de faire porter une empreinte au client.
+ */
+export function currentFingerprintForClip(db: Database.Database, clip: Clip): string | null {
+  const framing = clipFraming(clip, effectiveSettings(db).framing)
+  const fingerprintPath = pathsRender(clip.projectId, clip.id, framing.ratio, RENDER_NATIVE).fingerprint
+  return currentFingerprint(fingerprintPath)
+}
+
+/**
  * La plateforme dont `platformTexts` fournit les textes du job — appelée une
  * fois par groupe de `launchPublish`, jamais sur la liste complète : la forme
  * YouTube (titre et description séparés) ne doit gagner que pour le groupe

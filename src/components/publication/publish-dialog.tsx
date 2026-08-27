@@ -5,7 +5,6 @@ import { useId, useState } from 'react'
 
 import {
   canTargetPlatform,
-  isPublicationStale,
   PLATFORM_LABELS,
   PLATFORM_UNAVAILABLE_REASON_LABELS,
   PLATFORMS,
@@ -64,16 +63,14 @@ export type PublishClipTarget = {
   clipId: string
   title: string
   eligibility: ClipEligibility
-  /** Ce qu'une publication précédente a laissé, par plateforme. Vide tant que rien n'écrit ici. */
-  records?: Partial<Record<Platform, PublicationRecord>>
   /**
-   * L'empreinte de rendu courante (`renderFingerprint`), pour la nuance du
-   * retour d'usage §9 : « Instagram — publié » contre « Instagram — publié,
-   * mais le clip local a été modifié depuis ». Absente tant qu'aucun appelant
-   * ne la calcule pour ce contexte — la vue Émission, par exemple, n'a que le
-   * statut du clip, pas son empreinte de rendu.
+   * Ce qu'une publication précédente a laissé, par plateforme. Vide tant que
+   * rien n'écrit ici. `stale` y est déjà décidé par le serveur (issue #145) :
+   * la nuance du retour d'usage §9, « Instagram — publié » contre « Instagram
+   * — publié, mais le clip local a été modifié depuis », n'a plus besoin
+   * d'empreinte côté client.
    */
-  currentFingerprint?: string
+  records?: Partial<Record<Platform, PublicationRecord>>
 }
 
 type Step = 'platforms' | 'confirm'
@@ -465,8 +462,7 @@ function PlatformRecords({
       {withRecord.map((clip) => {
         const record = clip.records?.[platform]
         if (record === undefined) return null
-        const stale =
-          clip.currentFingerprint !== undefined && isPublicationStale(record, clip.currentFingerprint)
+        const stale = record.stale === true
         return (
           <li key={clip.clipId} className="flex items-center gap-1.5 text-xs">
             <StatusBadge status={record.status} />

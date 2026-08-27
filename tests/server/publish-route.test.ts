@@ -24,7 +24,7 @@ import {
 import type { Artifact, OptionsArtifact } from '@/server/ffmpeg'
 import type { Probe } from '@/server/ffprobe'
 import { forgetAll } from '@/server/publication/registry'
-import { launchPublish } from '@/server/publication/service'
+import { currentFingerprintForClip, launchPublish } from '@/server/publication/service'
 import { pathsRender, renderClip } from '@/server/steps/render'
 
 /**
@@ -309,6 +309,91 @@ describe('GET /api/clips/:id/publications', () => {
     expect(response.status).toBe(200)
     const payload = (await response.json()) as { publications: { platform: string }[] }
     expect(payload.publications.map((p) => p.platform)).toEqual(['youtube'])
+  })
+
+  // issue #145 : le serveur comparait un condensat SHA-256 à un
+  // `JSON.stringify` du client — deux représentations jamais égales, donc
+  // `stale` valait `true` pour toute publication réussie.
+  it('`stale` vaut `false` quand l’empreinte publiée est celle du rendu actuel', async () => {
+    const clip = baseClip()
+    await exportClip(clip)
+    const fingerprint = currentFingerprintForClip(getDb(), clip)
+    upsertPublication(getDb(), {
+      clipId: CLIP_ID,
+      platform: 'instagram',
+      status: 'published',
+      remoteId: 'p1',
+      remoteUrl: 'https://example.test/p1',
+      requestId: null,
+      error: null,
+      publishedFingerprint: fingerprint,
+      createdAt: 1,
+      updatedAt: 1,
+      scheduledAt: null,
+    })
+    const response = await publicationsRoute(new Request('http://test'), context(CLIP_ID))
+    const payload = (await response.json()) as { publications: { platform: string; stale: boolean }[] }
+    expect(payload.publications).toEqual([expect.objectContaining({ platform: 'instagram', stale: false })])
+  })
+
+  it('`stale` vaut `true` quand l’empreinte publiée diffère du rendu actuel', async () => {
+    await exportClip()
+    upsertPublication(getDb(), {
+      clipId: CLIP_ID,
+      platform: 'instagram',
+      status: 'published',
+      remoteId: 'p1',
+      remoteUrl: 'https://example.test/p1',
+      requestId: null,
+      error: null,
+      publishedFingerprint: 'une-empreinte-perimee',
+      createdAt: 1,
+      updatedAt: 1,
+      scheduledAt: null,
+    })
+    const response = await publicationsRoute(new Request('http://test'), context(CLIP_ID))
+    const payload = (await response.json()) as { publications: { platform: string; stale: boolean }[] }
+    expect(payload.publications).toEqual([expect.objectContaining({ platform: 'instagram', stale: true })])
+  })
+
+  it('`stale` vaut `false` sans empreinte publiée', async () => {
+    await exportClip()
+    upsertPublication(getDb(), {
+      clipId: CLIP_ID,
+      platform: 'instagram',
+      status: 'in_progress',
+      remoteId: null,
+      remoteUrl: null,
+      requestId: 'r1',
+      error: null,
+      publishedFingerprint: null,
+      createdAt: 1,
+      updatedAt: 1,
+      scheduledAt: null,
+    })
+    const response = await publicationsRoute(new Request('http://test'), context(CLIP_ID))
+    const payload = (await response.json()) as { publications: { platform: string; stale: boolean }[] }
+    expect(payload.publications).toEqual([expect.objectContaining({ platform: 'instagram', stale: false })])
+  })
+
+  it('`stale` vaut `false` quand le rendu est absent ou illisible', async () => {
+    putClip(getDb(), baseClip())
+    upsertPublication(getDb(), {
+      clipId: CLIP_ID,
+      platform: 'instagram',
+      status: 'published',
+      remoteId: 'p1',
+      remoteUrl: 'https://example.test/p1',
+      requestId: null,
+      error: null,
+      publishedFingerprint: 'une-empreinte-quelconque',
+      createdAt: 1,
+      updatedAt: 1,
+      scheduledAt: null,
+    })
+    const response = await publicationsRoute(new Request('http://test'), context(CLIP_ID))
+    const payload = (await response.json()) as { publications: { platform: string; stale: boolean }[] }
+    expect(payload.publications).toEqual([expect.objectContaining({ platform: 'instagram', stale: false })])
   })
 })
 

@@ -242,9 +242,14 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
 
   it('signale une publication périmée par une modification locale', () => {
     const target = eligible({
-      currentFingerprint: 'empreinte-actuelle',
       records: {
-        instagram: { status: 'published', remoteUrl: null, publishedFingerprint: 'empreinte-ancienne', error: null },
+        instagram: {
+          status: 'published',
+          remoteUrl: null,
+          publishedFingerprint: 'empreinte-ancienne',
+          error: null,
+          stale: true,
+        },
       },
     })
     render(

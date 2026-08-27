@@ -295,7 +295,29 @@ def shots_from_boundaries(boundaries: list[float], duration: float) -> list[dict
 # ---------------------------------------------------------------------------
 
 
-def flux_images(ffmpeg: str, proxy: str, fps: float, largeur: int, hauteur: int):
+def args_flux_images(ffmpeg: str, proxy: str, duration: float, fps: float) -> list[str]:
+    """La commande ffmpeg de ``flux_images``, isolée pour être assertable sans décoder.
+
+    ``-t`` en aval de ``-vf fps=`` borne le flux rééchantillonné, pas la
+    source : le décodage s'arrête à ``duration`` au lieu de courir jusqu'à la
+    fin du proxy. Vérifié avec ``testsrc`` avant d'écrire ce code — voir la PR.
+    """
+    return [
+        ffmpeg,
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel", "error",
+        "-i", proxy,
+        "-an", "-sn",
+        "-vf", f"fps={fps}",
+        "-t", str(duration),
+        "-f", "rawvideo",
+        "-pix_fmt", "bgr24",
+        "-",
+    ]
+
+
+def flux_images(ffmpeg: str, proxy: str, duration: float, fps: float, largeur: int, hauteur: int):
     """Décode le proxy à ``fps`` images par seconde, en BGR brut sur un tube.
 
     ffmpeg plutôt qu'OpenCV pour lire la vidéo : le binaire est déjà là, et un
@@ -315,18 +337,7 @@ def flux_images(ffmpeg: str, proxy: str, fps: float, largeur: int, hauteur: int)
     import numpy as np  # noqa: PLC0415
 
     octets = largeur * hauteur * 3
-    args = [
-        ffmpeg,
-        "-hide_banner",
-        "-nostdin",
-        "-loglevel", "error",
-        "-i", proxy,
-        "-an", "-sn",
-        "-vf", f"fps={fps}",
-        "-f", "rawvideo",
-        "-pix_fmt", "bgr24",
-        "-",
-    ]
+    args = args_flux_images(ffmpeg, proxy, duration, fps)
     # **stderr dans un fichier, pas dans un tube**, et c'est le seul point de ce
     # décodage qui puisse bloquer pour de bon. Un tube a une capacité de 64 ko :
     # un ffmpeg qui la remplit — il faut une erreur par image, mais ça existe —
@@ -978,6 +989,18 @@ def refus_du_seuil_de_scène(
 # ---------------------------------------------------------------------------
 
 
+def même_fichier(chemin_a: str, chemin_b: str) -> bool:
+    """Chemin identique, ou même inode (lien symbolique ou physique).
+
+    ``samefile`` lève si l'un des deux chemins n'existe pas encore : on s'y
+    rabat alors sur la comparaison de chemins, seule utilisable pour un
+    ``--out`` qui n'a pas encore été écrit.
+    """
+    if os.path.abspath(chemin_a) == os.path.abspath(chemin_b):
+        return True
+    return os.path.exists(chemin_a) and os.path.exists(chemin_b) and os.path.samefile(chemin_a, chemin_b)
+
+
 def run_replay(a: argparse.Namespace) -> int:
     """Recalcule les frontières d'un ``analysis.json`` existant, à partir
     d'une capture de scores de scène déjà faite — sans GPU, sans ffmpeg.
@@ -1010,21 +1033,14 @@ def run_replay(a: argparse.Namespace) -> int:
     if not os.path.isfile(a.scene_scores):
         journal(f"Capture de scores de scène introuvable : {a.scene_scores}")
         return 2
-    # **``--out`` ne doit jamais désigner ``--replay``.** Le rejeu lit
-    # l'intégralité de l'analyse d'origine avant de la réécrire ; si les deux
-    # chemins coïncident (faute de frappe dans une commande de calibrage), le
-    # premier `open(..., "w")` écrase l'analyse qu'on est en train de rejouer,
-    # silencieusement — un `analysis.json` de production peut être de ceux-là.
-    # **La comparaison de chemins ne suffit pas.** Un lien symbolique ou
-    # physique vers ``--replay`` a un chemin différent mais désigne le même
-    # fichier ; ``os.path.samefile`` compare l'inode plutôt que la chaîne, et
-    # se rabat sur la comparaison de chemins quand ``--out`` n'existe pas
-    # encore — un fichier absent n'a pas d'inode à comparer. (relevé par
-    # Copilot sur la PR #101)
-    same_path = os.path.abspath(a.out) == os.path.abspath(a.replay)
-    same_file = os.path.exists(a.out) and os.path.samefile(a.out, a.replay)
-    if same_path or same_file:
+    # **``--out`` ne doit désigner ni ``--replay`` ni ``--scene-scores``.** Une
+    # faute de frappe dans une commande de calibrage écraserait sinon l'un des
+    # deux avant sa lecture — pour ``--replay``, relevé par Copilot sur #101.
+    if même_fichier(a.out, a.replay):
         journal(f"--out ({a.out}) désigne le même fichier que --replay : rien à rejouer sur.")
+        return 2
+    if même_fichier(a.out, a.scene_scores):
+        journal(f"--out ({a.out}) désigne le même fichier que --scene-scores : rien à rejouer sur.")
         return 2
 
     validation_error = refus_du_seuil_de_scène(
@@ -1312,7 +1328,7 @@ def main() -> int:
         boîtes.extend(boîtes_du_lot(résultats, indice_départ, a.fps, largeur, hauteur))
         return len(lot)
 
-    for image in flux_images(a.ffmpeg, a.proxy, a.fps, largeur, hauteur):
+    for image in flux_images(a.ffmpeg, a.proxy, a.duration, a.fps, largeur, hauteur):
         lot.append(image)
         if len(lot) >= a.batch:
             images_vues += vider(lot, images_vues)

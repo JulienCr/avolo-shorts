@@ -171,6 +171,24 @@ export function formatEnvLocal(resolved: readonly [string, string][]): string {
 }
 
 /**
+ * Formate `resolved` puis écrit `path` — jamais l'inverse. `formatEnvLocal`
+ * valide chaque valeur (`quoteValue`) avant que `writeEnvLocalFile` ne
+ * touche le disque : si une valeur est rejetée, l'appel s'arrête avant
+ * d'écrire, et un `.env.local` déjà présent supprimé (issue #230) plutôt
+ * que laissé avec un secret révoqué, prioritaire sur `.env`.
+ */
+export function writeResolvedEnvLocal(path: string, resolved: readonly [string, string][]): void {
+  let content: string
+  try {
+    content = formatEnvLocal(resolved)
+  } catch (cause) {
+    removeStaleEnvLocal(path)
+    throw cause
+  }
+  writeEnvLocalFile(path, content)
+}
+
+/**
  * Supprime `.env.local` s'il existe. Ce fichier n'est jamais que le dernier
  * résultat de ce script : quand `.env` ne porte plus de référence `op://`, le
  * laisser en place ferait persister un secret révoqué, prioritaire sur `.env`
@@ -229,7 +247,7 @@ async function main(): Promise<void> {
   }
 
   const resolved = await resolveEnvLocal(entries, injectViaOp, lireInOnePassword)
-  writeEnvLocalFile(ENV_LOCAL_PATH, formatEnvLocal(resolved))
+  writeResolvedEnvLocal(ENV_LOCAL_PATH, resolved)
   console.log(`.env.local : ${resolved.map(([name]) => name).join(', ')} résolue(s).`)
 }
 

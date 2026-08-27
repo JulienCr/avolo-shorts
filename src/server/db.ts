@@ -515,6 +515,23 @@ export type SettingField = {
    * texte contraint, pas une forme nouvelle.
    */
   enum?: readonly string[]
+  /**
+   * Pour un champ `text`, une forme au-delà de « non vide, assez court » —
+   * aujourd'hui seule `'url'` existe, exigeant une URL absolue `http:`/`https:`
+   * via `new URL`. Porté par la grammaire du champ plutôt que par un cas
+   * particulier sur `ollamaBaseUrl` : un second champ URL l'hérite sans code
+   * neuf.
+   */
+  format?: 'url'
+}
+
+/** `raw` analyse comme une URL absolue `http:`/`https:`. */
+function isValidUrl(raw: string): boolean {
+  try {
+    return ['http:', 'https:'].includes(new URL(raw).protocol)
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -597,6 +614,7 @@ const AI_FIELD_SHAPES = {
     type: 'text',
     defaultValue: '',
     allowEmpty: true,
+    format: 'url',
   },
 } satisfies Record<keyof AiSettings, Omit<SettingField, 'family' | 'name'>>
 
@@ -814,6 +832,24 @@ const TEXT_MAX = 2_048
  */
 export const COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/
 
+/** Longueur au-delà de laquelle la valeur brute d'un avertissement est tronquée. */
+const RAW_LOG_MAX = 80
+
+/**
+ * Avertit qu'une ligne existante ne s'est pas relue, et rend `undefined` pour
+ * que l'appelant retombe sur le défaut. **N'existe que pour une ligne qui
+ * existe déjà** : `effectiveSettings` n'appelle `parseSetting` que sur un
+ * `raw` tiré de la table, jamais sur un champ absent — une ligne absente est
+ * l'expression normale d'un défaut et ne doit rien dire.
+ */
+function warnRejected(field: SettingField, raw: string): undefined {
+  const shown = raw.length > RAW_LOG_MAX ? `${raw.slice(0, RAW_LOG_MAX)}…` : raw
+  console.warn(
+    `Réglage ${storedKey(field)} : valeur stockée invalide (${JSON.stringify(shown)}), retour au défaut ${JSON.stringify(field.defaultValue)}.`,
+  )
+  return undefined
+}
+
 /**
  * Relit une valeur stockée, ou rend `undefined` si elle n'a aucun sens.
  *
@@ -842,23 +878,23 @@ export function parseSetting(
 ): number | string | boolean | undefined {
   switch (field.type) {
     case 'integer': {
-      if (!/^\d+$/.test(raw.trim())) return undefined
+      if (!/^\d+$/.test(raw.trim())) return warnRejected(field, raw)
       const value = Number(raw.trim())
-      if (!Number.isSafeInteger(value) || value < (field.min ?? 0)) return undefined
+      if (!Number.isSafeInteger(value) || value < (field.min ?? 0)) return warnRejected(field, raw)
       // **Ignorée comme le plancher, jamais levée** : c'est `parseSetting`,
       // la lecture tolérante. `field.max` est absent partout sauf pour le
       // hook, donc les familles existantes ne voient jamais cette branche.
-      if (field.max !== undefined && value > field.max) return undefined
+      if (field.max !== undefined && value > field.max) return warnRejected(field, raw)
       return value
     }
     case 'boolean':
-      return raw === 'true' ? true : raw === 'false' ? false : undefined
+      return raw === 'true' ? true : raw === 'false' ? false : warnRejected(field, raw)
     case 'color': {
       // Même normalisation qu'à l'écriture (`validateSetting`) : la lecture
       // et l'écriture doivent s'accorder sur ce qu'une valeur stockée veut
       // dire, exactement comme pour les trois autres types.
       const trimmed = raw.trim()
-      return COLOR_PATTERN.test(trimmed) ? trimmed.toUpperCase() : undefined
+      return COLOR_PATTERN.test(trimmed) ? trimmed.toUpperCase() : warnRejected(field, raw)
     }
     case 'text': {
       // **Les mêmes bornes que `validateSetting`, et c'est le contrat.** Une
@@ -873,8 +909,12 @@ export function parseSetting(
       // `ai.ollamaBaseUrl` est le seul champ qui la porte, et vide y est une
       // valeur à part entière plutôt qu'un champ oublié.
       if (field.allowEmpty && raw === '') return raw
-      if (raw.trim() === '' || raw.length > TEXT_MAX) return undefined
-      if (field.enum !== undefined && !field.enum.includes(raw)) return undefined
+      if (raw.trim() === '' || raw.length > TEXT_MAX) return warnRejected(field, raw)
+      if (field.enum !== undefined && !field.enum.includes(raw)) return warnRejected(field, raw)
+      // **Sur le chemin de lecture aussi** : une ligne existante écrite avant
+      // que le champ ne porte `format: 'url'` — ou modifiée à la main — reste
+      // sinon acceptée pour toujours, alors que l'écriture la refuse depuis.
+      if (field.format === 'url' && !isValidUrl(raw)) return warnRejected(field, raw)
       return raw
     }
   }
@@ -953,6 +993,14 @@ export function validateSetting(
       if (field.enum !== undefined && !field.enum.includes(value)) {
         throw new InvalidSettingError(
           `Réglage ${key} : une valeur parmi ${field.enum.join(', ')} est attendue, reçu ${JSON.stringify(value)}.`,
+        )
+      }
+      // **Vide n'est jamais une URL invalide** : quand `allowEmpty` l'a
+      // laissé passer, il veut dire « non configuré », un état légitime que
+      // `isValidUrl` rejetterait sinon comme n'importe quel autre texte creux.
+      if (field.format === 'url' && !isEmpty && !isValidUrl(value)) {
+        throw new InvalidSettingError(
+          `Réglage ${key} : une URL absolue http:// ou https:// est attendue, reçu ${JSON.stringify(value)}.`,
         )
       }
       return value

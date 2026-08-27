@@ -316,6 +316,49 @@ describe('la famille `ai`', () => {
     expect(effectiveSettings(db).ai.ollamaBaseUrl).toBe('http://172.20.16.1:11434')
   })
 
+  /**
+   * #88 : `foo` était accepté à l'enregistrement et n'échouait qu'au premier
+   * `fetch`, loin de l'écran où il avait été tapé (`CLAUDE.md`, la passerelle
+   * WSL se retape à la main, souvent).
+   */
+  it('refuse une adresse Ollama qui n’est pas une URL absolue', () => {
+    expect(() => applySettings(db, { ai: { ollamaBaseUrl: 'foo' } })).toThrow(InvalidSettingError)
+  })
+
+  it('accepte une URL Ollama complète, hôte et port compris', () => {
+    expect(
+      applySettings(db, { ai: { ollamaBaseUrl: 'http://172.28.0.1:11434' } }).ai.ollamaBaseUrl,
+    ).toBe('http://172.28.0.1:11434')
+  })
+
+  /**
+   * **Une ligne déjà en base l'était avant que le champ ne porte
+   * `format: 'url'`, ou a été modifiée à la main.** La refuser à l'écriture
+   * sans la refuser aussi à la lecture la laisserait vivre indéfiniment.
+   */
+  it('rejette au retour une ligne déjà en base qui n’est plus une URL valide', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    db.prepare('INSERT INTO settings (key, value, updatedAt) VALUES (?, ?, ?)').run(
+      'ai.ollamaBaseUrl',
+      'foo',
+      Date.now(),
+    )
+    expect(effectiveSettings(db).ai.ollamaBaseUrl).toBe('')
+    expect(warn).toHaveBeenCalledOnce()
+    warn.mockRestore()
+  })
+
+  /**
+   * **La preuve que le correctif n'est pas du bruit à chaque démarrage** : un
+   * champ sans ligne du tout — le cas normal d'un défaut — ne dit rien.
+   */
+  it('ne dit rien quand un champ n’a simplement aucune ligne', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(effectiveSettings(db).ai.ollamaBaseUrl).toBe('')
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
   it('ne recalcule rien : les usages non branchés se règlent sans effet', () => {
     upsertProject(db, PROJECT)
     putClip(db, {
@@ -681,6 +724,65 @@ describe('la grammaire du registre', () => {
       const unbounded = field('integer', { min: 0 })
       expect(parseSetting(unbounded, '999999')).toBe(999999)
       expect(validateSetting(unbounded, 999999)).toBe(999999)
+    })
+  })
+
+  /**
+   * **`format: 'url'`, dans la grammaire du champ.** #88 : `ollamaBaseUrl`
+   * acceptait n'importe quel texte et n'échouait qu'au premier `fetch`, loin
+   * de l'écran où il avait été tapé.
+   */
+  describe('le format url', () => {
+    const c = field('text', { allowEmpty: true, format: 'url' })
+
+    it('refuse un texte qui n’est pas une URL absolue', () => {
+      expect(() => validateSetting(c, 'foo')).toThrow(InvalidSettingError)
+      expect(parseSetting(c, 'foo')).toBeUndefined()
+    })
+
+    it('accepte une URL http et une URL https', () => {
+      expect(validateSetting(c, 'http://172.28.0.1:11434')).toBe('http://172.28.0.1:11434')
+      expect(parseSetting(c, 'http://172.28.0.1:11434')).toBe('http://172.28.0.1:11434')
+      expect(validateSetting(c, 'https://example.com')).toBe('https://example.com')
+    })
+
+    it('vide reste accepté, une URL absente n’est pas une URL invalide', () => {
+      expect(validateSetting(c, '')).toBe('')
+      expect(parseSetting(c, '')).toBe('')
+    })
+
+    it('un champ sans le format laisse passer n’importe quel texte', () => {
+      const noFormat = field('text')
+      expect(validateSetting(noFormat, 'foo')).toBe('foo')
+    })
+  })
+
+  /**
+   * **#217 : une ligne existante illisible se signale, une ligne absente se
+   * tait.** `parseSetting` n'est appelée par `effectiveSettings` que sur un
+   * `raw` déjà tiré de la table — jamais sur un champ sans ligne — donc tout
+   * `undefined` qu'elle rend ici décrit une ligne qui existe et ne se relit
+   * plus.
+   */
+  describe('l’avertissement sur une valeur illisible', () => {
+    it('avertit une fois, en nommant le champ, quand la ligne existe et ne se relit pas', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const c = field('integer', { min: 1 })
+      expect(parseSetting(c, 'sept')).toBeUndefined()
+      expect(warn).toHaveBeenCalledOnce()
+      expect(warn.mock.calls[0][0]).toContain('selection.temoin')
+      warn.mockRestore()
+    })
+
+    it('tronque une valeur texte trop longue dans le message', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const c = field('text', { format: 'url' })
+      const longRaw = 'not-a-url-'.repeat(50)
+      expect(parseSetting(c, longRaw)).toBeUndefined()
+      expect(warn).toHaveBeenCalledOnce()
+      const message = String(warn.mock.calls[0][0])
+      expect(message.length).toBeLessThan(longRaw.length)
+      warn.mockRestore()
     })
   })
 })

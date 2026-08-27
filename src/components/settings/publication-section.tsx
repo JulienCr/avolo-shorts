@@ -121,8 +121,8 @@ function AutoPublishToggle({
         </Label>
       </div>
       <p id={helpId} className="text-xs text-muted-foreground">
-        La tâche planifiée tourne toujours toutes les cinq minutes ; décoché, elle ne publie plus
-        rien à chaque passage.
+        La tâche planifiée continue de tourner toutes les cinq minutes ; décochée, cette option
+        l’empêche de publier quoi que ce soit.
       </p>
     </div>
   )

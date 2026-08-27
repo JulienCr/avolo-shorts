@@ -99,7 +99,8 @@ export function PlanningScreen() {
             <AlertTitle>Publication automatique désactivée.</AlertTitle>
             <AlertDescription>
               Les échéances programmées ci-dessous ne partiront pas tant que ce réglage reste
-              coupé. <Link href={settingsLink()}>Ouvrir les réglages de publication</Link>.
+              coupé.{' '}
+              <Link href={settingsLink('publication')}>Ouvrir les réglages de publication</Link>.
             </AlertDescription>
           </Alert>
         )}

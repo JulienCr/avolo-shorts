@@ -587,3 +587,98 @@ describe('runOnePass — contamination par un essai manuel', () => {
     expect(publish.mock.calls.every((call) => !(call[1] as readonly Platform[]).includes('youtube'))).toBe(true)
   })
 })
+
+describe('runOnePass — le courriel de brouillon TikTok', () => {
+  it('envoie la légende du clip quand TikTok rend submitted', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] =
+          platform === 'tiktok'
+            ? { status: 'submitted', remoteId: 'p1', remoteUrl: null }
+            : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      }
+      return outcomes
+    })
+    fakeAdapter = adapterAlwaysPublishing(publish)
+    const mails: Array<{ subject: string; body: string }> = []
+    const sendMail = vi.fn(async (subject: string, body: string) => {
+      mails.push({ subject, body })
+    })
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome.kind).toBe('done')
+    expect(mails).toHaveLength(1)
+    expect(mails[0]?.subject).toContain('La chute')
+    expect(mails[0]?.body).toContain('La chute')
+    expect(mails[0]?.body).toContain('Une impro qui part en vrille')
+  })
+
+  it('n’envoie rien quand TikTok n’était pas parmi les plateformes dues de cette passe', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const due = getPublications(getDb(), CLIP_ID)[0]?.scheduledAt as number
+    // Un dépôt TikTok déjà `submitted` pour cette même échéance, comme si une
+    // passe antérieure l'avait déjà réglé.
+    upsertPublication(getDb(), {
+      clipId: CLIP_ID,
+      platform: 'tiktok',
+      status: 'submitted',
+      remoteId: 'p0',
+      remoteUrl: null,
+      requestId: null,
+      error: null,
+      publishedFingerprint: null,
+      createdAt: 1,
+      updatedAt: 1,
+      scheduledAt: due,
+    })
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) outcomes[platform] = { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      return outcomes
+    })
+    fakeAdapter = adapterAlwaysPublishing(publish)
+    const sendMail = vi.fn(async () => {})
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome.kind).toBe('done')
+    expect(sendMail).not.toHaveBeenCalled()
+    expect(publish.mock.calls.every((call) => !(call[1] as readonly Platform[]).includes('tiktok'))).toBe(true)
+  })
+
+  it('n’envoie rien quand TikTok finit en échec', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] =
+          platform === 'tiktok' ? { status: 'failed', error: 'Panne simulée' } : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      }
+      return outcomes
+    })
+    fakeAdapter = adapterAlwaysPublishing(publish)
+    const mails: Array<{ subject: string; body: string }> = []
+    const sendMail = vi.fn(async (subject: string, body: string) => {
+      mails.push({ subject, body })
+    })
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome.kind).toBe('abandoned')
+    expect(mails).toHaveLength(1)
+    expect(mails[0]?.subject).not.toContain('Brouillon TikTok')
+  })
+
+  it('n’envoie rien en --dry-run : la passe rend avant `processDueClip`', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const sendMail = vi.fn(async () => {})
+
+    const outcome = await runOnePass(deps({ sendMail }), { dryRun: true })
+
+    expect(outcome.kind).toBe('dry-run')
+    expect(sendMail).not.toHaveBeenCalled()
+  })
+})

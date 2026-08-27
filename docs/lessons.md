@@ -26,6 +26,20 @@ et absent de tout ce qui avait été lu avant. La documentation d'un tiers décr
 une plateforme en général ; seul un appel contre l'app réelle dit ce qui est
 vrai d'elle.
 
+## Un commentaire cité comme s'il était une spec mesurée
+
+Une variante plus coûteuse que « la documentation d'un tiers ment » : un
+commentaire de code non mesuré, cité comme s'il venait de la spec. Le docbloc
+de `planChunks` (`tiktok.ts`) affirmait que seule la valeur déclarée devait
+rester dans les bornes 5-64 Mo — jamais vérifié contre le vrai réseau, comme le
+disait déjà l'avertissement du connecteur deux lignes plus haut. L'issue #213
+l'a relu comme sorti de la spec §2.3, et le correctif a failli s'appuyer dessus.
+La spec ne l'affirmait pas ; TikTok recalcule le nombre de morceaux lui-même
+(`floor(video_size / chunk_size)`) et rejette toute valeur incohérente — c'est
+ce qui a fait échouer un envoi réel le 27 août 2026. Un commentaire porte
+l'intention de qui a écrit le code, pas une mesure ; il se lit comme tel avant
+de fonder un correctif dessus.
+
 ## Pourquoi les identifiants se francisent tout seuls
 
 Le glissement s'explique, et il se reproduira sinon. La prose de ce dépôt est

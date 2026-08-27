@@ -1035,7 +1035,8 @@ def run_replay(a: argparse.Namespace) -> int:
         return 2
     # **``--out`` ne doit désigner ni ``--replay`` ni ``--scene-scores``.** Une
     # faute de frappe dans une commande de calibrage écraserait sinon l'un des
-    # deux avant sa lecture — pour ``--replay``, relevé par Copilot sur #101.
+    # deux à l'écriture du résultat, après qu'il a servi à ce rejeu — pour
+    # ``--replay``, relevé par Copilot sur #101.
     if même_fichier(a.out, a.replay):
         journal(f"--out ({a.out}) désigne le même fichier que --replay : rien à rejouer sur.")
         return 2

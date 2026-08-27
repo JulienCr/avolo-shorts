@@ -24,6 +24,7 @@
 import type { Ratio, Segment } from '@/core/edl'
 import { outputSize, sizeInCanvas } from '@/core/framing'
 import {
+  AUDIO_TIMELINE,
   LOUDNORM,
   METADATA_SCRUB,
   RESAMPLE,
@@ -450,9 +451,9 @@ const BACKGROUND_SIGMA = 12
  * -filter_complex
  *   [0:v]crop=…,scale=…,setsar=1[v0]; [1:v]…[v1];   un crop par entrée
  *   [v0][0:a][v1][1:a]concat=n=2:v=1:a=1[vc][ac];
- *   [ac]loudnorm=…,aresample=48000[a];
+ *   [ac]loudnorm=…,aresample=48000,asetpts=N/SR/TB[a];
  *   [vc]ass=filename='…':fontsdir='…'[v]
- * -map [v] -map [a] <encodeur> -c:a aac -movflags +faststart -- dst
+ * -map [v] -map [a] -fps_mode cfr <encodeur> -c:a aac -movflags +faststart -- dst
  * ```
  *
  * **Les sous-titres et les marques s'incrustent APRÈS la composition**, une
@@ -768,7 +769,7 @@ function buildRender(
   // taux. ffmpeg insère alors tout seul un rééchantillonnage vers le plus haut
   // taux que l'AAC accepte — mesuré, une source à 44,1 kHz ressortait en
   // **96 kHz**. Personne ne livre du 96 kHz.
-  graph.push(`[${audio}]${LOUDNORM},${RESAMPLE}[a]`)
+  graph.push(`[${audio}]${LOUDNORM},${RESAMPLE},${AUDIO_TIMELINE}[a]`)
 
   // **Le fondu se pose sur le flux BRUT du hook, avant l'overlay** — jamais
   // sur le canevas composé, que `format=rgba,fade=…` n'a aucune raison de
@@ -861,6 +862,10 @@ function buildRender(
     '-filter_complex', graph.join(';'),
     '-map', '[v]',
     '-map', '[a]',
+    // **`cfr`, parce que `concat` fabrique un trou d'image à chaque jonction.**
+    // Sept morceaux laissent quatre écarts de 33 ms, dix-neuf en laissent onze,
+    // un seul n'en laisse aucun ; le mode par défaut les laisse passer (#212).
+    '-fps_mode', 'cfr',
     ...videoEncodedArgs(o.encoder, 'quality'),
     '-c:a', 'aac', '-b:a', '192k',
     ...METADATA_SCRUB,

@@ -295,3 +295,33 @@ régénère, un verdict humain perdu se repaie en temps humain, et **un chiffre
 recopié en prose dérive sans prévenir**. La skill `cadrage` porte déjà la règle
 sous une autre forme — « compare toujours au code en service, pas à un état
 antérieur ». Elle vaut aussi pour les populations, pas seulement pour les gains.
+
+## Un segment n'est pas une entrée
+
+L'issue #212 porte une section « une hypothèse mesurée puis écartée, **à ne pas
+reprendre** » : `concat` enchaînerait des entrées mal recalées. Elle l'écarte en
+constatant que les deux clips fautifs ont « exactement un segment chacun,
+vérifié en base », donc aucune jonction.
+
+C'était pourtant la cause. `splitByShot` (`src/core/shot-split.ts`) coupe chaque
+segment aux frontières de plans avant que `renderArgs` ne le voie : un segment
+qui traverse sept plans devient **sept entrées** et un `concat=n=7:v=1:a=1`. Le
+clip nommé dans l'issue en portait sept. La base dit le montage, le graphe dit
+autre chose, et c'est le graphe qui rend.
+
+La corrélation était parfaite une fois le bon compte fait — sur les quinze
+rendus du dépôt, un morceau donne zéro paquet audio irrégulier, plusieurs
+morceaux en donnent 117, toujours les mêmes. Ni la version d'empreinte, ni le
+hook, ni les marques, ni la source, ni la date ne séparaient les deux
+populations.
+
+Deux leçons, et la seconde coûte plus cher que la première :
+
+- **Toute mesure sur le rendu compte les morceaux après `splitByShot`, jamais
+  les segments en base.** Les deux nombres diffèrent dès qu'un clip traverse une
+  coupe, c'est-à-dire presque toujours.
+- **Une piste écartée dans une issue s'écarte avec sa prémisse, pas avec sa
+  conclusion.** « Un segment, donc pas de jonction » se vérifiait en une
+  commande. Trois hypothèses de remplacement ont été instruites et mesurées
+  fausses (`-ss` avant `-i`, l'amorçage AAC, `-hwaccel cuda`) avant que la
+  quatrième, celle qu'on avait défense de rouvrir, ne se révèle juste.

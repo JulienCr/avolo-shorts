@@ -848,9 +848,6 @@ const TEXT_MAX = 2_048
  */
 export const COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/
 
-/** Longueur au-delà de laquelle la valeur brute d'un avertissement est tronquée. */
-const RAW_LOG_MAX = 80
-
 /**
  * Par connexion : `effectiveSettings` relit la table à chaque appel (rendu,
  * ordonnanceur), et une ligne corrompue non réparée avertirait sinon à
@@ -881,19 +878,12 @@ function warnRejected(field: SettingField, raw: string, seen?: Set<string>): und
     if (seen.has(key)) return undefined
     seen.add(key)
   }
-  // **Un champ `format: 'url'` peut porter `user:motdepasse@hôte`** : une
-  // valeur rejetée n'en reste pas moins un secret potentiel, et le journal
-  // serveur est plus facile à lire ou à partager que la table elle-même
-  // (relevé par Copilot). Masquée plutôt que tronquée, contrairement aux
-  // autres champs texte.
-  const shown =
-    field.format === 'url'
-      ? '(masqué, format url)'
-      : raw.length > RAW_LOG_MAX
-        ? `${raw.slice(0, RAW_LOG_MAX)}…`
-        : raw
+  // Le type déclaré ne garantit rien sur ce qui est réellement en base :
+  // un champ entier ou booléen peut porter un secret tout comme un champ
+  // url.
+  const shown = `(masqué, ${raw.length} caractère${raw.length === 1 ? '' : 's'})`
   console.warn(
-    `Réglage ${storedKey(field)} : valeur stockée invalide (${JSON.stringify(shown)}), retour au défaut ${JSON.stringify(field.defaultValue)}.`,
+    `Réglage ${storedKey(field)} : valeur stockée invalide ${shown}, retour au défaut ${JSON.stringify(field.defaultValue)}.`,
   )
   return undefined
 }

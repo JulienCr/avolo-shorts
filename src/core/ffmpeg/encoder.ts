@@ -93,3 +93,16 @@ export const LOUDNORM = 'loudnorm=I=-14:TP=-2.0:LRA=11'
  * 48 kHz est le taux de la vidéo. On le pose, on ne le négocie pas.
  */
 export const RESAMPLE = 'aresample=48000'
+
+/**
+ * L'horodatage de sortie du son, à poser **en dernier** sur la branche audio.
+ *
+ * `concat` avec `a=1` rend des trames qui partagent un horodatage, que le
+ * muxeur mov décale d'un tick chacune : les trois premières secondes se jouent
+ * en accéléré puis calent (issue #212, neuf rendus touchés).
+ *
+ * `asetpts` réétiquette depuis le compte d'échantillons sans en insérer ni en
+ * retirer un ; `aresample=…:async=1` corrige aussi bien mais s'autorise à
+ * combler.
+ */
+export const AUDIO_TIMELINE = 'asetpts=N/SR/TB'

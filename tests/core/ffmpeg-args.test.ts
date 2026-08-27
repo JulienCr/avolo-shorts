@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { LOUDNORM, METADATA_SCRUB, RESAMPLE, videoEncodedArgs } from '@/core/ffmpeg/encoder'
+import {
+  AUDIO_TIMELINE,
+  LOUDNORM,
+  METADATA_SCRUB,
+  RESAMPLE,
+  videoEncodedArgs,
+} from '@/core/ffmpeg/encoder'
 import type { Ratio } from '@/core/edl'
 import type { HookSettings } from '@/core/hook'
 import {
@@ -313,7 +319,7 @@ describe('renderArgs', () => {
     expect(graph).toBe(
       `[0:v]${crop}[v0];[1:v]${crop}[v1];` +
         '[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][ac];' +
-        `[ac]${LOUDNORM},${RESAMPLE}[a]`,
+        `[ac]${LOUDNORM},${RESAMPLE},${AUDIO_TIMELINE}[a]`,
     )
   })
 
@@ -439,8 +445,30 @@ describe('renderArgs', () => {
   ])('fixe le taux de sortie derrière loudnorm — %s', (_name, segments) => {
     const a = renderArgs({ ...base, segments })
     const graph = a[a.indexOf('-filter_complex') + 1]
-    expect(graph).toContain(`${LOUDNORM},${RESAMPLE}`)
+    expect(graph).toContain(`${LOUDNORM},${RESAMPLE},${AUDIO_TIMELINE}`)
     expect(RESAMPLE).toContain('48000')
+  })
+
+  // **La branche audio finit par `asetpts`, et c'est `concat` qui l'exige.**
+  // Avec `a=1` il rend des trames qui partagent un horodatage, que le muxeur
+  // mov décale d'un tick chacune. Neuf rendus touchés, aucun à un morceau.
+  it.each([
+    ['une entrée', [entry(0, 10)]],
+    ['plusieurs entrées', [entry(0, 10), entry(20, 30)]],
+  ])('réétiquette les horodatages du son en fin de branche — %s', (_name, segments) => {
+    const a = renderArgs({ ...base, segments })
+    const graph = a[a.indexOf('-filter_complex') + 1]
+    expect(graph).toContain(`${RESAMPLE},${AUDIO_TIMELINE}[a]`)
+  })
+
+  // Une jonction de `concat` laisse un trou d'image que le mode par défaut
+  // propage : sept morceaux donnaient quatre écarts de 33 ms, dix-neuf en
+  // donnaient onze. Une seule fois, et en sortie — c'est une option de sortie.
+  it('impose une cadence constante à la sortie', () => {
+    const a = renderArgs({ ...base, segments: [entry(0, 10), entry(20, 30)] })
+    expect(a.filter((x) => x === '-fps_mode')).toHaveLength(1)
+    expect(a[a.indexOf('-fps_mode') + 1]).toBe('cfr')
+    expect(a.indexOf('-fps_mode')).toBeGreaterThan(a.indexOf('-filter_complex'))
   })
 
   it('cadre au rectangle demandé puis met à l’échelle de sortie', () => {
@@ -998,6 +1026,16 @@ describe('blurredVariantArgs', () => {
     expect(g).toContain('[1:v]overlay=x=30:y=40')
   })
 
+  // Le même piège que le test suivant, sur le correctif de l'issue #212 : les
+  // deux sorties partagent `buildRender` aujourd'hui, et rien d'autre qu'un
+  // test ne l'obligera à le rester. (relevé par Aristarque)
+  it('pose la timeline audio et la cadence constante sur la variante aussi', () => {
+    const a = blurredVariantArgs({ ...base, segments: [entry(0, 10), entry(20, 30)] })
+    expect(graph(a)).toContain(`${RESAMPLE},${AUDIO_TIMELINE}[a]`)
+    expect(a.filter((x) => x === '-fps_mode')).toHaveLength(1)
+    expect(a[a.indexOf('-fps_mode') + 1]).toBe('cfr')
+  })
+
   // `buildRender` est partagé avec `renderArgs`, mais rien ne garantit que la
   // variante reçoive le même traitement temporel sans un test qui le vérifie
   // ICI : le piège documenté par le contrat de la seconde manche (« les deux
@@ -1050,7 +1088,7 @@ describe('blurredVariantArgs', () => {
     const g = graph(blurredVariantArgs({ ...base, segments: [entry(0, 10)] }))
     expect(g).toBe(
       '[0:v]crop=608:1080:656:0,scale=1080:1920:flags=lanczos,setsar=1[v];' +
-        `[0:a]${LOUDNORM},${RESAMPLE}[a]`,
+        `[0:a]${LOUDNORM},${RESAMPLE},${AUDIO_TIMELINE}[a]`,
     )
   })
 
@@ -1076,7 +1114,7 @@ describe('blurredVariantArgs', () => {
         '[fga1]scale=1080:608:flags=lanczos[fg1];' +
         '[bg1][fg1]overlay=x=0:y=(H-h)/2,setsar=1[v1];' +
         '[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][ac];' +
-        `[ac]${LOUDNORM},${RESAMPLE}[a]`,
+        `[ac]${LOUDNORM},${RESAMPLE},${AUDIO_TIMELINE}[a]`,
     )
   })
 
@@ -1149,7 +1187,7 @@ describe('blurredVariantArgs', () => {
         '[bga0]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg0];' +
         '[fga0]scale=1080:1080:flags=lanczos[fg0];' +
         '[bg0][fg0]overlay=x=0:y=(H-h)/2,setsar=1[v0];' +
-        `[0:a]${LOUDNORM},${RESAMPLE}[a];` +
+        `[0:a]${LOUDNORM},${RESAMPLE},${AUDIO_TIMELINE}[a];` +
         "[v0]ass=filename='/c.ass'[v]",
     )
   })
@@ -1184,7 +1222,7 @@ describe('blurredVariantArgs', () => {
         '[fga1]scale=1080:1080:flags=lanczos[fg1];' +
         '[bg1][fg1]overlay=x=0:y=(H-h)/2,setsar=1[v1];' +
         '[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[vc][ac];' +
-        `[ac]${LOUDNORM},${RESAMPLE}[a];` +
+        `[ac]${LOUDNORM},${RESAMPLE},${AUDIO_TIMELINE}[a];` +
         "[vc]ass=filename='/c.ass'[v]",
     )
   })
@@ -1201,7 +1239,7 @@ describe('blurredVariantArgs', () => {
         '[bga0]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg0];' +
         '[fga0]scale=1080:1080:flags=lanczos[fg0];' +
         '[bg0][fg0]overlay=x=0:y=(H-h)/2,setsar=1[v];' +
-        `[0:a]${LOUDNORM},${RESAMPLE}[a]`,
+        `[0:a]${LOUDNORM},${RESAMPLE},${AUDIO_TIMELINE}[a]`,
     )
   })
 
@@ -1213,7 +1251,7 @@ describe('blurredVariantArgs', () => {
     const a = blurredVariantArgs(base)
     expect(a.join(' ')).not.toContain('-c:a copy')
     expect(graph(a).match(/loudnorm=/g)).toHaveLength(1)
-    expect(a.join(' ')).toContain(`${LOUDNORM},${RESAMPLE}`)
+    expect(a.join(' ')).toContain(`${LOUDNORM},${RESAMPLE},${AUDIO_TIMELINE}`)
     expect(a.join(' ')).toContain('-c:a aac')
   })
 

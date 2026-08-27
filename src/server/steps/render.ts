@@ -364,8 +364,17 @@ export function pathsRender(
  * gagne `split` — deux cellules par plan plutôt qu'un crop unique — et les
  * empreintes d'avant n'en portent aucune trace : elles ne peuvent donc pas dire
  * qu'un rendu splitté est périmé. Même geste que `captionsContent` en août.
+ *
+ * **Passée à 10 le 27 août 2026, avec la timeline audio et la cadence
+ * constante.** La branche audio gagne `asetpts` et la sortie `-fps_mode cfr`
+ * (issue #212) : la recette ffmpeg change, or **aucun champ de l'empreinte ne
+ * porte le graphe**. Sans cet incrément, les neuf rendus défectueux déjà sur le
+ * disque se disent à jour, `discardRenderStale` ne les reprend pas, et
+ * l'ordonnanceur republie le défaut au réarmement. Coût : un réencodage par
+ * clip, une fois — et c'est précisément ce qu'on veut ici.
+ * (relevé par Copilot)
  */
-export const VERSION_FINGERPRINT = 9
+export const VERSION_FINGERPRINT = 10
 
 /**
  * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes

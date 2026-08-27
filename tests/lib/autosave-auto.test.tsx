@@ -394,12 +394,9 @@ describe('useAutosave', () => {
     expect(reconciled).not.toHaveBeenCalled()
   })
 
-  // **Le minuteur du départ précédent n'est jamais annulé, seulement dépassé.**
-  // `clear()` tourne dans un écouteur d'événement qui n'a pas la main sur le
-  // `setTimeout` de l'effet ; il ne peut que vider `inWait` et écrire. Sur une
-  // page restaurée depuis le bfcache, le composant reste monté et ce minuteur
-  // se réveille : sans garde, il réécrit le patch que `clear()` vient déjà
-  // d'envoyer. (issue #65)
+  // Le minuteur du départ précédent n'est jamais annulé, seulement dépassé :
+  // `clear()` n'a pas la main dessus. Sans garde, un retour de bfcache le
+  // réveille et il réécrit ce que `clear()` a déjà envoyé. (issue #65)
   it('ne réécrit pas ce que le vidage du départ a déjà envoyé', async () => {
     const { replay, calls } = mount({ ...rest, cropX: 0.8 })
 

@@ -304,11 +304,9 @@ export function useAutosave({
     inWait.current = variables
 
     const timer = setTimeout(() => {
-      // `clear()` (pagehide, démontage) ne peut pas annuler ce minuteur — il
-      // n'a pas la main dessus, seul l'effet qui l'a programmé l'a. Sur une
-      // page restaurée depuis le bfcache, il survit à `clear()` et se réveille
-      // sur un `inWait` déjà vidé ou repris par un geste plus récent : c'est ce
-      // que ce garde vérifie avant d'écrire.
+      // `clear()` n'a pas la main sur ce minuteur et ne peut pas l'annuler ;
+      // un retour de bfcache le réveille quand même. Ce garde vérifie que
+      // l'écriture qu'il porte est toujours celle en attente.
       if (inWait.current !== variables) return
       inWait.current = null
       const attempt = ++lastAttempt.current

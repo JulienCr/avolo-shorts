@@ -159,6 +159,18 @@ describe('formatEnvLocal', () => {
     expect(() => formatEnvLocal([['KEY', '$2b$10$abcXYZ']])).toThrow(/\$/)
   })
 
+  // Tout ou rien : une variable fautive abandonne toute la génération, pas
+  // seulement la sienne — sinon `.env.local` sortirait tronqué avant la
+  // variable en échec. (relevé par Aristarque)
+  it('abandonne toute la génération dès la première variable fautive', () => {
+    expect(() =>
+      formatEnvLocal([
+        ['A', 'safe'],
+        ['B', '$2b$10$abcXYZ'],
+      ]),
+    ).toThrow(/B/)
+  })
+
   // La régression que les trois relecteurs ont trouvée : un secret contenant
   // un antislash ou un guillemet double se faisait tronquer ou dupliquer par
   // l'échappement précédent. Vérifié en rechargeant réellement le fichier

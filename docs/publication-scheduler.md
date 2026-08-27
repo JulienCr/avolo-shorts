@@ -101,6 +101,9 @@ prochaine échéance due (s'il y en a une) et l'affiche, avec les plateformes
 qu'elle viserait. C'est la vérification à faire avant de poser la tâche, et
 celle à refaire après toute modification du script ou de l'environnement.
 
+Si `publication.autoPublish` est coupé, rien de tout ça ne s'affiche : l'essai
+rend `disabled` avant même de regarder les échéances (section suivante).
+
 ## Lire une passe réelle
 
 Chaque appel de `scripts/publish-scheduled.ts` (sans `--dry-run`) imprime une
@@ -180,9 +183,9 @@ temps que le drapeau reste coupé — `disabled` dans le journal.
 
 **Ne jamais couper avec `schtasks /Change /DISABLE`** : ça pose l'état
 d'arrêt côté Windows, invisible depuis l'application, dans un endroit que
-personne ne pense à revisiter. C'est comme ça que la tâche est restée coupée
-après l'incident du rendu défectueux (issue #212) — l'arrêt n'était visible
-nulle part dans le dépôt.
+personne ne pense à revisiter. C'est cette commande qui a servi à arrêter la
+tâche quand le rendu défectueux (issue #212) l'exigeait — l'arrêt, lui,
+n'était visible nulle part dans le dépôt.
 
 ## Déprogrammer
 

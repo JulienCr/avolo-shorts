@@ -106,9 +106,9 @@ async function main(): Promise<number> {
     }
   }
 
-  // `idle`/`locked`/`done` rendent 0 ; seul `abandoned` est un échec (spec
-  // §6.4 du contrat) — le planificateur Windows consigne le code, et c'est
-  // la seconde voie d'alerte après le courriel.
+  // `idle`/`locked`/`disabled`/`done` rendent 0 ; seul `abandoned` est un
+  // échec (spec §6.4 du contrat) — le planificateur Windows consigne le
+  // code, et c'est la seconde voie d'alerte après le courriel.
   return outcome.kind === 'abandoned' ? 1 : 0
 }
 

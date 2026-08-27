@@ -63,7 +63,12 @@ function fileDigest(file: string): string {
   return crypto.createHash('sha256').update(bytes).digest('hex').slice(0, 16)
 }
 
-function ensureFontRegistered(fontsDir: string): void {
+/**
+ * Exportée pour `src/server/caption-measure.ts`, qui a besoin de la même
+ * police enregistrée pour mesurer ce que libass tracera — deux trackers
+ * indépendants sur le même `GlobalFonts` se marcheraient dessus.
+ */
+export function ensureFontRegistered(fontsDir: string): void {
   const file = path.join(fontsDir, 'Anton-Regular.ttf')
   let digest: string
   try {

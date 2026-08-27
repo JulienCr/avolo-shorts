@@ -4,7 +4,8 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
 import { z } from 'zod'
-import { DEFAULT_CAPTION_STYLE, renderAss, type CaptionStyle } from '@/core/captions/ass'
+import { captionUnits, DEFAULT_CAPTION_STYLE, fontName, renderAss, type CaptionStyle } from '@/core/captions/ass'
+import type { Measure } from '@/core/captions/wrap'
 import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
 import { clipDuration, type Clip, type Ratio, type Segment } from '@/core/edl'
@@ -40,6 +41,7 @@ import {
   type Progress,
 } from '@/server/ffmpeg'
 import { renderHookImage, type HookImage } from '@/server/hook-image'
+import { createCaptionMeasure } from '@/server/caption-measure'
 import { probe } from '@/server/ffprobe'
 import { isAAbsence } from '@/server/bytes'
 import { rendersDir, resolveSource } from '@/server/paths'
@@ -378,8 +380,19 @@ export function pathsRender(
  * cause que le 10 de la veille : la recette ffmpeg change — `fps=30` en tête
  * de chaque entrée — et aucun champ de l'empreinte ne porte le graphe. Sans
  * l'incrément, les rendus en 60 se disent à jour et personne ne les refait.
+ *
+ * **Passée à 12 le 28 août 2026, avec la coupure de ligne stable des
+ * sous-titres.** `renderAss` écrit désormais `PlayResX`, `WrapStyle: 2` et des
+ * `\N` explicites au lieu de laisser libass rejouer le retour à la ligne à
+ * chaque image — le fichier `.ass` change de forme sans qu'aucun champ de
+ * l'empreinte ne le capture. **Une autre session travaillant ce soir sur ce
+ * même fichier a pu monter cette valeur en parallèle** : quiconque fusionne
+ * en second doit relire `VERSION_FINGERPRINT` sur `main` juste avant de
+ * merger et la corriger à `main + 1` si elle a bougé — deux PR qui écrivent
+ * la même valeur fusionnent sans conflit, et la seconde n'invaliderait alors
+ * plus rien.
  */
-export const VERSION_FINGERPRINT = 11
+export const VERSION_FINGERPRINT = 12
 
 /**
  * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes
@@ -1740,6 +1753,17 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
     fonts: fontsDigest(fontsFolder(options.fontsDir)),
   }
 
+  // La mesure réelle de `renderAss`, construite ici parce que c'est ici que
+  // `look.style` est connu et que `fontsFolder(options.fontsDir)` est déjà
+  // évalué pour `fontsDigest` juste au-dessus. Même repère que `Style:` dans
+  // le fichier ASS : la même famille (`fontName`) et la même taille
+  // (`captionUnits(...).sizeUnits`, en unités `PlayResY`).
+  const captionMeasure = createCaptionMeasure(
+    fontsFolder(options.fontsDir),
+    fontName(look.style.fontName),
+    captionUnits(look.style).sizeUnits,
+  )
+
   // **Le hook qu'on incrusterait maintenant, avant la décision de saut** — le
   // même geste que `textCurrent` plus bas, pour la même raison : c'est ce qui
   // attrape un réglage global changé sans qu'aucun champ du clip n'ait bougé
@@ -1776,7 +1800,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   // Calculé une seule fois pour tout le passage : la décision de saut s'en
   // sert ici, et l'écriture du `.ass` plus bas réutilise le même document
   // plutôt que de relire le transcript une seconde fois.
-  const textCurrent: string | null = clip.captions ? await currentCaptionsDocument(clip, project, look.style) : null
+  const textCurrent: string | null = clip.captions ? await currentCaptionsDocument(clip, project, look.style, captionMeasure) : null
 
   // Ce que les fichiers présents décrivent, s'il y en a.
   const gap = lFingerprintGap(lireFingerprint(paths.fingerprint), renderedShape(clip, framingSnapshot), {
@@ -2575,15 +2599,21 @@ function fontsUsableFolder(given?: string): string | undefined {
  *    longueur par défaut pendant que tout le reste du style change.
  * 3. `renderAss` — dont la sortie commence par un BOM UTF-8 et s'écrit telle
  *    quelle.
+ *
+ * `measure` est **obligatoire**, jamais par défaut : un défaut qui mesurerait
+ * tout à zéro laisserait `wrapCard` ne jamais couper, donc libass reprendrait
+ * la main faute de `\N` — exactement le défaut que cette chaîne ferme, revenu
+ * en silence par l'oubli d'un appelant plutôt que par une régression visible.
  */
 export function clipUnderTitles(
   words: Word[],
   segments: Segment[],
   style: CaptionStyle,
+  measure: Measure,
 ): string | null {
   const recalibrated = retimeWords(words, segments)
   const cards = splitIntoCards(recalibrated, style.maxChars, style.maxDuration)
-  return cards.length === 0 ? null : renderAss(cards, style)
+  return cards.length === 0 ? null : renderAss(cards, style, measure)
 }
 
 /**
@@ -2627,6 +2657,7 @@ async function currentCaptionsDocument(
   clip: Pick<Clip, 'id' | 'segments'>,
   project: Project,
   style: CaptionStyle,
+  measure: Measure,
 ): Promise<string | null> {
   const transcript = await projectTranscript(project)
   if (transcript === null) {
@@ -2644,7 +2675,7 @@ async function currentCaptionsDocument(
   }
 
   const words: Word[] = transcript.segments.flatMap((s) => s.words)
-  return clipUnderTitles(words, clip.segments, style)
+  return clipUnderTitles(words, clip.segments, style, measure)
 }
 
 /**

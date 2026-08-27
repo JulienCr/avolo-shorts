@@ -3,7 +3,23 @@ import { describe, it, expect } from 'vitest'
 // Vitest échouerait sur l'import avant d'exécuter le moindre test.
 import { retimeWords, elapsedInClip } from '@/core/captions/retime'
 import { splitIntoCards } from '@/core/captions/cards'
-import { renderAss, captionUnits, PLAYRES_Y, DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
+import {
+  renderAss,
+  captionUnits,
+  PLAYRES_X,
+  PLAYRES_Y,
+  DEFAULT_CAPTION_STYLE,
+  MARGIN_SIDE,
+} from '@/core/captions/ass'
+import type { Measure } from '@/core/captions/wrap'
+
+/**
+ * `measure` obligatoire (revue du plan) : un défaut à zéro dans `renderAss`
+ * referait taire l'oubli d'un appelant, exactement le défaut que cette PR
+ * ferme. Les tests qui ne portent pas sur la coupure de ligne l'injectent
+ * donc explicitement, réglée pour ne jamais couper — le comportement d'avant.
+ */
+const NO_WRAP: Measure = () => 0
 
 /** Les lignes d'événement d'un fichier ASS, dans l'ordre. */
 function dialogues(ass: string): string[] {
@@ -238,8 +254,7 @@ describe('captionUnits', () => {
     const units = captionUnits(DEFAULT_CAPTION_STYLE)
     const ass = renderAss(
       [[{ word: 'x', start: 0, end: 1 }]],
-      DEFAULT_CAPTION_STYLE,
-    )
+      DEFAULT_CAPTION_STYLE, NO_WRAP)
     const fields = ass.split('\n').find((l) => l.startsWith('Style: '))!.split(',')
     expect(fields[2]).toBe(String(units.sizeUnits))
     expect(fields[16]).toBe(String(units.borderUnits))
@@ -266,7 +281,7 @@ describe('renderAss', () => {
   ]
 
   it('émet un événement Dialogue par mot, chaque carton entier à chaque fois', () => {
-    const ass = renderAss(cards, DEFAULT_CAPTION_STYLE)
+    const ass = renderAss(cards, DEFAULT_CAPTION_STYLE, NO_WRAP)
     const events = dialogues(ass)
     expect(events.length).toBe(2)
     for (const e of events) {
@@ -276,13 +291,13 @@ describe('renderAss', () => {
   })
 
   it('déclare Anton et la couleur de surlignage au format ASS &HBBGGRR', () => {
-    const ass = renderAss(cards, DEFAULT_CAPTION_STYLE)
+    const ass = renderAss(cards, DEFAULT_CAPTION_STYLE, NO_WRAP)
     expect(ass).toContain('Style: Default,Anton,')
     expect(ass).toContain('&H00E5FF&') // #FFE500 inversé en BGR
   })
 
   it('échappe les accolades, qui sont la syntaxe des balises ASS', () => {
-    const ass = renderAss([[{ word: '{piégé}', start: 0, end: 1 }]], DEFAULT_CAPTION_STYLE)
+    const ass = renderAss([[{ word: '{piégé}', start: 0, end: 1 }]], DEFAULT_CAPTION_STYLE, NO_WRAP)
     expect(ass).not.toMatch(/[^\\]\{piégé/)
   })
 
@@ -293,14 +308,14 @@ describe('renderAss', () => {
     const ass = renderAss([[{ word: '{piégé}\\N', start: 0, end: 1 }]], {
       ...DEFAULT_CAPTION_STYLE,
       uppercase: false,
-    })
+    }, NO_WRAP)
     const text = textOf(dialogues(ass)[0])
     expect(text).toContain('(piégé)/N')
     expect(text).not.toContain('{piégé')
   })
 
   it('met la police à l’échelle de PlayResY 288 : 22 devient 18', () => {
-    const ass = renderAss(cards, DEFAULT_CAPTION_STYLE)
+    const ass = renderAss(cards, DEFAULT_CAPTION_STYLE, NO_WRAP)
     expect(ass).toContain('PlayResY: 288')
     expect(styleLine(ass).split(',')[2]).toBe('18')
   })
@@ -308,14 +323,14 @@ describe('renderAss', () => {
   // La traduction taille → unités ASS ne se relit nulle part ailleurs dans le
   // fichier rendu : c'est celle qui se casse silencieusement.
   it('verrouille la traduction fontSize → Fontsize : 22 produit 18', () => {
-    const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, fontSize: 22 })
+    const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, fontSize: 22 }, NO_WRAP)
     expect(styleLine(ass).split(',')[2]).toBe('18')
   })
 
   // 43 unités de PlayResY, soit ~15 % de la hauteur. Les 25 d'avant passaient
   // sous l'interface de TikTok : c'est une mesure, pas un goût.
   it('pose la marge basse à 43 et cale les sous-titres en bas', () => {
-    const fields = styleLine(renderAss(cards, DEFAULT_CAPTION_STYLE)).split(',')
+    const fields = styleLine(renderAss(cards, DEFAULT_CAPTION_STYLE, NO_WRAP)).split(',')
     expect(fields[18]).toBe('2') // Alignment : bas centré
     expect(fields[21]).toBe('43') // MarginV
   })
@@ -323,7 +338,7 @@ describe('renderAss', () => {
   // Deux formats de couleur, et les confondre inverse les couleurs sans erreur.
   // #FFE500 n'est pas un palindrome : le contrôle mord.
   it('écrit les couleurs du bloc Style en &HAABBGGRR', () => {
-    const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, fontColor: '#FFE500' })
+    const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, fontColor: '#FFE500' }, NO_WRAP)
     const fields = styleLine(ass).split(',')
     expect(fields[3]).toBe('&H0000E5FF') // opaque, BGR
     expect(fields[5]).toBe('&H00000000') // contour noir opaque
@@ -331,13 +346,13 @@ describe('renderAss', () => {
   })
 
   it('borne chaque événement sur le début du mot suivant, le dernier sur la fin du carton', () => {
-    const events = dialogues(renderAss(cards, DEFAULT_CAPTION_STYLE))
+    const events = dialogues(renderAss(cards, DEFAULT_CAPTION_STYLE, NO_WRAP))
     expect(events[0].startsWith('Dialogue: 0,0:00:00.00,0:00:00.50,Default,,0,0,0,,')).toBe(true)
     expect(events[1].startsWith('Dialogue: 0,0:00:00.50,0:00:00.90,Default,,0,0,0,,')).toBe(true)
   })
 
   it("n'enveloppe que le mot actif, et le mot actif avance d'un événement à l'autre", () => {
-    const events = dialogues(renderAss(cards, DEFAULT_CAPTION_STYLE))
+    const events = dialogues(renderAss(cards, DEFAULT_CAPTION_STYLE, NO_WRAP))
     const active = /\{\\c&H00E5FF&\\fscx90\\fscy90\\t\(0,110,\\fscx108\\fscy108\)\}(\w+)\{\\r\}/
     expect(events[0].match(active)?.[1]).toBe('SALUT')
     expect(events[1].match(active)?.[1]).toBe('TOI')
@@ -355,8 +370,7 @@ describe('renderAss', () => {
           { word: 'b', start: 0.004, end: 0.5 },
         ],
       ],
-      DEFAULT_CAPTION_STYLE,
-    )
+      DEFAULT_CAPTION_STYLE, NO_WRAP)
     expect(dialogues(ass).length).toBe(1)
   })
 
@@ -364,7 +378,7 @@ describe('renderAss', () => {
   // pleine, pas `0:00:59.99` (Copilot). Le portage avait hérité de l'écrêtage de
   // la version d'origine, qui perd jusqu'à 10 ms au passage de chaque seconde.
   it("propage la retenue de l'arrondi au lieu de l'écrêter", () => {
-    const ass = renderAss([[{ word: 'a', start: 59.5, end: 59.999 }]], DEFAULT_CAPTION_STYLE)
+    const ass = renderAss([[{ word: 'a', start: 59.5, end: 59.999 }]], DEFAULT_CAPTION_STYLE, NO_WRAP)
     expect(dialogues(ass)[0]).toContain('0:00:59.50,0:01:00.00')
   })
 
@@ -376,8 +390,7 @@ describe('renderAss', () => {
           { word: 'b', start: 0, end: 0.5 },
         ],
       ],
-      DEFAULT_CAPTION_STYLE,
-    )
+      DEFAULT_CAPTION_STYLE, NO_WRAP)
     expect(dialogues(ass).length).toBe(1)
   })
 
@@ -386,11 +399,11 @@ describe('renderAss', () => {
   it('écrit le fichier en UTF-8 avec BOM', () => {
     // Par le point de code, pas par un littéral : un U+FEFF dans la source d'un
     // test est invisible, donc le contrôle passerait encore après l'avoir perdu.
-    expect(renderAss(cards, DEFAULT_CAPTION_STYLE).codePointAt(0)).toBe(0xfeff)
+    expect(renderAss(cards, DEFAULT_CAPTION_STYLE, NO_WRAP).codePointAt(0)).toBe(0xfeff)
   })
 
   it('rend un document valide, et sans événement, sans carton', () => {
-    const ass = renderAss([], DEFAULT_CAPTION_STYLE)
+    const ass = renderAss([], DEFAULT_CAPTION_STYLE, NO_WRAP)
     expect(ass).toContain('[Events]')
     expect(dialogues(ass)).toEqual([])
   })
@@ -407,7 +420,7 @@ describe('renderAss', () => {
       borderWidth: 7,
       uppercase: false,
       marginV: 60,
-    })
+    }, NO_WRAP)
     const fields = styleLine(ass).split(',')
     expect(fields[1]).toBe('Impact')
     expect(fields[2]).toBe('85')
@@ -421,7 +434,7 @@ describe('renderAss', () => {
   // Une virgule dans le nom de la police ajouterait des champs à la ligne de
   // style, donc réécrirait la taille, les couleurs et la marge.
   it("ne laisse pas un nom de police injecter des champs dans la ligne de style", () => {
-    const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, fontName: 'Anton,72,&HFF0000' })
+    const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, fontName: 'Anton,72,&HFF0000' }, NO_WRAP)
     expect(styleLine(ass).slice('Style: '.length).split(',').length).toBe(23)
   })
 
@@ -429,7 +442,7 @@ describe('renderAss', () => {
   // corromprait le fichier. `splitIntoCards` normalise déjà les blancs, mais
   // `renderAss` est exporté et sa documentation dit qu'il se suffit (Aristarque).
   it('aplatit un saut de ligne, qui couperait la ligne Dialogue en deux', () => {
-    const ass = renderAss([[{ word: 'deux\nlignes\r', start: 0, end: 1 }]], DEFAULT_CAPTION_STYLE)
+    const ass = renderAss([[{ word: 'deux\nlignes\r', start: 0, end: 1 }]], DEFAULT_CAPTION_STYLE, NO_WRAP)
     expect(dialogues(ass).length).toBe(1)
     expect(textOf(dialogues(ass)[0])).toContain('DEUX LIGNES')
   })
@@ -437,7 +450,7 @@ describe('renderAss', () => {
   // `borner(…, 0, …)` puis `Math.max(1, …)` se contredisaient : un preset à 0
   // remontait à 1 sans rien dire (Aristarque). Une seule garde, qui l'énonce.
   it('remonte un contour nul au minimum lisible', () => {
-    const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, borderWidth: 0 })
+    const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, borderWidth: 0 }, NO_WRAP)
     expect(styleLine(ass).split(',')[16]).toBe('1')
   })
 
@@ -447,11 +460,64 @@ describe('renderAss', () => {
       fontColor: 'rouge',
       highlightColor: '#GGGGGG',
       borderColor: '',
-    })
+    }, NO_WRAP)
     const fields = styleLine(ass).split(',')
     expect(fields[3]).toBe('&H00FFFFFF')
     expect(fields[5]).toBe('&H00000000')
     expect(ass).toContain('&H00D7FF&') // le jaune de repli, #FFD700
+  })
+})
+
+// La coupure de ligne est-elle stable **au sein d'un même carton** ? Un
+// contrôle qui ne regarderait que « tous les événements portent la même
+// structure `\N` » passerait trivialement sur le commit parent, qui n'en
+// écrit aucun : on exige donc la PRÉSENCE d'un `\N` autant que son identité
+// d'un événement à l'autre.
+describe('la coupure de ligne stable au sein d’un carton', () => {
+  const card = [
+    { word: 'one', start: 0, end: 0.4 },
+    { word: 'two', start: 0.5, end: 0.9 },
+    { word: 'three', start: 1.0, end: 1.4 },
+    { word: 'four', start: 1.5, end: 1.9 },
+  ]
+  // Choisie pour placer le carton pile à la frontière : "ONE TWO THREE" tient
+  // sous `maxWidth`, "ONE TWO THREE FOUR" la dépasse de peu.
+  const maxWidth = PLAYRES_X - 2 * MARGIN_SIDE
+  const boundaryMeasure: Measure = (text) => (text.length * maxWidth) / 17
+
+  /** Le texte d'un événement, débarrassé de ses balises ASS, en lignes de mots. */
+  function partition(dialogue: string): string[][] {
+    return textOf(dialogue)
+      .replace(/\{[^}]*\}/g, '')
+      .split('\\N')
+      .map((line) => line.trim().split(' ').filter((w) => w !== ''))
+  }
+
+  it('interdit à libass de rejouer le retour à la ligne', () => {
+    const ass = renderAss([card], DEFAULT_CAPTION_STYLE, boundaryMeasure)
+    expect(ass).toContain('WrapStyle: 2')
+    expect(ass).toContain(`PlayResX: ${PLAYRES_X}`)
+  })
+
+  it('écrit un \\N identique dans tous les événements du carton', () => {
+    const ass = renderAss([card], DEFAULT_CAPTION_STYLE, boundaryMeasure)
+    const events = dialogues(ass)
+    expect(events.length).toBe(4)
+
+    // La présence du \N ferme le passage trivial : sans elle, ce test
+    // passerait déjà sur le commit parent, faute de rien à comparer.
+    for (const e of events) expect(textOf(e)).toContain('\\N')
+
+    const partitions = events.map(partition)
+    expect(partitions[0]).toEqual([['ONE', 'TWO', 'THREE'], ['FOUR']])
+    for (const p of partitions.slice(1)) expect(p).toEqual(partitions[0])
+  })
+
+  it("ne coupe jamais un mot seul, même si measure le dépasse", () => {
+    const long = [{ word: 'supercalifragilisticexpialidocious', start: 0, end: 1 }]
+    const alwaysOver: Measure = () => Number.MAX_SAFE_INTEGER
+    const ass = renderAss([long], DEFAULT_CAPTION_STYLE, alwaysOver)
+    expect(textOf(dialogues(ass)[0])).not.toContain('\\N')
   })
 })
 
@@ -468,7 +534,7 @@ describe('la chaîne recalage → cartons → ASS', () => {
       { word: 'salut', start: 2841.2, end: 2841.6 },
       { word: 'toi', start: 2874.1, end: 2874.5 },
     ]
-    const ass = renderAss(splitIntoCards(retimeWords(words, segments)), DEFAULT_CAPTION_STYLE)
+    const ass = renderAss(splitIntoCards(retimeWords(words, segments)), DEFAULT_CAPTION_STYLE, NO_WRAP)
     const events = dialogues(ass)
     expect(events.length).toBe(2)
     expect(events[0]).toContain('0:00:00.00')

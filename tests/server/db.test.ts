@@ -835,6 +835,28 @@ describe('la grammaire du registre', () => {
       )
       expect(parseSetting(c, 'http://user:secret@172.28.0.1:11434')).toBeUndefined()
     })
+
+    /**
+     * #223 (relevé par Copilot) : une URL refusée précisément parce qu'elle
+     * porte des identifiants ne doit pas les recopier dans le message
+     * d'erreur (`responseError` journalise l'objet entier) ni dans
+     * l'avertissement de lecture.
+     */
+    it('ne recopie pas la valeur refusée d’un champ url dans le message ou le journal', () => {
+      try {
+        validateSetting(c, 'http://user:secret@172.28.0.1:11434')
+        throw new Error('devait lever')
+      } catch (err) {
+        expect(err).toBeInstanceOf(InvalidSettingError)
+        expect((err as Error).message).not.toContain('secret')
+      }
+
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      expect(parseSetting(c, 'http://user:secret@172.28.0.1:11434')).toBeUndefined()
+      expect(warn).toHaveBeenCalledOnce()
+      expect(String(warn.mock.calls[0][0])).not.toContain('secret')
+      warn.mockRestore()
+    })
   })
 
   /**

@@ -881,7 +881,17 @@ function warnRejected(field: SettingField, raw: string, seen?: Set<string>): und
     if (seen.has(key)) return undefined
     seen.add(key)
   }
-  const shown = raw.length > RAW_LOG_MAX ? `${raw.slice(0, RAW_LOG_MAX)}…` : raw
+  // **Un champ `format: 'url'` peut porter `user:motdepasse@hôte`** : une
+  // valeur rejetée n'en reste pas moins un secret potentiel, et le journal
+  // serveur est plus facile à lire ou à partager que la table elle-même
+  // (relevé par Copilot). Masquée plutôt que tronquée, contrairement aux
+  // autres champs texte.
+  const shown =
+    field.format === 'url'
+      ? '(masqué, format url)'
+      : raw.length > RAW_LOG_MAX
+        ? `${raw.slice(0, RAW_LOG_MAX)}…`
+        : raw
   console.warn(
     `Réglage ${storedKey(field)} : valeur stockée invalide (${JSON.stringify(shown)}), retour au défaut ${JSON.stringify(field.defaultValue)}.`,
   )
@@ -1039,9 +1049,14 @@ export function validateSetting(
       // **Vide n'est jamais une URL invalide** : quand `allowEmpty` l'a
       // laissé passer, il veut dire « non configuré », un état légitime que
       // `isValidUrl` rejetterait sinon comme n'importe quel autre texte creux.
+      // **La valeur refusée n'est pas répétée** : `responseError`
+      // (`src/server/http.ts`) journalise l'objet erreur entier, et une
+      // saisie rejetée précisément parce qu'elle porte des identifiants ou
+      // un jeton ne doit pas les recopier dans les logs serveur (relevé par
+      // Copilot).
       if (field.format === 'url' && !isEmpty && !isValidUrl(value)) {
         throw new InvalidSettingError(
-          `Réglage ${key} : une URL absolue http:// ou https:// est attendue, reçu ${JSON.stringify(value)}.`,
+          `Réglage ${key} : une URL absolue http:// ou https:// est attendue, sans requête, fragment ni identifiants.`,
         )
       }
       return value

@@ -30,6 +30,52 @@ sont publiés ensemble via Upload Post.
   l’ensemble du problème ou seulement la publication groupée TikTok/YouTube.
 - Vérifier le comportement du connecteur TikTok direct et celui d’Upload Post.
 
+### Remplacer Upload Post pour YouTube Shorts — priorité forte
+
+Suivi dans
+[l’issue #168](https://github.com/JulienCr/avolo-shorts/issues/168).
+
+**Risque**
+
+YouTube est actuellement publié via l’offre gratuite d’Upload Post, limitée à
+10 publications par mois. Ce volume est incompatible avec l’objectif
+d’industrialisation de la distribution d’Avolo Shorts. Upload Post ne doit donc
+pas rester une dépendance structurelle du canal YouTube.
+
+**Objectif**
+
+Publier automatiquement les Shorts via un connecteur YouTube direct, puis
+retirer Upload Post lorsque TikTok et YouTube disposent tous les deux d’un
+chemin autonome suffisamment fiable.
+
+**Point bloquant à instruire fortement**
+
+L’upload technique via l’API YouTube Data et `videos.insert` est possible,
+mais un projet Google Cloud non audité impose des vidéos privées verrouillées.
+Il faut donc choisir et valider une trajectoire :
+
+- préparer et demander l’audit Google nécessaire à la publication publique ;
+- évaluer temporairement un upload privé suivi d’une publication manuelle ;
+- confirmer les quotas réels et demander leur augmentation si le rythme cible
+  l’exige.
+
+**Travail technique envisagé**
+
+- OAuth 2.0 avec consentement et `refresh_token` durable ;
+- upload reprenable par morceaux ;
+- titre, description, visibilité et métadonnées YouTube ;
+- détection et remontée détaillée des erreurs dans le planning ;
+- suivi de l’état après l’envoi ;
+- tests de quota, de reprise et d’expiration des jetons ;
+- connecteur YouTube direct prioritaire devant Upload Post ;
+- suppression finale d’Upload Post et de sa configuration.
+
+**Critère de sortie**
+
+Le système peut planifier et publier les Shorts YouTube au rythme prévu sans
+consommer le quota mensuel d’Upload Post, avec un parcours manuel clairement
+assumé uniquement si l’audit Google n’est pas encore obtenu.
+
 ### Faciliter le repartage des Reels Instagram en story
 
 Suivi dans

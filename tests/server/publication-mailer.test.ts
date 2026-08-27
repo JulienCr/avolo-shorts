@@ -60,6 +60,37 @@ describe('createResendMailer', () => {
     error.mockRestore()
   })
 
+  it('transmet le champ html à Resend quand il est fourni', async () => {
+    let seenInit: RequestInit | undefined
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      seenInit = init
+      return jsonResponse(200, { id: 'email_1' })
+    })
+    const mailer = createResendMailer({ RESEND_API_KEY: 'clef_test' }, fetchImpl)
+
+    await mailer('sujet', 'corps texte', '<p>corps html</p>')
+
+    if (seenInit === undefined) throw new Error('init manquant')
+    const body = JSON.parse(seenInit.body as string) as { text: string; html?: string }
+    expect(body.text).toBe('corps texte')
+    expect(body.html).toBe('<p>corps html</p>')
+  })
+
+  it("n'envoie pas de champ html quand l'appelant ne fournit que du texte", async () => {
+    let seenInit: RequestInit | undefined
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      seenInit = init
+      return jsonResponse(200, { id: 'email_1' })
+    })
+    const mailer = createResendMailer({ RESEND_API_KEY: 'clef_test' }, fetchImpl)
+
+    await mailer('sujet', 'corps texte')
+
+    if (seenInit === undefined) throw new Error('init manquant')
+    const body = JSON.parse(seenInit.body as string) as Record<string, unknown>
+    expect('html' in body).toBe(false)
+  })
+
   it('retombe sur l’adresse par défaut quand RESEND_FROM est encore une adresse 1Password non résolue', async () => {
     let seenInit: RequestInit | undefined
     const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {

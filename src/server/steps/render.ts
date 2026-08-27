@@ -373,8 +373,13 @@ export function pathsRender(
  * l'ordonnanceur republie le défaut au réarmement. Coût : un réencodage par
  * clip, une fois — et c'est précisément ce qu'on veut ici.
  * (relevé par Copilot)
+ *
+ * **Passée à 11 le 27 août 2026, avec la cadence de livraison à 30.** Même
+ * cause que le 10 de la veille : la recette ffmpeg change — `fps=30` en tête
+ * de chaque entrée — et aucun champ de l'empreinte ne porte le graphe. Sans
+ * l'incrément, les rendus en 60 se disent à jour et personne ne les refait.
  */
-export const VERSION_FINGERPRINT = 10
+export const VERSION_FINGERPRINT = 11
 
 /**
  * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes

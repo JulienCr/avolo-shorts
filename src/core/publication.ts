@@ -128,12 +128,11 @@ export type PublicationRecord = {
    * L'empreinte de rendu (`renderFingerprint`, `src/server/steps/render.ts`)
    * telle qu'elle était **au moment de la publication**.
    *
-   * **Personne ne l'écrit encore : il n'y a pas d'empreinte publiée puisqu'il
-   * n'y a pas de publication.** Le champ existe pour que le jour où un
-   * connecteur écrit une ligne, `isPublicationStale` distingue tout de suite
-   * « Instagram — publié » de « Instagram — publié, mais le clip local a été
-   * modifié depuis » (retour d'usage §9), sans qu'il faille inventer un
-   * second mécanisme : l'empreinte compare déjà le condensat du document de
+   * **Écrite par les connecteurs depuis le 23 août 2026**
+   * (`src/server/publication/service.ts`). `isPublicationStale` la compare à
+   * l'empreinte courante pour distinguer « Instagram — publié » de
+   * « Instagram — publié, mais le clip local a été modifié depuis » (retour
+   * d'usage §9) : l'empreinte compare déjà le condensat du document de
    * sous-titres réellement incrusté, en plus des segments, du ratio, du crop,
    * du branding et des marques (PR #89).
    */
@@ -145,6 +144,13 @@ export type PublicationRecord = {
    * raison (`upload-post.ts`). (relevé par Codex)
    */
   error: string | null
+  /**
+   * Le verdict du serveur (`isPublicationStale`) sur cette publication, tel
+   * que `GET /api/clips/:id/publications` le rend. Absent quand l'appelant
+   * n'interroge pas cette route — `toRecord` (`src/server/publication/service.ts`)
+   * en usage interne, par exemple, qui ne rend jamais cette valeur.
+   */
+  stale?: boolean
 }
 
 /**
@@ -172,6 +178,13 @@ export type PublicationRow = {
   /** L'échéance de diffusion, en ms depuis l'époque. `NULL` hors ordonnancement. */
   scheduledAt: number | null
 }
+
+/**
+ * `PublicationRow`, telle que `GET /api/clips/:id/publications` la sert : la
+ * ligne, plus le verdict du serveur (`isPublicationStale`) sur l'empreinte du
+ * rendu actuel.
+ */
+export type PublicationView = PublicationRow & { stale: boolean }
 
 /**
  * La publication `record` correspond-elle encore au montage courant ?

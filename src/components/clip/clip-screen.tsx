@@ -116,6 +116,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         remoteUrl: row.remoteUrl,
         publishedFingerprint: row.publishedFingerprint,
         error: row.error,
+        stale: row.stale,
       },
     ]),
   )

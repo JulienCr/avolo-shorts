@@ -223,12 +223,6 @@ export function PanelExport({
     title: clip.title,
     eligibility: publicationEligibility,
     records: publicationRecords,
-    // **L'empreinte de ce rail, pas une recomputation.** `empreinte` porte
-    // déjà tout ce qui décide du rendu (segments, ratio, cadrage, marques,
-    // sous-titres, textes) — voir le commentaire de la prop plus haut. La
-    // passer ici est ce qui préparera la nuance du retour d'usage §9 le jour
-    // où une publication existera pour de vrai.
-    currentFingerprint: fingerprint,
   }
 
   return (

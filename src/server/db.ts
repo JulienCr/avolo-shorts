@@ -745,6 +745,11 @@ const PUBLICATION_FIELD_SHAPES = {
   // Pas d'`enum` ici : la forme `HH:MM[,HH:MM]*` n'est pas un ensemble fermé de
   // littéraux. `sanitizeScheduleHours` la valide à la lecture, plus bas.
   scheduleHours: { type: 'text', defaultValue: DEFAULT_SCHEDULE_HOURS },
+  // `true` par défaut : la tâche planifiée existe pour publier. Un défaut à
+  // `false` ferait d'une installation neuve un scheduler qui tourne sans
+  // rien faire tout en paraissant installé — le silence que ce champ existe
+  // pour bannir (issue publication-scheduler, PR F).
+  autoPublish: { type: 'boolean', defaultValue: true },
 } satisfies Record<keyof PublicationSettings, Omit<SettingField, 'family' | 'name'>>
 
 const PUBLICATION_FIELDS: readonly SettingField[] = (

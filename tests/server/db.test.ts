@@ -798,6 +798,7 @@ describe('appliquerRéglages', () => {
         tiktok: 'auto',
         youtube: 'auto',
         scheduleHours: '19:00',
+        autoPublish: true,
       },
       framing: { ...FRAMING_SETTINGS_DEFAULTS },
     })
@@ -2012,5 +2013,25 @@ describe('publication.scheduleHours', () => {
     expect(sanitizeScheduleHours('19:00,bogus,08:30,25:99,20:00,21:00,22:00')).toBe(
       '19:00,08:30,20:00,21:00',
     )
+  })
+})
+
+describe('publication.autoPublish', () => {
+  it('vaut `true` par défaut', () => {
+    expect(effectiveSettings(db).publication.autoPublish).toBe(true)
+  })
+
+  it('dégrade vers le défaut sans jamais lever, sur une valeur mal formée', () => {
+    db.prepare('INSERT INTO settings (key, value, updatedAt) VALUES (?, ?, ?)').run(
+      'publication.autoPublish',
+      'pas-un-booleen',
+      Date.now(),
+    )
+    expect(effectiveSettings(db).publication.autoPublish).toBe(true)
+  })
+
+  it('s’écrit et se relit par `applySettings`', () => {
+    applySettings(db, { publication: { autoPublish: false } })
+    expect(effectiveSettings(db).publication.autoPublish).toBe(false)
   })
 })

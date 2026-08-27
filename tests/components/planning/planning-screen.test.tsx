@@ -56,6 +56,7 @@ const SETTINGS: Settings = {
     tiktok: 'auto',
     youtube: 'auto',
     scheduleHours: DEFAULT_SCHEDULE_HOURS,
+    autoPublish: true,
   },
   framing: { ...FRAMING_SETTINGS_DEFAULTS },
 }

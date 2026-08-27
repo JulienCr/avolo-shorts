@@ -11,6 +11,7 @@ import type { Platform } from '@/core/publication'
 import type { Clip } from '@/core/edl'
 import { RENDER_NATIVE } from '@/core/render-flags'
 import {
+  applySettings,
   closeDb,
   getClip,
   getDb,
@@ -205,6 +206,15 @@ describe('POST /api/clips/:id/publish', () => {
     expect(response.status).toBe(200)
     const payload = (await response.json()) as { publications: { platform: string; status: string }[] }
     expect(payload.publications).toHaveLength(1)
+    expect(payload.publications[0]).toMatchObject({ platform: 'instagram', status: 'in_progress' })
+  })
+
+  it('publie encore avec `publication.autoPublish` à `false` : le manuel n’est pas le drapeau de l’ordonnanceur', async () => {
+    applySettings(getDb(), { publication: { autoPublish: false } })
+    await exportClip()
+    const response = await publishRoute(postRequest({ platforms: ['instagram'] }), context(CLIP_ID))
+    expect(response.status).toBe(200)
+    const payload = (await response.json()) as { publications: { platform: string; status: string }[] }
     expect(payload.publications[0]).toMatchObject({ platform: 'instagram', status: 'in_progress' })
   })
 

@@ -171,6 +171,19 @@ solution : la conception s'appuie sur l'hypothèse qu'une tâche planifiée
 tourne sans session, et son échec est un fait qu'il faut remonter, pas
 contourner en silence.
 
+## Arrêter les publications sans arrêter la tâche
+
+Le réglage `publication.autoPublish` (écran `/settings`, section
+Publication) décide seul si une passe publie ; la tâche continue de se
+réveiller toutes les cinq minutes et sort avec le code 0, sans rien faire, le
+temps que le drapeau reste coupé — `disabled` dans le journal.
+
+**Ne jamais couper avec `schtasks /Change /DISABLE`** : ça pose l'état
+d'arrêt côté Windows, invisible depuis l'application, dans un endroit que
+personne ne pense à revisiter. C'est comme ça que la tâche est restée coupée
+après l'incident du rendu défectueux (issue #212) — l'arrêt n'était visible
+nulle part dans le dépôt.
+
 ## Déprogrammer
 
 Retirer la tâche :

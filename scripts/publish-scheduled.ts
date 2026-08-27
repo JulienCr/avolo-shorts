@@ -52,6 +52,8 @@ function describe(outcome: Exclude<SchedulerOutcome, { kind: 'dry-run' }>, now: 
       return 'Rien à publier.'
     case 'locked':
       return `Verrou déjà posé depuis ${formatParis(outcome.since)}.`
+    case 'disabled':
+      return `${passTime} — Publication automatique désactivée (réglage publication.autoPublish).`
     case 'done':
       return `${passTime} — Publié : ${outcome.clipId} (${outcome.attempts} essai(s)).`
     case 'abandoned':

@@ -75,6 +75,7 @@ const PUBLICATION_DEFAULTS: Settings['publication'] = {
   tiktok: 'auto',
   youtube: 'auto',
   scheduleHours: DEFAULT_SCHEDULE_HOURS,
+  autoPublish: true,
 }
 
 const DEFAULTS: Settings = {

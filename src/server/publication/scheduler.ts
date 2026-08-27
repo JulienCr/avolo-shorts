@@ -4,9 +4,10 @@ import path from 'node:path'
 
 import type Database from 'better-sqlite3'
 
-import { PLATFORM_LABELS, PLATFORMS, PUBLICATION_STATUS_LABELS, type Platform, type PublicationStatus } from '@/core/publication'
+import { PLATFORM_LABELS, PLATFORMS, PUBLICATION_STATUS_LABELS, platformTexts, type Platform, type PublicationStatus } from '@/core/publication'
 import { effectiveSettings, getClip, getPublications, nextDueSchedule, upsertPublication } from '@/server/db'
 import { messageSafe } from '@/server/errors'
+import { adapterFor } from '@/server/publication'
 import { launchPublish } from '@/server/publication/service'
 import type { Mailer } from '@/server/publication/mailer'
 
@@ -377,6 +378,34 @@ async function notifyAbandoned(
 }
 
 /**
+ * Le dépôt TikTok arrive sans texte (`tiktok.ts`, `initUpload`) — ce courriel
+ * porte la légende pour qu'un humain la colle dans l'app. Texte utilisateur,
+ * donc échappée dans le HTML, dans un `<pre>` pour garder la ligne vide titre/description.
+ */
+async function notifyTikTokDraft(
+  sendMail: Mailer,
+  clipId: string,
+  clipTitle: string,
+  scheduledAt: number,
+  caption: string,
+): Promise<void> {
+  const label = clipTitle === '' ? clipId : clipTitle
+  const deadline = new Date(scheduledAt).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })
+  const notice = 'Le brouillon TikTok arrive sans texte (l’API de dépôt ne porte aucun champ légende) : à coller dans l’app.'
+  const html = `<div style="font-family:sans-serif;color:#202124">
+    <p><strong>Clip :</strong> ${escapeHtml(label)} (${escapeHtml(clipId)})</p>
+    <p><strong>Échéance :</strong> ${escapeHtml(deadline)}</p>
+    <p>${escapeHtml(notice)}</p>
+    <pre style="margin:0;white-space:pre-wrap;font-family:inherit;font-size:14px">${escapeHtml(caption)}</pre>
+  </div>`
+  await sendMail(
+    `Brouillon TikTok déposé : ${label}`,
+    [`Clip : ${label} (${clipId})`, `Échéance : ${deadline}`, notice, '', caption].join('\n'),
+    html,
+  )
+}
+
+/**
  * Publie une échéance due, avec ses réessais. Le retour reflète toujours
  * l'état réel de la base — un essai qui laisse une ligne `in_progress`
  * honnêtement non résolue (`service.ts`) n'est jamais réécrit en `failed` :
@@ -394,6 +423,11 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
     await notifyAbandoned(sendMail, db, clipId, clipId, scheduledAt)
     return { kind: 'abandoned', clipId, attempts: 0, statuses: statusesFor(db, clipId) }
   }
+
+  // Capturé avant le premier essai : une ligne TikTok déjà `submitted` d'une
+  // passe antérieure ne doit pas redéclencher ce courriel à chaque échéance
+  // suivante du même clip.
+  const tiktokWasOutstanding = outstandingPlatforms(db, clipId, scheduledAt).includes('tiktok')
 
   let attempts = 0
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
@@ -433,6 +467,15 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
   // un code de sortie 1 — alors que l'annulation avait réussi (relevé en
   // revue).
   const outstanding = outstandingPlatforms(db, clipId, scheduledAt)
+
+  // Indépendant du verdict `done` / `abandoned` : un dépôt TikTok réussi
+  // mérite son courriel même si une autre plateforme de la même échéance a
+  // été abandonnée à côté. Réservé au connecteur direct (`tiktok`) : Upload
+  // Post envoie déjà `job.description` comme légende (relevé en revue).
+  if (tiktokWasOutstanding && statuses.tiktok === 'submitted' && adapterFor('tiktok')?.id === 'tiktok') {
+    await notifyTikTokDraft(sendMail, clipId, clip.title, scheduledAt, platformTexts(clip, 'tiktok').description)
+  }
+
   if (outstanding.length === 0) return { kind: 'done', clipId, attempts, statuses }
 
   await notifyAbandoned(sendMail, db, clipId, clip.title, scheduledAt)

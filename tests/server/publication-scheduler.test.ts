@@ -587,3 +587,196 @@ describe('runOnePass — contamination par un essai manuel', () => {
     expect(publish.mock.calls.every((call) => !(call[1] as readonly Platform[]).includes('youtube'))).toBe(true)
   })
 })
+
+describe('runOnePass — le courriel de brouillon TikTok', () => {
+  it('envoie la légende du clip quand TikTok rend submitted', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] =
+          platform === 'tiktok'
+            ? { status: 'submitted', remoteId: 'p1', remoteUrl: null }
+            : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      }
+      return outcomes
+    })
+    fakeAdapter = { ...adapterAlwaysPublishing(publish), id: 'tiktok' }
+    const mails: Array<{ subject: string; body: string }> = []
+    const sendMail = vi.fn(async (subject: string, body: string) => {
+      mails.push({ subject, body })
+    })
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome.kind).toBe('done')
+    expect(mails).toHaveLength(1)
+    expect(mails[0]?.subject).toContain('La chute')
+    expect(mails[0]?.body).toContain('La chute')
+    expect(mails[0]?.body).toContain('Une impro qui part en vrille')
+  })
+
+  it('échappe la légende dans le HTML, la laisse intacte dans le texte', async () => {
+    putClip(getDb(), baseClip({ title: 'A & B <script>', description: 'un <b>gras</b> qui ne doit pas passer' }))
+    await renderClip(CLIP_ID, { db: getDb() })
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] =
+          platform === 'tiktok'
+            ? { status: 'submitted', remoteId: 'p1', remoteUrl: null }
+            : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      }
+      return outcomes
+    })
+    fakeAdapter = { ...adapterAlwaysPublishing(publish), id: 'tiktok' }
+    const mails: Array<{ subject: string; body: string; html?: string }> = []
+    const sendMail = vi.fn(async (subject: string, body: string, html?: string) => {
+      mails.push({ subject, body, html })
+    })
+
+    await runOnePass(deps({ sendMail }))
+
+    expect(mails).toHaveLength(1)
+    // Le texte brut porte la légende telle quelle, ligne vide titre/description comprise.
+    expect(mails[0]?.body).toContain('A & B <script>\n\nun <b>gras</b> qui ne doit pas passer')
+    const html = mails[0]?.html
+    expect(html).toContain('A &amp; B &lt;script&gt;')
+    expect(html).toContain('un &lt;b&gt;gras&lt;/b&gt; qui ne doit pas passer')
+    expect(html).not.toContain('<script>')
+    expect(html).not.toContain('<b>gras</b>')
+  })
+
+  it('n’envoie rien quand TikTok n’était pas parmi les plateformes dues de cette passe', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const due = getPublications(getDb(), CLIP_ID)[0]?.scheduledAt as number
+    // Un dépôt TikTok déjà `submitted` pour cette même échéance, comme si une
+    // passe antérieure l'avait déjà réglé.
+    upsertPublication(getDb(), {
+      clipId: CLIP_ID,
+      platform: 'tiktok',
+      status: 'submitted',
+      remoteId: 'p0',
+      remoteUrl: null,
+      requestId: null,
+      error: null,
+      publishedFingerprint: null,
+      createdAt: 1,
+      updatedAt: 1,
+      scheduledAt: due,
+    })
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) outcomes[platform] = { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      return outcomes
+    })
+    fakeAdapter = { ...adapterAlwaysPublishing(publish), id: 'tiktok' }
+    const sendMail = vi.fn(async () => {})
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome.kind).toBe('done')
+    expect(sendMail).not.toHaveBeenCalled()
+    expect(publish.mock.calls.every((call) => !(call[1] as readonly Platform[]).includes('tiktok'))).toBe(true)
+  })
+
+  it('n’envoie rien quand TikTok finit en échec', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] =
+          platform === 'tiktok' ? { status: 'failed', error: 'Panne simulée' } : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      }
+      return outcomes
+    })
+    fakeAdapter = { ...adapterAlwaysPublishing(publish), id: 'tiktok' }
+    const mails: Array<{ subject: string; body: string }> = []
+    const sendMail = vi.fn(async (subject: string, body: string) => {
+      mails.push({ subject, body })
+    })
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome.kind).toBe('abandoned')
+    expect(mails).toHaveLength(1)
+    expect(mails[0]?.subject).not.toContain('Brouillon TikTok')
+  })
+
+  it('n’envoie rien en --dry-run : la passe rend avant `processDueClip`', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const sendMail = vi.fn(async () => {})
+
+    const outcome = await runOnePass(deps({ sendMail }), { dryRun: true })
+
+    expect(outcome.kind).toBe('dry-run')
+    expect(sendMail).not.toHaveBeenCalled()
+  })
+
+  it('n’envoie rien quand `autoPublish` est à `false` : la passe rend `disabled` avant `processDueClip`', async () => {
+    applySettings(getDb(), { publication: { autoPublish: false } })
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const sendMail = vi.fn(async () => {})
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome).toEqual({ kind: 'disabled' })
+    expect(sendMail).not.toHaveBeenCalled()
+  })
+
+  it('envoie le courriel de brouillon même quand la passe se termine `abandoned` à cause d’une autre plateforme', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] =
+          platform === 'tiktok'
+            ? { status: 'submitted', remoteId: 'p1', remoteUrl: null }
+            : platform === 'youtube'
+              ? { status: 'failed', error: 'Panne simulée' }
+              : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      }
+      return outcomes
+    })
+    fakeAdapter = { ...adapterAlwaysPublishing(publish), id: 'tiktok' }
+    const sleep = vi.fn(async () => {})
+    const mails: Array<{ subject: string; body: string }> = []
+    const sendMail = vi.fn(async (subject: string, body: string) => {
+      mails.push({ subject, body })
+    })
+
+    const outcome = await runOnePass(deps({ sleep, sendMail }))
+
+    expect(outcome.kind).toBe('abandoned')
+    if (outcome.kind !== 'abandoned') throw new Error('unreachable')
+    expect(outcome.statuses.tiktok).toBe('submitted')
+    expect(outcome.statuses.youtube).toBe('failed')
+    // Le verdict de la passe est `abandoned` (YouTube), mais le dépôt TikTok
+    // a réussi : les deux courriels partent, ni l'un ni l'autre n'avale l'autre.
+    expect(mails).toHaveLength(2)
+    expect(mails.some((m) => m.subject.includes('Brouillon TikTok'))).toBe(true)
+    expect(mails.some((m) => !m.subject.includes('Brouillon TikTok'))).toBe(true)
+  })
+
+  it('n’envoie rien quand Upload Post porte TikTok : il envoie déjà la légende (relevé en revue)', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] =
+          platform === 'tiktok'
+            ? { status: 'submitted', remoteId: 'p1', remoteUrl: null }
+            : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      }
+      return outcomes
+    })
+    fakeAdapter = adapterAlwaysPublishing(publish) // id: 'upload-post', par défaut
+    const sendMail = vi.fn(async () => {})
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome.kind).toBe('done')
+    expect(sendMail).not.toHaveBeenCalled()
+  })
+})

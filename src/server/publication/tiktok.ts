@@ -32,31 +32,15 @@ export const MAX_CHUNK_SIZE = 64 * 1024 * 1024
 export type ChunkPlan = { chunkSize: number; chunkCount: number; lastChunkSize: number }
 
 /**
- * Le découpage TikTok (5-64 Mo par morceau, spec §2.3). `chunkSize` est la
- * valeur déclarée à `init` pour tous les morceaux sauf le dernier, qui absorbe
- * le reste plutôt que d'en produire un sous les 5 Mo minimum — TikTok accepte
- * que ce dernier morceau dépasse `chunkSize` en pratique, seule la valeur
- * déclarée doit rester dans les bornes.
+ * TikTok recalcule `total_chunk_count = floor(video_size / chunk_size)` et rejette
+ * toute valeur incohérente ; on équilibre les morceaux pour que l'égalité tienne
+ * toujours. Le dernier peut dépasser la valeur déclarée de quelques octets, loin sous le plafond de 128 Mo.
  */
 export function planChunks(fileSize: number): ChunkPlan {
   if (fileSize <= 0) throw new TikTokFileRefusedError(`Fichier vide ou illisible (${fileSize} octets).`)
-  if (fileSize <= MAX_CHUNK_SIZE) return { chunkSize: fileSize, chunkCount: 1, lastChunkSize: fileSize }
-  const wholeChunks = Math.floor(fileSize / MAX_CHUNK_SIZE)
-  const remainder = fileSize % MAX_CHUNK_SIZE
-  if (remainder === 0) return { chunkSize: MAX_CHUNK_SIZE, chunkCount: wholeChunks, lastChunkSize: MAX_CHUNK_SIZE }
-  if (remainder < MIN_CHUNK_SIZE) {
-    if (wholeChunks < 2) {
-      // Un seul morceau plein ne laisse personne dans qui fondre le reste, et
-      // le déclarer tel quel dépasserait `chunk_size` au-delà de son maximum
-      // (contrairement au dernier morceau d'un plan à plusieurs, où seule la
-      // taille réellement envoyée peut dépasser la valeur déclarée). On coupe
-      // donc en deux parts égales, toutes deux dans les bornes 5-64 Mo.
-      const chunkSize = Math.ceil(fileSize / 2)
-      return { chunkSize, chunkCount: 2, lastChunkSize: fileSize - chunkSize }
-    }
-    return { chunkSize: MAX_CHUNK_SIZE, chunkCount: wholeChunks, lastChunkSize: MAX_CHUNK_SIZE + remainder }
-  }
-  return { chunkSize: MAX_CHUNK_SIZE, chunkCount: wholeChunks + 1, lastChunkSize: remainder }
+  const chunkCount = Math.ceil(fileSize / MAX_CHUNK_SIZE)
+  const chunkSize = Math.floor(fileSize / chunkCount)
+  return { chunkSize, chunkCount, lastChunkSize: fileSize - (chunkCount - 1) * chunkSize }
 }
 
 function chunkRanges(plan: ChunkPlan): { start: number; end: number }[] {
@@ -128,6 +112,11 @@ async function requireOkTikTok<T>(response: Response): Promise<T> {
 
 type InitResponse = { publish_id: string; upload_url: string }
 
+/**
+ * `job.title` / `job.description` ne sont volontairement pas lus : `/inbox/video/init/`
+ * n'accepte que `source_info`, pas de `post_info` — l'endpoint qui porte un titre
+ * force `SELF_ONLY` sur une app non auditée (issue #168), donc bloqué ici.
+ */
 async function initUpload(
   fetchImpl: typeof fetch,
   accessToken: string,

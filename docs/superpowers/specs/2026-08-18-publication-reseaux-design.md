@@ -124,7 +124,7 @@ le connecteur préfixe désormais avec `https://www.facebook.com`.
 |---|---|
 | Publication directe | `video.publish`, contenu **forcé en `SELF_ONLY` tant que l'app n'est pas auditée** |
 | Dépôt en brouillon | `video.upload`, `POST /v2/post/publish/inbox/video/init/` |
-| Téléversement | `FILE_UPLOAD` chunké (5-64 Mo par morceau **déclaré** à `init` ; le dernier morceau réellement envoyé peut dépasser cette borne haute, jusqu'à un peu moins du double, plutôt que produire un reste sous 5 Mo) ou `PULL_FROM_URL` depuis un domaine vérifié |
+| Téléversement | `FILE_UPLOAD` chunké (5-64 Mo par morceau **déclaré** à `init`, sauf le dernier qui peut monter jusqu'à 128 Mo) ou `PULL_FROM_URL` depuis un domaine vérifié |
 | Débit non audité | 5 utilisateurs publiants sur 24 h |
 | Durée | 10 minutes maximum par les points d'entrée de téléversement |
 
@@ -139,6 +139,21 @@ Il a deux coûts. Le premier est un geste manuel par clip et par publication. Le
 second est une **péremption** : plusieurs sources tierces concordantes donnent 24 h
 avant que le brouillon soit jeté, aucune source primaire consultée ne la confirme.
 À mesurer au branchement plutôt qu'à recopier.
+
+**Un troisième coût, absent d'ici jusqu'au 27 août 2026 : le brouillon n'a
+nulle part où poser le texte.** `/inbox/video/init/` n'accepte que
+`source_info` — aucun champ légende, aucun titre. Le point de terminaison qui
+en porte un (`post_info`) est celui qui force `SELF_ONLY` sur une app non
+auditée (ci-dessus) : hors de portée avant l'audit. Le geste manuel par clip
+inclut donc coller la légende, pas seulement choisir la visibilité —
+mesuré contre le corps documenté de l'API, pas déduit.
+
+**Corrigé le 27 août 2026, mesuré par calcul plutôt que par un envoi réel.**
+TikTok recalcule lui-même `total_chunk_count = floor(video_size / chunk_size)`
+et rejette toute valeur déclarée qui ne vérifie pas cette égalité — un premier
+envoi non surveillé l'a découvert sur un clip de 92,2 Mo. `planChunks`
+équilibre désormais les morceaux pour que l'égalité tienne toujours, plutôt
+que de laisser le dernier absorber le reste.
 
 **Corrigé le 24 août 2026, mesuré contre l'app de Julien plutôt que déduit de
 la documentation.** Les deux paragraphes qui suivaient ici affirmaient que

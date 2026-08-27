@@ -876,14 +876,14 @@ describe('la grammaire du registre', () => {
       warn.mockRestore()
     })
 
-    it('tronque une valeur texte trop longue dans le message', () => {
+    it('ne recopie pas le début d’une valeur texte trop longue dans le message', () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const c = field('text', { format: 'url' })
       const longRaw = 'not-a-url-'.repeat(50)
       expect(parseSetting(c, longRaw)).toBeUndefined()
       expect(warn).toHaveBeenCalledOnce()
       const message = String(warn.mock.calls[0][0])
-      expect(message.length).toBeLessThan(longRaw.length)
+      expect(message).not.toContain(longRaw.slice(0, 10))
       warn.mockRestore()
     })
 

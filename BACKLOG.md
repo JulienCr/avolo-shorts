@@ -85,6 +85,81 @@ Suivi dans
 d’un visuel de story 9:16 et publication automatique ou export manuel selon les
 possibilités de l’API Meta.
 
+### Documenter les contraintes vidéo par plateforme — spike non urgent
+
+**Objectif**
+
+Vérifier qu’un même fichier vidéo peut être utilisé sans risque pour Instagram,
+TikTok, YouTube, Facebook et les éventuels usages Twitch. Si ce n’est pas le
+cas, identifier précisément les variantes d’encodage ou de packaging à
+produire.
+
+**Contexte**
+
+Avolo Shorts produit aujourd’hui un seul fichier pour toutes les plateformes.
+Un problème lié à une valeur de **64 Mo** a déjà été observé côté Twitch, sans
+que l’on sache encore s’il s’agit :
+
+- d’une limite sur la taille totale du fichier ;
+- d’une taille maximale de chunk ;
+- d’une contrainte du connecteur ou de la requête HTTP ;
+- d’un autre intermédiaire du pipeline.
+
+Ne pas documenter « 64 Mo » comme une limite Twitch avant d’avoir retrouvé la
+source exacte de l’erreur.
+
+**Livrable**
+
+Créer une documentation versionnée contenant une matrice par plateforme et par
+mode de publication : API directe, Upload Post le cas échéant, brouillon ou
+publication publique.
+
+Pour chaque plateforme, relever dans la documentation officielle :
+
+- durées minimale et maximale ;
+- taille maximale du fichier ;
+- conteneurs acceptés ;
+- codecs vidéo et audio ;
+- résolution et dimensions minimales/maximales ;
+- ratios acceptés ou recommandés ;
+- cadence d’image ;
+- débits et éventuelles contraintes de profil/niveau ;
+- règles audio ;
+- upload simple, multipart ou reprenable par chunks ;
+- taille minimale/maximale des chunks ;
+- limites propres au type de publication : Reel, Short, vidéo ou brouillon ;
+- comportement de transcodage de la plateforme ;
+- date de vérification et lien vers la source officielle.
+
+**Questions auxquelles le spike doit répondre**
+
+1. Le fichier maître actuel respecte-t-il l’intersection des contraintes de
+   toutes les plateformes ?
+2. Ces contraintes sont-elles seulement des limites d’acceptation ou existe-t-il
+   des recommandations de qualité contradictoires ?
+3. Faut-il produire plusieurs encodages, ou un seul encodage commun avec
+   plusieurs stratégies d’upload ?
+4. Le bumper final et les différents ratios changent-ils cette conclusion ?
+5. La limite observée à 64 Mo concerne-t-elle Twitch, un chunk ou le connecteur ?
+6. Quelles validations peuvent être faites avant l’envoi pour éviter un échec
+   tardif ?
+
+**Sortie attendue**
+
+- Une recommandation explicite : fichier unique ou profils par plateforme.
+- Si plusieurs profils sont nécessaires, le plus petit nombre de variantes
+  possible et la règle de sélection.
+- Des contrôles automatiques avant publication avec une erreur claire dans le
+  planning.
+- Une stratégie de chunking propre à chaque API, distincte de la décision
+  d’encodage.
+- Une liste de tests avec des fichiers aux limites de durée et de poids.
+
+**Priorité**
+
+Non urgent. À réaliser avant une montée significative du volume ou dès qu’un
+nouvel échec lié au format, au poids, à la durée ou au chunking est observé.
+
 ### Ajouter un pied commun aux descriptions des Reels
 
 **Objectif**
@@ -98,7 +173,7 @@ Le pied commun doit notamment pouvoir contenir :
 
 - une présentation en une ligne de La Scène Avolo ;
 - un CTA du type « Retrouvez-nous tous les dimanches sur Twitch » ;
-- l’adresse exacte de la chaîne Twitch, à confirmer ;
+- l’adresse de la chaîne : https://twitch.tv/la_scene_avolo ;
 - éventuellement des hashtags ou mentions permanentes.
 
 **À prévoir**
@@ -119,7 +194,7 @@ Le pied commun doit notamment pouvoir contenir :
 La Scène Avolo est la chaîne Twitch d’une compagnie de théâtre et
 d’improvisation, consacrée à l’impro au sens large : émissions, interviews,
 spectacles et musique improvisée. La version finale doit rester courte et être
-validée avec l’URL exacte de la chaîne.
+validée avec l’URL https://twitch.tv/la_scene_avolo.
 
 ### Ajouter un bumper final avec CTA Twitch
 
@@ -133,7 +208,7 @@ Contenu envisagé :
 
 - apparition rapide du logo Avolo ou La Scène Avolo ;
 - message du type « Retrouvez-nous sur Twitch tous les dimanches » ;
-- éventuellement l’identifiant ou l’adresse courte de la chaîne ;
+- l’adresse `twitch.tv/la_scene_avolo` ;
 - sortie nette marquant la fin de la vidéo.
 
 **Contraintes produit**

@@ -312,8 +312,7 @@ export function forwardAbort(
 
   // **Un groupe détaché échappe aussi aux signaux du terminal.** `detached:
   // true` retire le worker du groupe de premier plan : un `Ctrl-C` sur le
-  // serveur ne l'atteint plus tout seul, contrairement à un enfant ordinaire —
-  // `exit` tourne encore, une fois, avant que Node ne parte pour de bon.
+  // serveur ne l'atteint plus — `exit` tourne encore, une fois, avant Node.
   const onExit = (): void => send('SIGKILL')
   if (killGroup) process.once('exit', onExit)
 

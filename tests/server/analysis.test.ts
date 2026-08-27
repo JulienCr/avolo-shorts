@@ -729,16 +729,14 @@ describe('runAnalysis', () => {
 })
 
 /**
- * Le worker de détection n'est pas seul dans son groupe : c'est ce que
- * l'issue #77 mesure. `detect.py` lance `ffmpeg` sans jamais s'en détacher, et
- * un `forwardAbort` qui ne tuait que le PID du worker laissait tourner
- * l'`ffmpeg` orphelin.
+ * Le worker de détection n'est pas seul dans son groupe (issue #77) :
+ * `detect.py` lance `ffmpeg` sans s'en détacher, et un `forwardAbort` qui ne
+ * visait que son PID laissait tourner l'`ffmpeg` orphelin.
  *
- * Ce test tient le chemin réel — le `spawn(..., { detached: true })` et le
+ * Ce test tient le chemin réel — `spawn(..., { detached: true })` et
  * `forwardAbort(..., { killGroup: true })` d'`analysis.ts` — avec un faux
- * worker en `sh` qui fait comme `detect.py` : il lance un enfant de longue
- * durée en arrière-plan et l'attend. Pas de GPU, pas de vraie vidéo, pas de
- * vrai `ffmpeg` — seulement le même graphe de processus.
+ * worker `sh` qui, comme `detect.py`, lance un enfant en arrière-plan et
+ * l'attend. Pas de GPU, pas de vraie vidéo, pas de vrai `ffmpeg`.
  */
 describe('runAnalysis, le groupe de processus du worker', () => {
   let root: string

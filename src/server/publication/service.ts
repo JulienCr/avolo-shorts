@@ -86,16 +86,12 @@ function publicationFingerprint(renderFingerprint: string, texts: PlatformTexts)
 /**
  * L'empreinte de publication actuelle d'un clip pour une plateforme, ou
  * `null` si le rendu est absent ou illisible — même chemin que `launchPublish`
- * (`pathsRender` sous `RENDER_NATIVE`), pour que la publication ne compare
- * jamais deux dérivations différentes du même chemin.
+ * (`pathsRender` sous `RENDER_NATIVE`).
  *
- * **Par plateforme** : `platformTexts` rend des formes différentes (YouTube
- * sépare titre et description, les trois autres n'ont qu'une légende), donc
- * une seule empreinte pour toutes les lignes d'un clip masquerait un titre
- * changé pour une plateforme et pas les autres.
- *
- * Utilisée par `GET /api/clips/:id/publications` pour décider `stale` côté
- * serveur plutôt que de faire porter une empreinte au client.
+ * Par plateforme (issue #226) : `platformTexts` diffère selon la cible, donc
+ * une empreinte partagée masquerait un titre changé pour une seule d'entre
+ * elles. Utilisée par `GET /api/clips/:id/publications` pour décider `stale`
+ * côté serveur.
  */
 export function currentFingerprintForClip(db: Database.Database, clip: Clip, platform: Platform): string | null {
   const framing = clipFraming(clip, effectiveSettings(db).framing)
@@ -408,16 +404,9 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
     }
     const rows = getPublications(db, clip.id).filter((r) => platforms.includes(r.platform))
 
-    // Un `runDetached` par groupe : un échec Meta n'annule ni ne rejoue une
-    // réussite Upload Post, et réciproquement (spec §6.4, généralisée à
-    // plusieurs connecteurs). Le job — donc les textes — est construit **par
-    // groupe** : `representativePlatform` ne doit voir que les plateformes de
-    // ce groupe, sinon YouTube dans un lancement mixte imposerait sa forme de
-    // texte à Instagram/Facebook (issue trouvée en revue sur cette PR).
-    // L'empreinte stockée par plateforme (issue #226) reste celle de
-    // `platformTexts(clip, platform)` — la forme réelle envoyée à chacune —
-    // même quand le job du groupe porte les textes du représentant : les
-    // trois plateformes non-YouTube produisent de toute façon la même légende.
+    // Un `runDetached` par groupe, textes du représentant pour l'envoi (spec
+    // §6.4) ; l'empreinte stockée reste par plateforme réelle (issue #226),
+    // sans effet ici puisque les non-YouTube partagent la même légende.
     const settled = Promise.all(
       [...groups].map(([adapter, group]) => {
         const texts = platformTexts(clip, representativePlatform(group))

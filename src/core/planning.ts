@@ -136,6 +136,7 @@ export function fiveWeekWindow(referenceMs: number): FiveWeekWindow {
 export type PlanningAggregateStatus =
   | 'planned'
   | 'failed'
+  | 'partial_failure'
   | 'published'
   | 'submitted'
   | 'in_progress'
@@ -144,6 +145,7 @@ export type PlanningAggregateStatus =
 export const PLANNING_AGGREGATE_LABELS: Record<PlanningAggregateStatus, string> = {
   planned: 'programmé',
   failed: 'échec',
+  partial_failure: 'échec partiel',
   published: 'publié',
   submitted: 'déposé',
   in_progress: 'en cours',
@@ -152,17 +154,21 @@ export const PLANNING_AGGREGATE_LABELS: Record<PlanningAggregateStatus, string> 
 
 /**
  * Réduit les statuts par plateforme à un seul, **dans cet ordre** — l'ordre
- * est la règle. `failed` gagne toujours, même mélangé à `published` :
- * l'alerte par courriel (spec §5.5) doit pouvoir le retrouver. `in_progress`
- * ne veut dire qu'une chose, un envoi qui tourne réellement. `partial` est
- * une passe interrompue entre deux plateformes — des lignes terminales à
- * côté d'autres encore `planned` — et ne doit pas se lire « en cours ».
+ * est la règle. `failed` ne gagne que si **toutes** les plateformes ont
+ * échoué : un échec mélangé à un succès est `partial_failure`, pas `failed`
+ * seul — sinon deux réussites et deux échecs se liraient comme le seul mot
+ * « échec », ce que la conception interdit. `in_progress` ne veut dire
+ * qu'une chose, un envoi qui tourne réellement. `partial` est une passe
+ * interrompue entre deux plateformes — des lignes terminales à côté
+ * d'autres encore `planned`, sans aucun échec — et ne doit pas se lire
+ * « en cours ».
  */
 export function aggregatePublicationStatus(
   statuses: Partial<Record<Platform, PublicationStatus>>,
 ): PlanningAggregateStatus {
   const values = Object.values(statuses).filter((s): s is PublicationStatus => s !== undefined)
-  if (values.some((s) => s === 'failed')) return 'failed'
+  if (values.length > 0 && values.every((s) => s === 'failed')) return 'failed'
+  if (values.some((s) => s === 'failed')) return 'partial_failure'
   if (values.some((s) => s === 'in_progress')) return 'in_progress'
   if (values.every((s) => s === 'planned')) return 'planned'
   if (values.every((s) => s === 'published')) return 'published'

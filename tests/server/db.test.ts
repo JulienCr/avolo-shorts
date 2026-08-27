@@ -802,6 +802,18 @@ describe('la grammaire du registre', () => {
     })
 
     /**
+     * #223 (relevé par Copilot) : un délimiteur vide survit à un contrôle sur
+     * `url.search`/`url.hash`, que l'API `URL` normalise à `''` tout en
+     * gardant le délimiteur — c'est lui qu'il faut chercher dans le brut.
+     */
+    it('refuse une requête ou un fragment vide', () => {
+      expect(() => validateSetting(c, 'http://172.28.0.1:11434?')).toThrow(InvalidSettingError)
+      expect(parseSetting(c, 'http://172.28.0.1:11434?')).toBeUndefined()
+      expect(() => validateSetting(c, 'http://172.28.0.1:11434#')).toThrow(InvalidSettingError)
+      expect(parseSetting(c, 'http://172.28.0.1:11434#')).toBeUndefined()
+    })
+
+    /**
      * #223 (relevé par Aristarque) : `new URL` accepte et normalise un espace
      * de bord, ce que `validateSetting` stockerait tel quel — l'espace casse
      * la même concaténation que la requête et le fragment ci-dessus.

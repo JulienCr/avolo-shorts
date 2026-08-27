@@ -535,14 +535,15 @@ export type SettingField = {
  */
 function isValidUrl(raw: string): boolean {
   if (raw !== raw.trim()) return false
+  // `?`/`#` vides (`http://h?`, `http://h#`) survivraient à un contrôle sur
+  // `url.search`/`url.hash` : l'API `URL` les normalise à `''` tout en
+  // gardant le délimiteur dans `href`, donc c'est le délimiteur lui-même
+  // qu'il faut chercher dans le brut (relevé par Copilot).
+  if (raw.includes('?') || raw.includes('#')) return false
   try {
     const url = new URL(raw)
     return (
-      ['http:', 'https:'].includes(url.protocol) &&
-      url.search === '' &&
-      url.hash === '' &&
-      url.username === '' &&
-      url.password === ''
+      ['http:', 'https:'].includes(url.protocol) && url.username === '' && url.password === ''
     )
   } catch {
     return false

@@ -134,6 +134,33 @@ describe('detect.py — le filtre de collecte des scores de scène', () => {
 })
 
 /**
+ * **`--duration` doit borner le décodage, pas seulement la barre de
+ * progression.** `attendues` (le compte affiché) se calculait déjà depuis
+ * `a.duration`, mais rien n'arrêtait `flux_images` avant la fin du proxy —
+ * voir la PR #84 pour la mesure sur le proxy entier plutôt qu'une fenêtre.
+ */
+describe('detect.py — args_flux_images', () => {
+  const args = (duration: number, fps: number): string[] =>
+    evaluate(
+      `print(json.dumps(detect.args_flux_images('ffmpeg', 'proxy.mp4', ${duration}, ${fps})))`,
+    ) as string[]
+
+  it("porte un -t après -vf, borne de sortie plutôt que d'entrée", () => {
+    const a = args(30, 2.0)
+    const vf = a.indexOf('-vf')
+    const t = a.indexOf('-t')
+    expect(vf).toBeGreaterThan(-1)
+    expect(t).toBeGreaterThan(vf)
+    expect(a[t + 1]).toBe('30')
+  })
+
+  it('reflète la durée demandée telle quelle, pas un défaut fixe', () => {
+    const a = args(12.5, 2.0)
+    expect(a[a.indexOf('-t') + 1]).toBe('12.5')
+  })
+})
+
+/**
  * **Un argument accepté qui ne fait rien est le défaut qu'on ferme, pas une
  * commodité.**
  *
@@ -907,6 +934,52 @@ describe('detect.py — --replay', () => {
     expect(r.status).not.toBe(0)
     expect(r.stderr).toContain('désigne le même fichier')
     expect(fs.readFileSync(analysisPath, 'utf8')).toBe(before)
+  })
+
+  // **`--out` ne doit pas non plus désigner `--scene-scores`** : la même garde
+  // que `--replay`, sur le second fichier qu'un rejeu lit avant d'écrire.
+  it("refuse --out égal à --scene-scores, sans écrire", () => {
+    const analysisPath = path.join(root, 'analysis.json')
+    fs.writeFileSync(analysisPath, JSON.stringify(ANALYSIS))
+    const scoresPath = path.join(root, 'scene.txt')
+    fs.writeFileSync(scoresPath, 'contenu')
+    const before = fs.readFileSync(scoresPath, 'utf8')
+    const r = spawnSync(
+      'python3',
+      [
+        path.join(ROOT, 'worker', 'detect.py'),
+        '--replay', analysisPath,
+        '--scene-scores', scoresPath,
+        '--out', scoresPath,
+      ],
+      { encoding: 'utf8', env: WITHOUT_BYTECODE },
+    )
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toContain('désigne le même fichier')
+    expect(fs.readFileSync(scoresPath, 'utf8')).toBe(before)
+  })
+
+  it("refuse --out désignant --scene-scores via un lien symbolique, sans écrire", () => {
+    const analysisPath = path.join(root, 'analysis.json')
+    fs.writeFileSync(analysisPath, JSON.stringify(ANALYSIS))
+    const scoresPath = path.join(root, 'scene.txt')
+    fs.writeFileSync(scoresPath, 'contenu')
+    const linkPath = path.join(root, 'link-to-scene.txt')
+    fs.symlinkSync(scoresPath, linkPath)
+    const before = fs.readFileSync(scoresPath, 'utf8')
+    const r = spawnSync(
+      'python3',
+      [
+        path.join(ROOT, 'worker', 'detect.py'),
+        '--replay', analysisPath,
+        '--scene-scores', scoresPath,
+        '--out', linkPath,
+      ],
+      { encoding: 'utf8', env: WITHOUT_BYTECODE },
+    )
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toContain('désigne le même fichier')
+    expect(fs.readFileSync(scoresPath, 'utf8')).toBe(before)
   })
 
   it('rejette une bascule dont le raffinement échoue, plutôt que de la poser au milieu', () => {

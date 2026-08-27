@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   AUDIO_TIMELINE,
   LOUDNORM,
+  OUTPUT_FPS,
   METADATA_SCRUB,
   RESAMPLE,
   videoEncodedArgs,
@@ -315,7 +316,7 @@ describe('renderArgs', () => {
   it('assemble un graphe complet et sans étape morte, sans ASS ni logo', () => {
     const a = renderArgs({ ...base, segments: [entry(0, 10), entry(20, 30)] })
     const graph = a[a.indexOf('-filter_complex') + 1]
-    const crop = 'crop=608:1080:656:0,scale=1080:1920:flags=lanczos,setsar=1'
+    const crop = `fps=${OUTPUT_FPS},crop=608:1080:656:0,scale=1080:1920:flags=lanczos,setsar=1`
     expect(graph).toBe(
       `[0:v]${crop}[v0];[1:v]${crop}[v1];` +
         '[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][ac];' +
@@ -336,8 +337,8 @@ describe('renderArgs', () => {
       ],
     })
     const graph = a[a.indexOf('-filter_complex') + 1]
-    expect(graph).toContain('[0:v]crop=608:1080:0:0,scale=1080:1920:flags=lanczos,setsar=1[v0]')
-    expect(graph).toContain('[1:v]crop=608:1080:1312:0,scale=1080:1920:flags=lanczos,setsar=1[v1]')
+    expect(graph).toContain('[0:v]fps=30,crop=608:1080:0:0,scale=1080:1920:flags=lanczos,setsar=1[v0]')
+    expect(graph).toContain('[1:v]fps=30,crop=608:1080:1312:0,scale=1080:1920:flags=lanczos,setsar=1[v1]')
     // Deux décodeurs, et surtout deux entrées qui se touchent sans fusionner.
     expect(count(a, '-i')).toBe(2)
     expect(a.join(' ')).toContain('-ss 100 -t 10 -i /s.mp4 -hwaccel cuda -ss 110 -t 10 -i /s.mp4')
@@ -469,6 +470,36 @@ describe('renderArgs', () => {
     expect(a.filter((x) => x === '-fps_mode')).toHaveLength(1)
     expect(a[a.indexOf('-fps_mode') + 1]).toBe('cfr')
     expect(a.indexOf('-fps_mode')).toBeGreaterThan(a.indexOf('-filter_complex'))
+  })
+
+  // **En TÊTE de chaîne, pas en queue ni en sortie.** Posé là, `crop`, `scale`
+  // et `gblur` reçoivent deux fois moins d'images d'une source en 60 ; posé
+  // après, ils les auraient toutes traitées pour en jeter la moitié.
+  // Les trois formes d'entrée sont des branches DISTINCTES de `buildRender` —
+  // remplir le canevas, le fond flouté, le split — et chacune écrit sa propre
+  // tête de chaîne : une seule couverte, les deux autres perdent la cadence
+  // sans que rien n'échoue. (relevé par Copilot)
+  it.each([
+    ['plan qui remplit le canevas', [entry(0, 10)]],
+    ['plusieurs entrées', [entry(0, 10), entry(20, 30)]],
+    ['plan sur fond flouté', [entry(0, 10, FRAME_1_X_1, '1:1')]],
+    ['plan splitté', [entry(0, 10, FRAME_1_X_1, '1:1', SPLIT_CELLS)]],
+    ['formes mêlées', [entry(0, 10), entry(20, 30, FRAME_1_X_1, '1:1', SPLIT_CELLS)]],
+  ])('ouvre chaque entrée vidéo par la cadence de livraison — %s', (_name, segments) => {
+    const a = renderArgs({ ...base, segments })
+    const g = a[a.indexOf('-filter_complex') + 1]
+    expect(OUTPUT_FPS).toBe(30)
+    for (const [i] of segments.entries()) {
+      expect(g).toContain(`[${i}:v]fps=${OUTPUT_FPS},`)
+    }
+  })
+
+  // La variante partage `buildRender`, et rien d'autre qu'un test ne l'y
+  // oblige — même piège que la timeline audio de l'issue #212.
+  it('ouvre aussi les entrées de la variante par la cadence', () => {
+    const a = blurredVariantArgs({ ...base, segments: [entry(0, 10)] })
+    const g = a[a.indexOf('-filter_complex') + 1]
+    expect(g).toContain(`[0:v]fps=${OUTPUT_FPS},`)
   })
 
   it('cadre au rectangle demandé puis met à l’échelle de sortie', () => {
@@ -1087,7 +1118,7 @@ describe('blurredVariantArgs', () => {
   it('ne fabrique pas de fond pour un plan déjà en 9:16', () => {
     const g = graph(blurredVariantArgs({ ...base, segments: [entry(0, 10)] }))
     expect(g).toBe(
-      '[0:v]crop=608:1080:656:0,scale=1080:1920:flags=lanczos,setsar=1[v];' +
+      '[0:v]fps=30,crop=608:1080:656:0,scale=1080:1920:flags=lanczos,setsar=1[v];' +
         `[0:a]${LOUDNORM},${RESAMPLE},${AUDIO_TIMELINE}[a]`,
     )
   })
@@ -1107,8 +1138,8 @@ describe('blurredVariantArgs', () => {
       }),
     )
     expect(g).toBe(
-      '[0:v]crop=608:1080:656:0,scale=1080:1920:flags=lanczos,setsar=1[v0];' +
-        '[1:v]crop=1920:1080:0:0,setsar=1[c1];' +
+      '[0:v]fps=30,crop=608:1080:656:0,scale=1080:1920:flags=lanczos,setsar=1[v0];' +
+        '[1:v]fps=30,crop=1920:1080:0:0,setsar=1[c1];' +
         '[c1]split=2[bga1][fga1];' +
         '[bga1]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg1];' +
         '[fga1]scale=1080:608:flags=lanczos[fg1];' +
@@ -1182,7 +1213,7 @@ describe('blurredVariantArgs', () => {
   // Le vérifier en entier exclut une étiquette orpheline ou écrite deux fois.
   it('assemble un graphe complet et sans étape morte', () => {
     expect(graph(blurredVariantArgs({ ...base, assPath: '/c.ass' }))).toBe(
-      '[0:v]crop=1080:1080:420:0,setsar=1[c0];' +
+      '[0:v]fps=30,crop=1080:1080:420:0,setsar=1[c0];' +
         '[c0]split=2[bga0][fga0];' +
         '[bga0]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg0];' +
         '[fga0]scale=1080:1080:flags=lanczos[fg0];' +
@@ -1211,12 +1242,12 @@ describe('blurredVariantArgs', () => {
         }),
       ),
     ).toBe(
-      '[0:v]crop=1080:1080:420:0,setsar=1[c0];' +
+      '[0:v]fps=30,crop=1080:1080:420:0,setsar=1[c0];' +
         '[c0]split=2[bga0][fga0];' +
         '[bga0]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg0];' +
         '[fga0]scale=1080:1080:flags=lanczos[fg0];' +
         '[bg0][fg0]overlay=x=0:y=(H-h)/2,setsar=1[v0];' +
-        '[1:v]crop=1080:1080:420:0,setsar=1[c1];' +
+        '[1:v]fps=30,crop=1080:1080:420:0,setsar=1[c1];' +
         '[c1]split=2[bga1][fga1];' +
         '[bga1]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg1];' +
         '[fga1]scale=1080:1080:flags=lanczos[fg1];' +
@@ -1234,7 +1265,7 @@ describe('blurredVariantArgs', () => {
   // pas une curiosité. (relevé par Aristarque)
   it("assemble le graphe de la variante d'un clip sans sous-titres", () => {
     expect(graph(blurredVariantArgs(base))).toBe(
-      '[0:v]crop=1080:1080:420:0,setsar=1[c0];' +
+      '[0:v]fps=30,crop=1080:1080:420:0,setsar=1[c0];' +
         '[c0]split=2[bga0][fga0];' +
         '[bga0]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg0];' +
         '[fga0]scale=1080:1080:flags=lanczos[fg0];' +

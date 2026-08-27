@@ -443,6 +443,14 @@ Les tournages à venir passeront en 30 fps : le 60 double le coût de décodage 
 chaque étape et la taille des fichiers, sans rien apporter à un vertical
 compressé.
 
+**Le livrable est en 30 fps lui aussi, depuis le 27 août 2026.** L'argument
+ci-dessus valait déjà pour lui, mais n'avait été appliqué qu'au proxy : l'export
+héritait de la cadence de sa source et sortait en 60. Le filtre est posé en
+**tête de chaque entrée** du graphe, avant `crop` et `scale`, donc tout ce qui
+suit reçoit deux fois moins d'images. Mesuré sur un clip à deux morceaux depuis
+la vraie source : 8,2 s à 5,1 s de rendu, 12,9 Mo à 8,8 Mo. Voir `OUTPUT_FPS`
+dans `src/core/ffmpeg/encoder.ts`.
+
 **Repli** : si le dossier source est en lecture seule, le sidecar va dans le
 projet et l'interface le signale. Pas d'échec, seulement moins de réutilisation.
 

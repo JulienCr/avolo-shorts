@@ -106,3 +106,16 @@ export const RESAMPLE = 'aresample=48000'
  * combler.
  */
 export const AUDIO_TIMELINE = 'asetpts=N/SR/TB'
+
+/**
+ * La cadence de livraison, posée **en tête de chaque entrée** du graphe.
+ *
+ * 30 suffit aux réseaux, et le filtre se paie en négatif : posé avant `crop`,
+ * `scale` et `gblur`, il leur donne deux fois moins d'images à traiter sur une
+ * source en 60. Il aligne aussi les entrées sur les PNG du hook et des marques,
+ * déjà bouclés à 30.
+ *
+ * Le `fps=30` du proxy porte le même chiffre pour une autre raison — le scrub —
+ * et reste séparé : les deux décisions n'ont pas à bouger ensemble.
+ */
+export const OUTPUT_FPS = 30

@@ -26,6 +26,7 @@ import { outputSize, sizeInCanvas } from '@/core/framing'
 import {
   AUDIO_TIMELINE,
   LOUDNORM,
+  OUTPUT_FPS,
   METADATA_SCRUB,
   RESAMPLE,
   videoEncodedArgs,
@@ -698,6 +699,11 @@ function buildRender(
   const entryLabel = (i: number): string =>
     multi ? `v${i}` : steps.length === 0 ? terminal : 'v0'
 
+  // **En tête de chaque entrée, avant `crop` et `scale`.** Posé là il divise
+  // par deux le travail de tout ce qui suit sur une source en 60, et il aligne
+  // les entrées sur les PNG du hook et des marques, bouclés à 30.
+  const fps = `fps=${OUTPUT_FPS}`
+
   const graph: string[] = []
   segments.forEach((s, i) => {
     const output = entryLabel(i)
@@ -711,7 +717,7 @@ function buildRender(
         `${number(r.h, `segments[${i}].split[${index}].h`)}:` +
         `${number(r.x, `segments[${i}].split[${index}].x`)}:` +
         `${number(r.y, `segments[${i}].split[${index}].y`)}`
-      graph.push(`[${i}:v]split=2[sa${i}][sb${i}]`)
+      graph.push(`[${i}:v]${fps},split=2[sa${i}][sb${i}]`)
       const cellH = canvas.h / 2
       graph.push(`[sa${i}]${cropOf(top, 0)},scale=${canvas.w}:${cellH}:flags=lanczos,setsar=1[st${i}]`)
       graph.push(`[sb${i}]${cropOf(bottom, 1)},scale=${canvas.w}:${cellH}:flags=lanczos,setsar=1[sbo${i}]`)
@@ -729,7 +735,7 @@ function buildRender(
       // Le cadre remplit le canevas : pas de fond à fabriquer, et le composer
       // quand même ferait payer un `gblur` sur une image que rien ne montre.
       graph.push(
-        `[${i}:v]${crop},scale=${canvas.w}:${canvas.h}:flags=lanczos,setsar=1[${output}]`,
+        `[${i}:v]${fps},${crop},scale=${canvas.w}:${canvas.h}:flags=lanczos,setsar=1[${output}]`,
       )
       return
     }
@@ -739,7 +745,7 @@ function buildRender(
     // #22, et il est structurel : le fond ne peut pas porter de texte puisqu'il
     // n'en a jamais vu passer. `force_original_aspect_ratio=increase` puis
     // `crop` couvrent le canevas sans déformer.
-    graph.push(`[${i}:v]${crop},setsar=1[c${i}]`)
+    graph.push(`[${i}:v]${fps},${crop},setsar=1[c${i}]`)
     graph.push(`[c${i}]split=2[bga${i}][fga${i}]`)
     graph.push(
       `[bga${i}]scale=${canvas.w}:${canvas.h}:force_original_aspect_ratio=increase,` +

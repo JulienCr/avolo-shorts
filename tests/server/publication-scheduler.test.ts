@@ -692,4 +692,38 @@ describe('runOnePass — le courriel de brouillon TikTok', () => {
     expect(outcome).toEqual({ kind: 'disabled' })
     expect(sendMail).not.toHaveBeenCalled()
   })
+
+  it('envoie le courriel de brouillon même quand la passe se termine `abandoned` à cause d’une autre plateforme', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] =
+          platform === 'tiktok'
+            ? { status: 'submitted', remoteId: 'p1', remoteUrl: null }
+            : platform === 'youtube'
+              ? { status: 'failed', error: 'Panne simulée' }
+              : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      }
+      return outcomes
+    })
+    fakeAdapter = adapterAlwaysPublishing(publish)
+    const sleep = vi.fn(async () => {})
+    const mails: Array<{ subject: string; body: string }> = []
+    const sendMail = vi.fn(async (subject: string, body: string) => {
+      mails.push({ subject, body })
+    })
+
+    const outcome = await runOnePass(deps({ sleep, sendMail }))
+
+    expect(outcome.kind).toBe('abandoned')
+    if (outcome.kind !== 'abandoned') throw new Error('unreachable')
+    expect(outcome.statuses.tiktok).toBe('submitted')
+    expect(outcome.statuses.youtube).toBe('failed')
+    // Le verdict de la passe est `abandoned` (YouTube), mais le dépôt TikTok
+    // a réussi : les deux courriels partent, ni l'un ni l'autre n'avale l'autre.
+    expect(mails).toHaveLength(2)
+    expect(mails.some((m) => m.subject.includes('Brouillon TikTok'))).toBe(true)
+    expect(mails.some((m) => !m.subject.includes('Brouillon TikTok'))).toBe(true)
+  })
 })

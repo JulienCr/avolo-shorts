@@ -110,8 +110,9 @@ describe('planChunks', () => {
     expect(() => planChunks(0)).toThrow(/vide ou illisible/)
   })
 
-  it('vérifie l’invariant TikTok sur un large éventail de tailles, y compris les impaires', () => {
+  it('vérifie l’invariant TikTok sur un large éventail de tailles, fenêtres MAX*k-1 comprises', () => {
     const MAX_SIZE_BYTES = 500 * 1024 * 1024
+    const TIKTOK_LAST_CHUNK_CAP = 128 * 1024 * 1024
     const sizes = [
       MIN_CHUNK_SIZE,
       MAX_CHUNK_SIZE,
@@ -124,9 +125,14 @@ describe('planChunks', () => {
       3,
       69_206_015, // taille impaire
       72_351_743, // MAX + MIN - 1
+      139_460_607, // MAX*2 + MIN - 1
       139_460_608, // MAX*2 + MIN
       MAX_SIZE_BYTES,
       MAX_SIZE_BYTES - 1,
+      // Les fenêtres où le dernier morceau dépasse la valeur déclarée : un
+      // balayage aléatoire ne les trouve pas, elles ne font que quelques
+      // octets de large (revue interne, 27 août 2026).
+      ...Array.from({ length: 7 }, (_, i) => MAX_CHUNK_SIZE * (i + 2) - 1),
     ]
     for (const size of sizes) {
       const plan = planChunks(size)
@@ -141,7 +147,11 @@ describe('planChunks', () => {
       } else {
         expect(plan.chunkSize).toBe(size)
       }
-      for (const sent of sentSizes) expect(sent).toBeLessThanOrEqual(MAX_CHUNK_SIZE)
+      // Le dernier morceau peut dépasser la valeur déclarée (pas la borne
+      // haute 5-64 Mo elle-même) d'au plus chunkCount - 1 octets — jamais
+      // `lastChunkSize <= MAX_CHUNK_SIZE`, que la fenêtre MAX*k-1 falsifie.
+      expect(plan.lastChunkSize - plan.chunkSize).toBeLessThan(plan.chunkCount)
+      expect(plan.lastChunkSize).toBeLessThanOrEqual(TIKTOK_LAST_CHUNK_CAP)
     }
   })
 })

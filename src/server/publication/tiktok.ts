@@ -32,10 +32,9 @@ export const MAX_CHUNK_SIZE = 64 * 1024 * 1024
 export type ChunkPlan = { chunkSize: number; chunkCount: number; lastChunkSize: number }
 
 /**
- * TikTok recalcule lui-même `total_chunk_count = floor(video_size / chunk_size)` ;
- * une valeur déclarée qui ne vérifie pas cette égalité est rejetée. On équilibre
- * les morceaux plutôt que de faire absorber le reste au dernier, pour ne jamais
- * dépendre de l'exception « dernier morceau jusqu'à 128 Mo », jamais mesurée ici.
+ * TikTok recalcule `total_chunk_count = floor(video_size / chunk_size)` et rejette
+ * toute valeur incohérente ; on équilibre les morceaux pour que l'égalité tienne
+ * toujours. Le dernier peut dépasser la valeur déclarée de quelques octets, loin sous le plafond de 128 Mo.
  */
 export function planChunks(fileSize: number): ChunkPlan {
   if (fileSize <= 0) throw new TikTokFileRefusedError(`Fichier vide ou illisible (${fileSize} octets).`)
@@ -114,9 +113,8 @@ async function requireOkTikTok<T>(response: Response): Promise<T> {
 type InitResponse = { publish_id: string; upload_url: string }
 
 /**
- * `job.title` / `job.description` ne sont volontairement pas lus : cet endpoint
- * (`/inbox/video/init/`) n'accepte que `source_info`, pas de `post_info` — le
- * champ texte n'existe que pour les posts photo. L'endpoint qui porte un titre
+ * `job.title` / `job.description` ne sont volontairement pas lus : `/inbox/video/init/`
+ * n'accepte que `source_info`, pas de `post_info` — l'endpoint qui porte un titre
  * force `SELF_ONLY` sur une app non auditée (issue #168), donc bloqué ici.
  */
 async function initUpload(

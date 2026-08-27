@@ -4,7 +4,7 @@
  *     pnpm tsx scripts/measure-dubbing.ts [projectId ...]
  *
  * Sans argument, balaie les cinq projets qui portent une `analysis.json`.
- * Trois mesures par projet :
+ * Quatre mesures par projet :
  *
  * 1. **Les séquences détectées** — début, fin, durée, et les plans qu'elles
  *    couvrent.
@@ -21,7 +21,7 @@
 
 import fs from 'node:fs'
 
-import { DUBBING_ANCHORS, detectDubbingRuns, dubbingCellsFor } from '@/core/dubbing'
+import { DUBBING_ANCHORS, DUBBING_DEFAULTS, detectDubbingRuns, dubbingCellsFor } from '@/core/dubbing'
 import type { DubbingRun } from '@/core/dubbing'
 import { analysisPath, projectDir } from '@/server/paths'
 import { lireAnalysis, type Analysis } from '@/server/steps/analysis'
@@ -61,6 +61,7 @@ function discHull(analysis: Analysis, run: DubbingRun): { x0: number; y0: number
     (b) =>
       b.t >= run.start &&
       b.t <= run.end &&
+      b.score >= DUBBING_DEFAULTS.minScore &&
       b.x0 >= pip.x0 &&
       b.x1 <= pip.x1 &&
       b.y0 >= pip.y0 &&
@@ -78,8 +79,10 @@ function discHull(analysis: Analysis, run: DubbingRun): { x0: number; y0: number
 function measure(projectId: string): number {
   const file = analysisPath(projectId)
   if (!fs.existsSync(projectDir(projectId)) || !fs.existsSync(file)) {
-    console.log(`${projectId} : introuvable, ignoré`)
-    return 0
+    // Un projet absent ne doit pas compter comme "zero faux positif" : ce
+    // script sert de gate sur le corpus, une execution partielle ne peut pas
+    // valider le critere d'acceptation 3.
+    throw new Error(`${projectId} : analysis.json introuvable, corpus incomplet`)
   }
   const analysis = lireAnalysis(file)
   const runs = detectDubbingRuns(analysis.boxes)

@@ -395,13 +395,13 @@ export function detectDubbingRuns(
   options: DubbingOptions = {},
 ): DubbingRun[] {
   const opts: Required<DubbingOptions> = {
-    minScore: setting(options.minScore, DUBBING_DEFAULTS.minScore),
+    minScore: Math.max(0, setting(options.minScore, DUBBING_DEFAULTS.minScore)),
     containmentTolerance: Math.max(0, setting(options.containmentTolerance, DUBBING_DEFAULTS.containmentTolerance)),
     windowSeconds: Math.max(0, setting(options.windowSeconds, DUBBING_DEFAULTS.windowSeconds)),
-    minVoteShare: setting(options.minVoteShare, DUBBING_DEFAULTS.minVoteShare),
+    minVoteShare: Math.max(0, setting(options.minVoteShare, DUBBING_DEFAULTS.minVoteShare)),
     onDelaySeconds: Math.max(0, setting(options.onDelaySeconds, DUBBING_DEFAULTS.onDelaySeconds)),
     offDelaySeconds: Math.max(0, setting(options.offDelaySeconds, DUBBING_DEFAULTS.offDelaySeconds)),
-    pointMinScore: setting(options.pointMinScore, DUBBING_DEFAULTS.pointMinScore),
+    pointMinScore: Math.max(0, setting(options.pointMinScore, DUBBING_DEFAULTS.pointMinScore)),
   }
 
   const timeline = timelineOf(people)

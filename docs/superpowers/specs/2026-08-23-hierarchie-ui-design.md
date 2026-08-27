@@ -373,9 +373,12 @@ Nommé pour que personne ne l'ajoute en chemin.
   changement de cadre s'enregistre dans une pile, pas comment il se calcule ;
   la skill `.claude/skills/cadrage` reste la référence.
 - Pas de refonte visuelle, pas de nouvelle palette, pas de nouveau composant de
-  base. La palette à un seul accent — ambre pour ce qui est gardé, sélectionné,
-  cadré — est une décision tenue, et les repondérations de ce document s'écrivent
-  avec les variantes de bouton existantes.
+  base. La règle à un seul accent — gardé, sélectionné, cadré — est une décision
+  tenue et le reste : seule sa **valeur** a changé, retenue à l'orange de marque
+  Avolo (`--stage`, `#FFA800`) plutôt qu'à l'ambre générique d'origine. Un bleu de
+  marque (`--brand-blue`) existe désormais, réservé au chrome de l'interface — la
+  barre d'application — jamais à un état ; les repondérations de ce document
+  s'écrivent avec les variantes de bouton existantes.
 
 ## 7. Ordre de réalisation
 

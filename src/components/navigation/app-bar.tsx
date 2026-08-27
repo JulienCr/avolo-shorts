@@ -1,4 +1,5 @@
 import { CalendarClock, Settings } from 'lucide-react'
+import Image from 'next/image'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 
@@ -43,31 +44,23 @@ export function AppBar({
   return (
     <header
       className={cn(
-        'sticky top-0 z-20 flex h-12 shrink-0 items-center gap-2 border-b bg-background/90 px-4 backdrop-blur',
+        'sticky top-0 z-20 flex h-12 shrink-0 items-center gap-2 border-b bg-brand-blue px-4 text-brand-blue-foreground backdrop-blur',
         className,
       )}
     >
-      <Link
-        href="/"
-        // `text-xs` et non `text-[0.7rem]` : la conception §4.5 pose un plancher
-        // de `0.75rem` pour tout ce qui porte une information, et ce lien est le
-        // seul chemin de retour à la racine depuis les trois autres écrans.
-        // C'était le dernier reste sous le plancher dans tout `src/` (issue #56,
-        // point 6).
-        className="font-mono text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase transition-colors hover:text-foreground"
-      >
-        avolo·shorts
+      <Link href="/" className="flex items-center opacity-90 transition-opacity hover:opacity-100">
+        <Image src="/avolo-logo.png" alt="avolo·shorts" width={32} height={32} priority />
       </Link>
 
       {feed.map((step, i) => (
         <span key={i} className="flex min-w-0 items-center gap-2">
-          <span aria-hidden className="text-muted-foreground/40">
+          <span aria-hidden className="text-brand-blue-foreground/40">
             /
           </span>
           {step.href ? (
             <Link
               href={step.href}
-              className="truncate text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="truncate text-sm text-brand-blue-foreground/70 transition-colors hover:text-brand-blue-foreground"
             >
               {step.label}
             </Link>
@@ -94,7 +87,7 @@ export function AppBar({
           <Link
             href={planningLink()}
             aria-label="Planning"
-            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex size-8 items-center justify-center rounded-md text-brand-blue-foreground/70 transition-colors outline-none hover:bg-brand-blue-foreground/10 hover:text-brand-blue-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             <CalendarClock className="size-4" aria-hidden />
           </Link>
@@ -103,7 +96,7 @@ export function AppBar({
           <Link
             href={settingsLink()}
             aria-label="Paramètres"
-            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex size-8 items-center justify-center rounded-md text-brand-blue-foreground/70 transition-colors outline-none hover:bg-brand-blue-foreground/10 hover:text-brand-blue-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Settings className="size-4" aria-hidden />
           </Link>

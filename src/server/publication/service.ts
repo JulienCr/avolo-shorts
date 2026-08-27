@@ -53,13 +53,21 @@ function toRecord(row: PublicationRow | undefined): PublicationRecord | undefine
  * L'empreinte du rendu actuel, ou `null` — absente et illisible se confondent,
  * comme `lireFingerprint` (`src/server/steps/render.ts`) : les deux disent
  * « rien ne certifie ce que le fichier décrit ».
+ *
+ * Toute erreur de lecture rend `null`, pas seulement l'absence (`EACCES`,
+ * `EIO`…) : `GET /api/clips/:id/publications` ne doit jamais répondre 500
+ * pour un fichier illisible plutôt qu'absent.
  */
 function currentFingerprint(fingerprintPath: string): string | null {
   try {
     return createHash('sha256').update(fs.readFileSync(fingerprintPath)).digest('hex')
   } catch (error) {
-    if (isAAbsence(error)) return null
-    throw error
+    if (!isAAbsence(error)) {
+      console.warn(
+        `Empreinte de rendu inaccessible (${fingerprintPath}) : ${error instanceof Error ? error.name : 'erreur inconnue'}.`,
+      )
+    }
+    return null
   }
 }
 

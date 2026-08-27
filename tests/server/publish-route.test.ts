@@ -395,6 +395,43 @@ describe('GET /api/clips/:id/publications', () => {
     const payload = (await response.json()) as { publications: { platform: string; stale: boolean }[] }
     expect(payload.publications).toEqual([expect.objectContaining({ platform: 'instagram', stale: false })])
   })
+
+  it('`stale` vaut `false`, pas 500, quand le fichier d’empreinte existe mais refuse la lecture (relevé par Copilot)', async () => {
+    await exportClip()
+    const paths = pathsRender(PROJECT_ID, CLIP_ID, '1:1', RENDER_NATIVE)
+    fs.chmodSync(paths.fingerprint, 0o000)
+    try {
+      // Sous root, `chmod 000` n'empêche rien : l'assertion passerait pour la
+      // mauvaise raison si on ne le vérifie pas.
+      let readable = true
+      try {
+        fs.readFileSync(paths.fingerprint)
+      } catch {
+        readable = false
+      }
+      if (!readable) {
+        upsertPublication(getDb(), {
+          clipId: CLIP_ID,
+          platform: 'instagram',
+          status: 'published',
+          remoteId: 'p1',
+          remoteUrl: 'https://example.test/p1',
+          requestId: null,
+          error: null,
+          publishedFingerprint: 'une-empreinte-quelconque',
+          createdAt: 1,
+          updatedAt: 1,
+          scheduledAt: null,
+        })
+        const response = await publicationsRoute(new Request('http://test'), context(CLIP_ID))
+        expect(response.status).toBe(200)
+        const payload = (await response.json()) as { publications: { platform: string; stale: boolean }[] }
+        expect(payload.publications).toEqual([expect.objectContaining({ platform: 'instagram', stale: false })])
+      }
+    } finally {
+      fs.chmodSync(paths.fingerprint, 0o644)
+    }
+  })
 })
 
 describe('POST /api/clips/:id/publish — plateformes en double', () => {

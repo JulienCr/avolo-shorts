@@ -861,7 +861,8 @@ export function usePublications(clipId: string) {
     queryKey: keys.publications(clipId),
     // `stale` est décidé côté serveur (issue #145) : la route rend des
     // `PublicationView`, pas des `PublicationRow` — `lib/api.ts` documente
-    // encore l'ancienne forme, d'où le recast.
+    // encore l'ancienne forme, d'où le recast. Élargir son type y est déféré
+    // à après #222, qui touche ce fichier en ce moment (relevé par Copilot).
     queryFn: () =>
       getPublications(clipId).then((r) => r.publications as unknown as PublicationView[]),
     refetchInterval: (query) =>
@@ -884,6 +885,7 @@ export function usePublicationRecordsByClip(clipIds: readonly string[]) {
   const results = useQueries({
     queries: clipIds.map((clipId) => ({
       queryKey: keys.publications(clipId),
+      // Même recast que `usePublications` ci-dessus, même raison.
       queryFn: () =>
         getPublications(clipId).then((r) => r.publications as unknown as PublicationView[]),
       refetchInterval: (query: { state: { data?: { status: string }[] } }) =>

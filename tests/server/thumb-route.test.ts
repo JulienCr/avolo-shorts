@@ -20,12 +20,18 @@ import {
  * que l'écran de tri exerce encore.
  */
 
+// **L'affiche imite le contenu de sa source**, plutôt qu'un octet constant :
+// sans ça, l'affiche d'un rendu et celle d'un proxy seraient impossibles à
+// distinguer par leurs octets, et un test qui préfère l'un à l'autre ne
+// pourrait vérifier que le code HTTP — pas ce qui a réellement été servi.
 vi.mock('@/server/ffmpeg', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/server/ffmpeg')>()
   return {
     ...actual,
     runFfmpeg: vi.fn(async (args: string[]) => {
-      fs.writeFileSync(args[args.length - 1], Buffer.from('affiche'))
+      const src = args[args.indexOf('-i') + 1]
+      const marque = Buffer.concat([Buffer.from('image-de:'), fs.readFileSync(src)])
+      fs.writeFileSync(args[args.length - 1], marque)
     }),
   }
 })
@@ -141,5 +147,23 @@ describe('GET /api/clips/:id/thumb', () => {
 
     const response = await GET(new Request('http://x'), context(CLIP))
     expect(response.status).toBe(404)
+  })
+
+  /**
+   * Préférer le rendu ne se prouve pas par un code HTTP : les trois tests
+   * au-dessus ne posent jamais les deux fichiers à la fois, donc inverser en
+   * `vignette(clip) ?? renderPoster(clip)` les laisserait tous verts. Ici les
+   * deux existent, et seuls les octets servis départagent lequel a été lu.
+   */
+  it('sert les octets du rendu, pas ceux du proxy, quand les deux existent', async () => {
+    putClip(getDb(), baseClip())
+    poserRendu()
+    poserProxy()
+    poserFingerprint(baseClip())
+
+    const response = await GET(new Request('http://x'), context(CLIP))
+    const body = Buffer.from(await response.arrayBuffer()).toString()
+    expect(body).toBe('image-de:rendu')
+    expect(body).not.toBe('image-de:proxy')
   })
 })

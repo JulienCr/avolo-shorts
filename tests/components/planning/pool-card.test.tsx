@@ -5,7 +5,7 @@
  * présentes sans survol.
  */
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -58,6 +58,23 @@ describe('PoolCard', () => {
         onFocus={vi.fn()}
       />,
     )
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.getByText('vignette indisponible')).toBeTruthy()
+  })
+
+  it('bascule sur le repli quand l’image échoue à charger, sans image cassée', () => {
+    render(
+      <PoolCard
+        clip={clip({ thumbnailUrl: '/api/clips/c1/thumb' })}
+        selected={false}
+        current
+        onToggle={vi.fn()}
+        onPreview={vi.fn()}
+        onFocus={vi.fn()}
+      />,
+    )
+    const img = screen.getByAltText('La chute')
+    fireEvent.error(img)
     expect(screen.queryByRole('img')).toBeNull()
     expect(screen.getByText('vignette indisponible')).toBeTruthy()
   })

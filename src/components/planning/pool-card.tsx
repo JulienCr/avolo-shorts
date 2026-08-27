@@ -2,6 +2,7 @@
 
 import { Film, Play } from 'lucide-react'
 import Link from 'next/link'
+import { useState } from 'react'
 
 import type { PlanningPoolClip } from '@/lib/api'
 import { formatDuration } from '@/lib/format'
@@ -102,18 +103,29 @@ export function PoolCard({
 /**
  * La vignette, ou son absence.
  *
- * Un clip du vivier est exporté : le proxy est donc normalement présent, et
- * une vignette manquante ici est une anomalie, pas une attente à venir —
- * contrairement à `Vignette` dans `candidate-card.tsx`.
+ * **`urlVignette(clip, true)` publie l'URL sur la seule foi de la livraison**,
+ * sans sonder le disque (`src/server/views.ts`) : une affiche jamais rendue,
+ * ou un rendu supprimé entre la liste et le chargement, y donne un 404. Le
+ * repli suit donc `clip-strip.tsx` — l'URL en échec est retenue en état
+ * plutôt qu'un booléen, pour ne pas la confondre avec celle du clip suivant.
  */
 function Thumbnail({ url, title }: { url: string | null; title: string }) {
-  if (url !== null) {
+  const [failed, setFailed] = useState<string | null>(null)
+  const hasImage = url !== null && failed !== url
+
+  if (hasImage) {
     // Les vignettes sont extraites du proxy par une route locale, à une
     // taille déjà connue : `next/image` n'aurait rien à optimiser et
     // demanderait une configuration de domaines pour rien.
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={url} alt={title} className="size-full object-cover" loading="lazy" />
+      <img
+        src={url}
+        alt={title}
+        className="size-full object-cover"
+        loading="lazy"
+        onError={() => setFailed(url)}
+      />
     )
   }
 

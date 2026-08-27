@@ -64,7 +64,7 @@ export function PoolGrid({
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
         {Array.from({ length: SKELETONS }, (_, i) => (
           <Skeleton key={i} className="aspect-[9/16] w-full" />
         ))}
@@ -105,7 +105,7 @@ export function PoolGrid({
       ) : (
         <div
           ref={grid}
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
+          className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7"
           onKeyDown={(e) => {
             if (e.key === 'ArrowRight') {
               e.preventDefault()

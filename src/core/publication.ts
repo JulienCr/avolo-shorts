@@ -305,6 +305,15 @@ export function platformTexts(clip: Pick<Clip, 'title' | 'description'>, platfor
 }
 
 /**
+ * Sérialisation canonique de `PlatformTexts` (issue #226) : un ordre de
+ * champs fixe, pour que l'empreinte de publication qui la hache ne soit
+ * jamais périmée par un simple réordonnancement du type.
+ */
+export function canonicalPlatformTexts(texts: PlatformTexts): string {
+  return JSON.stringify({ title: texts.title, description: texts.description })
+}
+
+/**
  * Un Short ne dépasse pas trois minutes (spec §8 point 3) — refusé ici, avec sa
  * raison, plutôt que découvert dans un 400 renvoyé après le téléversement.
  */

@@ -24,11 +24,10 @@ export const GET = route(
     const db = getDb()
     const clip = getClip(db, id)
     if (clip === undefined) throw notFound(`Clip inconnu : ${id}`)
-    const fingerprint = currentFingerprintForClip(db, clip)
-    const publications: PublicationView[] = getPublications(db, id).map((row) => ({
-      ...row,
-      stale: fingerprint !== null && isPublicationStale(row, fingerprint),
-    }))
+    const publications: PublicationView[] = getPublications(db, id).map((row) => {
+      const fingerprint = currentFingerprintForClip(db, clip, row.platform)
+      return { ...row, stale: fingerprint !== null && isPublicationStale(row, fingerprint) }
+    })
     return json({ publications })
   },
 )

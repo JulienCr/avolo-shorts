@@ -317,7 +317,7 @@ describe('GET /api/clips/:id/publications', () => {
   it('`stale` vaut `false` quand l’empreinte publiée est celle du rendu actuel', async () => {
     const clip = baseClip()
     await exportClip(clip)
-    const fingerprint = currentFingerprintForClip(getDb(), clip)
+    const fingerprint = currentFingerprintForClip(getDb(), clip, 'instagram')
     upsertPublication(getDb(), {
       clipId: CLIP_ID,
       platform: 'instagram',
@@ -331,6 +331,63 @@ describe('GET /api/clips/:id/publications', () => {
       updatedAt: 1,
       scheduledAt: null,
     })
+    const response = await publicationsRoute(new Request('http://test'), context(CLIP_ID))
+    const payload = (await response.json()) as { publications: { platform: string; stale: boolean }[] }
+    expect(payload.publications).toEqual([expect.objectContaining({ platform: 'instagram', stale: false })])
+  })
+
+  // issue #226, critère 3 : YouTube et Instagram reçoivent des formes de
+  // texte différentes (`platformTexts`) pour le même clip et le même rendu.
+  it('deux plateformes de forme de texte différente ont des empreintes différentes', async () => {
+    const clip = baseClip()
+    await exportClip(clip)
+    expect(currentFingerprintForClip(getDb(), clip, 'youtube')).not.toBe(currentFingerprintForClip(getDb(), clip, 'instagram'))
+  })
+
+  // issue #226 : le condensat comparé ne portait que le rendu, si bien qu'un
+  // `PATCH` qui ne touche que le titre laissait `stale: false` alors que le
+  // texte envoyé à la plateforme n'est plus celui du clip.
+  it('`stale` vaut `true` après un `PATCH` qui ne change que le titre', async () => {
+    await exportClip()
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+    const { settled } = launchPublish({ db: getDb(), clip, platforms: ['instagram'], force: false, sleep: async () => {} })
+    await settled
+
+    const patched = await patchClipRoute(
+      new Request('http://x', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'Un titre différent' }),
+      }),
+      context(CLIP_ID),
+    )
+    expect(patched.status).toBe(200)
+
+    const response = await publicationsRoute(new Request('http://test'), context(CLIP_ID))
+    const payload = (await response.json()) as { publications: { platform: string; stale: boolean }[] }
+    expect(payload.publications).toEqual([expect.objectContaining({ platform: 'instagram', stale: true })])
+  })
+
+  // Témoin négatif du test ci-dessus : sans lui, un condensat qui vaudrait
+  // toujours `stale: true` passerait tout aussi bien.
+  it('`stale` reste `false` après un `PATCH` qui ne change ni le texte ni le rendu', async () => {
+    await exportClip()
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+    const { settled } = launchPublish({ db: getDb(), clip, platforms: ['instagram'], force: false, sleep: async () => {} })
+    await settled
+
+    const patched = await patchClipRoute(
+      new Request('http://x', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: clip.title, description: clip.description }),
+      }),
+      context(CLIP_ID),
+    )
+    expect(patched.status).toBe(200)
+
     const response = await publicationsRoute(new Request('http://test'), context(CLIP_ID))
     const payload = (await response.json()) as { publications: { platform: string; stale: boolean }[] }
     expect(payload.publications).toEqual([expect.objectContaining({ platform: 'instagram', stale: false })])

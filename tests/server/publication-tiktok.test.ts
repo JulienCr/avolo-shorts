@@ -84,38 +84,65 @@ describe('planChunks', () => {
     })
   })
 
-  it('deux morceaux égaux quand un seul dépasserait 64 Mo et qu’il n’y a personne dans qui fondre le reste', () => {
-    const size = MAX_CHUNK_SIZE + MIN_CHUNK_SIZE - 1
-    const chunkSize = Math.ceil(size / 2)
-    const plan = planChunks(size)
-    expect(plan).toEqual({ chunkSize, chunkCount: 2, lastChunkSize: size - chunkSize })
-    expect(plan.chunkSize).toBeLessThanOrEqual(MAX_CHUNK_SIZE)
-    expect(plan.chunkSize).toBeGreaterThanOrEqual(MIN_CHUNK_SIZE)
-    expect(plan.lastChunkSize).toBeGreaterThanOrEqual(MIN_CHUNK_SIZE)
-  })
-
   it('des morceaux pleins quand le fichier se divise exactement', () => {
     const size = MAX_CHUNK_SIZE * 3
     expect(planChunks(size)).toEqual({ chunkSize: MAX_CHUNK_SIZE, chunkCount: 3, lastChunkSize: MAX_CHUNK_SIZE })
   })
 
-  it('fond le reste dans le dernier morceau plutôt que d’en produire un sous 5 Mo', () => {
-    const remainder = MIN_CHUNK_SIZE - 1
-    const size = MAX_CHUNK_SIZE * 2 + remainder
-    expect(planChunks(size)).toEqual({
-      chunkSize: MAX_CHUNK_SIZE,
-      chunkCount: 2,
-      lastChunkSize: MAX_CHUNK_SIZE + remainder,
-    })
+  it('équilibre les morceaux plutôt que de faire absorber le reste au dernier', () => {
+    // MAX + MIN - 1 : un seul morceau plein dépasserait 64 Mo, deux morceaux
+    // égaux restent tous deux dans les bornes.
+    const size = MAX_CHUNK_SIZE + MIN_CHUNK_SIZE - 1
+    expect(planChunks(size)).toEqual({ chunkSize: 36_175_871, chunkCount: 2, lastChunkSize: 36_175_872 })
   })
 
-  it('un dernier morceau distinct quand le reste atteint déjà 5 Mo', () => {
+  it('recompte le nombre de morceaux plutôt que de le laisser dépasser ce que TikTok recalcule', () => {
+    // MAX*2 + MIN : l'ancien code déclarait 3 morceaux à 64 Mo puis un de 5 Mo,
+    // que TikTok recalcule à 2 (floor(size / 64 Mo)) et rejette. Le plan
+    // équilibré reste à 3 morceaux, mais avec une taille déclarée cohérente.
     const size = MAX_CHUNK_SIZE * 2 + MIN_CHUNK_SIZE
-    expect(planChunks(size)).toEqual({ chunkSize: MAX_CHUNK_SIZE, chunkCount: 3, lastChunkSize: MIN_CHUNK_SIZE })
+    const plan = planChunks(size)
+    expect(plan).toEqual({ chunkSize: 46_486_869, chunkCount: 3, lastChunkSize: 46_486_870 })
+    expect(plan.chunkCount).toBe(Math.floor(size / plan.chunkSize))
   })
 
   it('refuse un fichier vide plutôt que de calculer un découpage absurde', () => {
     expect(() => planChunks(0)).toThrow(/vide ou illisible/)
+  })
+
+  it('vérifie l’invariant TikTok sur un large éventail de tailles, y compris les impaires', () => {
+    const MAX_SIZE_BYTES = 500 * 1024 * 1024
+    const sizes = [
+      MIN_CHUNK_SIZE,
+      MAX_CHUNK_SIZE,
+      MAX_CHUNK_SIZE + 1,
+      MAX_CHUNK_SIZE * 2,
+      MAX_CHUNK_SIZE * 3,
+      59_346_000, // clip réel accepté par TikTok
+      92_233_061, // clip réel refusé avant ce correctif
+      1,
+      3,
+      69_206_015, // taille impaire
+      72_351_743, // MAX + MIN - 1
+      139_460_608, // MAX*2 + MIN
+      MAX_SIZE_BYTES,
+      MAX_SIZE_BYTES - 1,
+    ]
+    for (const size of sizes) {
+      const plan = planChunks(size)
+      const sentSizes = Array.from({ length: plan.chunkCount }, (_, i) =>
+        i === plan.chunkCount - 1 ? plan.lastChunkSize : plan.chunkSize,
+      )
+      expect(plan.chunkCount).toBe(Math.floor(size / plan.chunkSize))
+      expect(sentSizes.reduce((a, b) => a + b, 0)).toBe(size)
+      if (plan.chunkCount > 1) {
+        expect(plan.chunkSize).toBeGreaterThanOrEqual(MIN_CHUNK_SIZE)
+        expect(plan.chunkSize).toBeLessThanOrEqual(MAX_CHUNK_SIZE)
+      } else {
+        expect(plan.chunkSize).toBe(size)
+      }
+      for (const sent of sentSizes) expect(sent).toBeLessThanOrEqual(MAX_CHUNK_SIZE)
+    }
   })
 })
 
@@ -169,12 +196,13 @@ describe('publishTikTok (dépôt en brouillon)', () => {
     expect(await body.text()).toBe(content)
   })
 
-  it('envoie plusieurs morceaux dont les tailles et les Content-Range respectent le découpage', async () => {
+  it('envoie plusieurs morceaux dont les tailles et les Content-Range respectent le découpage équilibré', async () => {
     await seedTikTokToken()
-    // Juste au-dessus de deux morceaux pleins : deux morceaux à 64 Mo, un
-    // troisième de 6 Mo (>= 5 Mo, spec §2.3) — le cas « plusieurs morceaux »
-    // du critère d'acceptation.
+    // Juste au-dessus de deux morceaux pleins : le plan équilibré recompte à
+    // 3 morceaux d'environ 44,7 Mo — le cas « plusieurs morceaux » du critère
+    // d'acceptation, avec une taille déclarée que TikTok recalcule à l'identique.
     const totalSize = MAX_CHUNK_SIZE * 2 + 6 * 1024 * 1024
+    const plan = planChunks(totalSize)
     fs.writeFileSync(videoPath, Buffer.alloc(totalSize, 'x'))
     const handler = initHandler()
     const fetchImpl = vi.fn(handler) as unknown as typeof fetch
@@ -187,14 +215,41 @@ describe('publishTikTok (dépôt en brouillon)', () => {
       RequestInit | undefined,
     ][]
     const uploadCalls = calls.filter(([url]) => url.includes('/upload1'))
-    expect(uploadCalls).toHaveLength(3)
+    expect(uploadCalls).toHaveLength(plan.chunkCount)
     const ranges = uploadCalls.map(([, init]) => (init?.headers as Record<string, string>)['Content-Range'])
-    expect(ranges[0]).toBe(`bytes 0-${MAX_CHUNK_SIZE - 1}/${totalSize}`)
-    expect(ranges[1]).toBe(`bytes ${MAX_CHUNK_SIZE}-${MAX_CHUNK_SIZE * 2 - 1}/${totalSize}`)
-    expect(ranges[2]).toBe(`bytes ${MAX_CHUNK_SIZE * 2}-${totalSize - 1}/${totalSize}`)
+    expect(ranges[0]).toBe(`bytes 0-${plan.chunkSize - 1}/${totalSize}`)
+    expect(ranges[1]).toBe(`bytes ${plan.chunkSize}-${plan.chunkSize * 2 - 1}/${totalSize}`)
+    expect(ranges[2]).toBe(`bytes ${plan.chunkSize * 2}-${totalSize - 1}/${totalSize}`)
     const sizes = await Promise.all(uploadCalls.map(([, init]) => (init?.body as Blob).size))
-    expect(sizes).toEqual([MAX_CHUNK_SIZE, MAX_CHUNK_SIZE, 6 * 1024 * 1024])
+    expect(sizes).toEqual([plan.chunkSize, plan.chunkSize, plan.lastChunkSize])
   }, 20_000)
+
+  it('ne fait porter aucun texte au corps de l’init, même quand job.description en a un', async () => {
+    await seedTikTokToken()
+    let initBody: Record<string, unknown> | undefined
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = input.toString()
+      if (url.endsWith('/post/publish/inbox/video/init/')) {
+        initBody = JSON.parse(init?.body as string) as Record<string, unknown>
+        return jsonResponse(200, { data: { publish_id: 'p1', upload_url: 'https://u/x' }, error: { code: 'ok' } })
+      }
+      if (url === 'https://u/x') return new Response('', { status: 200 })
+      throw new Error(`inattendu : ${url}`)
+    }) as unknown as typeof fetch
+    const adapter = createTikTokAdapter(ENV, fetchImpl)
+
+    await adapter.publish(job({ description: 'Un titre\n\nUne description longue à ne pas envoyer' }), ['tiktok'])
+
+    expect(Object.keys(initBody ?? {})).toEqual(['source_info'])
+    expect(initBody).not.toHaveProperty('post_info')
+    const sourceInfo = initBody?.source_info as Record<string, unknown>
+    expect(Object.keys(sourceInfo)).toEqual(['source', 'video_size', 'chunk_size', 'total_chunk_count'])
+    expect(sourceInfo.source).toBe('FILE_UPLOAD')
+    const plan = planChunks(fs.statSync(videoPath).size)
+    expect(sourceInfo.total_chunk_count).toBe(plan.chunkCount)
+    expect(sourceInfo.chunk_size).toBe(plan.chunkSize)
+    expect(JSON.stringify(initBody)).not.toMatch(/description longue/)
+  })
 
   it('nomme le jeton expiré sur un access_token_invalid, sans faire échouer les autres plateformes visées', async () => {
     await seedTikTokToken()

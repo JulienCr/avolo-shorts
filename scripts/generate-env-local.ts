@@ -174,7 +174,7 @@ export function formatEnvLocal(resolved: readonly [string, string][]): string {
  * Formate `resolved` puis écrit `path` — jamais l'inverse. `formatEnvLocal`
  * valide chaque valeur (`quoteValue`) avant que `writeEnvLocalFile` ne
  * touche le disque : si une valeur est rejetée, l'appel s'arrête avant
- * d'écrire, et un `.env.local` déjà présent supprimé (issue #230) plutôt
+ * d'écrire, et un `.env.local` déjà présent est supprimé (issue #230) plutôt
  * que laissé avec un secret révoqué, prioritaire sur `.env`.
  */
 export function writeResolvedEnvLocal(path: string, resolved: readonly [string, string][]): void {

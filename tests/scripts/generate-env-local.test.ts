@@ -374,6 +374,10 @@ describe('writeResolvedEnvLocal', () => {
 
     expect(() => writeResolvedEnvLocal(file, [['NEW_KEY', "valeur avec une apostrophe '"]])).toThrow(/NEW_KEY/)
 
+    // Les deux assertions disent des choses différentes : le fichier a
+    // disparu, pas seulement « ne contient plus l'ancienne chaîne » — une
+    // troncature passerait la seconde sans passer la première.
+    expect(fs.existsSync(file)).toBe(false)
     const survivor = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
     expect(survivor).not.toContain('ancien-secret-perime')
   })
@@ -384,6 +388,7 @@ describe('writeResolvedEnvLocal', () => {
 
     expect(() => writeResolvedEnvLocal(file, [['NEW_KEY', '$2b$10$abcXYZ']])).toThrow(/NEW_KEY/)
 
+    expect(fs.existsSync(file)).toBe(false)
     const survivor = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
     expect(survivor).not.toContain('ancien-secret-perime')
   })

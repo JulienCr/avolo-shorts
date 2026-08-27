@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { Clip } from '@/core/edl'
 import { posterArgs, thumbArgs } from '@/core/ffmpeg/args'
 import type { PublishedFraming } from '@/lib/api'
+import { isAAbsence } from '@/server/bytes'
 import { getClip, getDb } from '@/server/db'
 import { pathTemporary, runFfmpeg } from '@/server/ffmpeg'
 import { projectDir, proxyPath } from '@/server/paths'
@@ -126,15 +127,33 @@ export async function vignette(clip: Clip): Promise<string | null> {
  * dans le temps, sans en porter le contenu — fraîche pour de bon, comme
  * `vignette` ci-dessus (relevé par Copilot).
  */
+/**
+ * La mtime d'un fichier, ou `null` s'il n'est pas là.
+ *
+ * **Seule une absence vaut `null`** — un refus de droits ou un montage mort
+ * traverse, comme dans `renders.ts` et `bytes.ts`. Elle remplace le couple
+ * `existsSync` puis `statSync`, dont l'intervalle était lui-même une course.
+ */
+function mtimeOrNull(file: string): number | null {
+  try {
+    return fs.statSync(file).mtimeMs
+  } catch (error) {
+    if (isAAbsence(error)) return null
+    throw error
+  }
+}
+
 export async function renderPoster(clip: Clip, framing?: PublishedFraming): Promise<string | null> {
   const video = deliveredVideo(clip, framing)
   if (video === null) return null
 
   const destination = posterPath(clip.projectId, clip.id)
-  const videoMtime = fs.statSync(video.path).mtimeMs
-  if (fs.existsSync(destination) && fs.statSync(destination).mtimeMs >= videoMtime) {
-    return destination
-  }
+  const videoMtime = mtimeOrNull(video.path)
+  // Le fichier a disparu entre `deliveredVideo` et ici. C'est une absence, donc
+  // un `null` que la route rattrape sur le proxy — pas une panne à remonter.
+  if (videoMtime === null) return null
+  const posterMtime = mtimeOrNull(destination)
+  if (posterMtime !== null && posterMtime >= videoMtime) return destination
 
   await fsp.mkdir(path.dirname(destination), { recursive: true })
   const temporary = pathTemporary(destination)
@@ -147,7 +166,7 @@ export async function renderPoster(clip: Clip, framing?: PublishedFraming): Prom
     const changed =
       videoToDay === null ||
       videoToDay.path !== video.path ||
-      fs.statSync(videoToDay.path).mtimeMs !== videoMtime
+      mtimeOrNull(videoToDay.path) !== videoMtime
     if (changed) {
       await fsp.rm(temporary, { force: true }).catch(() => {})
       return null

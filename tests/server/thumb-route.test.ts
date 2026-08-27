@@ -7,6 +7,7 @@ import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
 import { clipFraming } from '@/server/clip-framing'
 import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
+import { runFfmpeg } from '@/server/ffmpeg'
 import {
   pathsRender,
   renderedFraming,
@@ -165,6 +166,27 @@ describe('GET /api/clips/:id/thumb', () => {
     const body = Buffer.from(await response.arrayBuffer()).toString()
     expect(body).toBe('image-de:rendu')
     expect(body).not.toBe('image-de:proxy')
+  })
+
+  /**
+   * **Un rendu qu'ffmpeg refuse ne doit pas rendre 500.** `renderPoster` jette
+   * alors, et `??` n'attrape que `null` : la route répondait donc en erreur là
+   * où elle servait le proxy avant que l'affiche existe (relevé par Aristarque
+   * après la fusion de #222). Le repli se journalise, il ne disparaît pas.
+   */
+  it('se rabat sur le proxy, en le journalisant, quand l’extraction échoue', async () => {
+    putClip(getDb(), baseClip())
+    writeRender()
+    writeProxy()
+    writeFingerprint(baseClip())
+    vi.mocked(runFfmpeg).mockRejectedValueOnce(new Error('moov atom not found'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const response = await GET(new Request('http://x?poster=render'), context(CLIP))
+    expect(response.status).toBe(200)
+    expect(Buffer.from(await response.arrayBuffer()).toString()).toBe('image-de:proxy')
+    expect(warn.mock.calls.map(([message]) => String(message)).join(' ')).toContain('moov atom not found')
+    warn.mockRestore()
   })
 
   /**

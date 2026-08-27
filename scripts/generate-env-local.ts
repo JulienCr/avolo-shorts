@@ -141,7 +141,7 @@ export async function resolveEnvLocal(
  * `@next/env` — vérifié, ça tronque ou double le secret. Les guillemets
  * simples, eux, ne subissent aucune interprétation des deux côtés : un
  * antislash, un guillemet double ou un saut de ligne y passent intacts.
- * Seule une apostrophe dans la valeur n'a pas de représentation sûre.
+ * Deux caractères n'ont pas de représentation sûre : l'apostrophe et `$`.
  */
 function quoteValue(name: string, value: string): string {
   if (value.includes("'")) {
@@ -149,6 +149,14 @@ function quoteValue(name: string, value: string): string {
       `${name} : la valeur résolue contient une apostrophe, qu'aucune syntaxe de ` +
         '.env.local ne sait représenter sans risque de troncature. Retirer la ' +
         'référence op:// de .env pour cette variable et la garder littérale.',
+    )
+  }
+  if (value.includes('$')) {
+    throw new Error(
+      `${name} : la valeur résolue contient un $, que le dotenv-expand de @next/env ` +
+        "interprète comme une expansion de variable même entre apostrophes, alors que " +
+        "process.loadEnvFile ne le décode jamais. Retirer la référence op:// de .env " +
+        'pour cette variable et la garder littérale.',
     )
   }
   return `'${value}'`

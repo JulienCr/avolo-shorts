@@ -150,6 +150,15 @@ describe('formatEnvLocal', () => {
     expect(() => formatEnvLocal([['KEY', "valeur avec une apostrophe '"]])).toThrow(/KEY/)
   })
 
+  // Mesuré : `process.loadEnvFile` laisse `$` intact, mais le dotenv-expand de
+  // `@next/env` (utilisé par `next dev`) l'interprète comme une expansion de
+  // variable même entre apostrophes — `K='$2b$10$abc'` charge le hash pour les
+  // scripts et une chaîne vide pour `next dev`. Voir issue #165.
+  it('refuse une valeur qui contient un $ plutôt que la corrompre pour next dev', () => {
+    expect(() => formatEnvLocal([['KEY', '$2b$10$abcXYZ']])).toThrow(/KEY/)
+    expect(() => formatEnvLocal([['KEY', '$2b$10$abcXYZ']])).toThrow(/\$/)
+  })
+
   // La régression que les trois relecteurs ont trouvée : un secret contenant
   // un antislash ou un guillemet double se faisait tronquer ou dupliquer par
   // l'échappement précédent. Vérifié en rechargeant réellement le fichier

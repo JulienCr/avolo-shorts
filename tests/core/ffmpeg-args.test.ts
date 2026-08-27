@@ -475,9 +475,16 @@ describe('renderArgs', () => {
   // **En TÊTE de chaîne, pas en queue ni en sortie.** Posé là, `crop`, `scale`
   // et `gblur` reçoivent deux fois moins d'images d'une source en 60 ; posé
   // après, ils les auraient toutes traitées pour en jeter la moitié.
+  // Les trois formes d'entrée sont des branches DISTINCTES de `buildRender` —
+  // remplir le canevas, le fond flouté, le split — et chacune écrit sa propre
+  // tête de chaîne : une seule couverte, les deux autres perdent la cadence
+  // sans que rien n'échoue. (relevé par Copilot)
   it.each([
     ['plan qui remplit le canevas', [entry(0, 10)]],
     ['plusieurs entrées', [entry(0, 10), entry(20, 30)]],
+    ['plan sur fond flouté', [entry(0, 10, FRAME_1_X_1, '1:1')]],
+    ['plan splitté', [entry(0, 10, FRAME_1_X_1, '1:1', SPLIT_CELLS)]],
+    ['formes mêlées', [entry(0, 10), entry(20, 30, FRAME_1_X_1, '1:1', SPLIT_CELLS)]],
   ])('ouvre chaque entrée vidéo par la cadence de livraison — %s', (_name, segments) => {
     const a = renderArgs({ ...base, segments })
     const g = a[a.indexOf('-filter_complex') + 1]

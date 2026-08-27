@@ -192,7 +192,7 @@ describe('GET /api/planning/pool', () => {
 
     const response = await poolRoute()
     const payload = (await response.json()) as { clips: { thumbnailUrl: string | null }[] }
-    expect(payload.clips[0].thumbnailUrl).toBe(`/api/clips/${encodeURIComponent('sans-proxy')}/thumb`)
+    expect(payload.clips[0].thumbnailUrl).toBe(`/api/clips/${encodeURIComponent('sans-proxy')}/thumb?poster=render`)
   })
 
   it("rend l'URL de l'affiche quand le proxy est aussi présent", async () => {
@@ -204,7 +204,7 @@ describe('GET /api/planning/pool', () => {
 
     const response = await poolRoute()
     const payload = (await response.json()) as { clips: { thumbnailUrl: string | null }[] }
-    expect(payload.clips[0].thumbnailUrl).toBe(`/api/clips/${encodeURIComponent('avec-proxy')}/thumb`)
+    expect(payload.clips[0].thumbnailUrl).toBe(`/api/clips/${encodeURIComponent('avec-proxy')}/thumb?poster=render`)
   })
 })
 

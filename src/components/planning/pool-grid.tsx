@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 
 import type { PlanningPoolClip } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -42,8 +42,11 @@ export function PoolGrid({
 
   const visible = filterPool(clips, filter)
   const active = visible.some((c) => c.clipId === current) ? current : (visible[0]?.clipId ?? null)
+  // Un id sélectionné qui a quitté `clips` (planning programmé, rendu périmé
+  // exclu) n'est pas « masqué par le filtre » : ne compter que ceux encore
+  // présents dans le vivier (relevé par Copilot).
   const hiddenSelectedCount = [...selected].filter(
-    (id) => !visible.some((c) => c.clipId === id),
+    (id) => clips.some((c) => c.clipId === id) && !visible.some((c) => c.clipId === id),
   ).length
 
   function focus(clipId: string | null) {
@@ -152,18 +155,21 @@ function FilterBar({
 }) {
   const shows = showsInPool(clips)
   const visibleCount = filterPool(clips, filter).length
+  const showId = useId()
 
   return (
     <div className="flex flex-wrap items-end gap-3">
       <div className="flex flex-col gap-1.5">
-        <Label className="text-sm font-normal">Émission</Label>
+        <Label htmlFor={showId} className="text-sm font-normal">
+          Émission
+        </Label>
         <Select
           value={filter.projectId ?? ALL_SHOWS}
           onValueChange={(value) =>
             onFilter({ ...filter, projectId: value === ALL_SHOWS ? null : value })
           }
         >
-          <SelectTrigger className="w-56">
+          <SelectTrigger id={showId} className="w-56">
             <SelectValue>
               {filter.projectId === null ? 'Toutes les émissions' : formatShowOrigin(filter.projectId)}
             </SelectValue>

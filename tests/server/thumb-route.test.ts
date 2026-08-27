@@ -15,9 +15,9 @@ import {
 } from '@/server/steps/render'
 
 /**
- * `GET /api/clips/:id/thumb` : l'affiche du rendu livré passe devant le
- * repère du proxy, qui reste le repli d'un candidat sans rendu — le seul cas
- * que l'écran de tri exerce encore.
+ * `GET /api/clips/:id/thumb` : le proxy par défaut, le repère du rendu livré
+ * seulement sous `?poster=render` — l'écran de tri en 16:9 ne le demande
+ * jamais, seul le vivier du planning le pose (relevé par Codex).
  */
 
 // **L'affiche imite le contenu de sa source**, plutôt qu'un octet constant :
@@ -30,8 +30,8 @@ vi.mock('@/server/ffmpeg', async (importOriginal) => {
     ...actual,
     runFfmpeg: vi.fn(async (args: string[]) => {
       const src = args[args.indexOf('-i') + 1]
-      const marque = Buffer.concat([Buffer.from('image-de:'), fs.readFileSync(src)])
-      fs.writeFileSync(args[args.length - 1], marque)
+      const mark = Buffer.concat([Buffer.from('image-de:'), fs.readFileSync(src)])
+      fs.writeFileSync(args[args.length - 1], mark)
     }),
   }
 })
@@ -67,13 +67,13 @@ function baseClip(): Clip {
   }
 }
 
-function poserRendu(): void {
+function writeRender(): void {
   const folder = path.join(root, 'projects', PROJECT, 'renders')
   fs.mkdirSync(folder, { recursive: true })
   fs.writeFileSync(path.join(folder, `${CLIP}-9x16.mp4`), Buffer.from('rendu'))
 }
 
-function poserFingerprint(clip: Clip): void {
+function writeFingerprint(clip: Clip): void {
   const framing = clipFraming(clip)
   const filePath = pathsRender(clip.projectId, clip.id, framing.ratio).fingerprint
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -94,7 +94,7 @@ function poserFingerprint(clip: Clip): void {
   )
 }
 
-function poserProxy(): void {
+function writeProxy(): void {
   const proxyDir = path.join(root, 'projects', PROJECT)
   fs.mkdirSync(proxyDir, { recursive: true })
   fs.writeFileSync(path.join(proxyDir, 'proxy.mp4'), Buffer.from('proxy'))
@@ -125,20 +125,20 @@ afterEach(() => {
 })
 
 describe('GET /api/clips/:id/thumb', () => {
-  it('sert l’affiche du rendu livré quand elle est à jour', async () => {
+  it('sert l’affiche du rendu livré sous ?poster=render', async () => {
     putClip(getDb(), baseClip())
-    poserRendu()
-    poserFingerprint(baseClip())
+    writeRender()
+    writeFingerprint(baseClip())
 
-    const response = await GET(new Request('http://x'), context(CLIP))
+    const response = await GET(new Request('http://x?poster=render'), context(CLIP))
     expect(response.status).toBe(200)
   })
 
   it('se rabat sur la vignette du proxy sans rendu à jour', async () => {
     putClip(getDb(), { ...baseClip(), status: 'candidate' })
-    poserProxy()
+    writeProxy()
 
-    const response = await GET(new Request('http://x'), context(CLIP))
+    const response = await GET(new Request('http://x?poster=render'), context(CLIP))
     expect(response.status).toBe(200)
   })
 
@@ -150,20 +150,35 @@ describe('GET /api/clips/:id/thumb', () => {
   })
 
   /**
-   * Préférer le rendu ne se prouve pas par un code HTTP : les trois tests
-   * au-dessus ne posent jamais les deux fichiers à la fois, donc inverser en
-   * `vignette(clip) ?? renderPoster(clip)` les laisserait tous verts. Ici les
-   * deux existent, et seuls les octets servis départagent lequel a été lu.
+   * Préférer le rendu ne se prouve pas par un code HTTP : les deux tests
+   * précédents ne posent jamais les deux fichiers à la fois, donc inverser
+   * en `vignette(clip) ?? renderPoster(clip)` les laisserait tous verts. Ici
+   * les deux existent, et seuls les octets servis départagent lequel a été lu.
    */
-  it('sert les octets du rendu, pas ceux du proxy, quand les deux existent', async () => {
+  it('sert les octets du rendu, pas ceux du proxy, quand les deux existent avec ?poster=render', async () => {
     putClip(getDb(), baseClip())
-    poserRendu()
-    poserProxy()
-    poserFingerprint(baseClip())
+    writeRender()
+    writeProxy()
+    writeFingerprint(baseClip())
 
-    const response = await GET(new Request('http://x'), context(CLIP))
+    const response = await GET(new Request('http://x?poster=render'), context(CLIP))
     const body = Buffer.from(await response.arrayBuffer()).toString()
     expect(body).toBe('image-de:rendu')
     expect(body).not.toBe('image-de:proxy')
+  })
+
+  /**
+   * Sans le paramètre, un clip gardé et déjà exporté garde son affiche 16:9 :
+   * c'est le cas que l'écran de tri exerce, et que le rendu 9:16 casserait.
+   */
+  it('ignore le rendu livré sans ?poster=render, même à jour', async () => {
+    putClip(getDb(), baseClip())
+    writeRender()
+    writeProxy()
+    writeFingerprint(baseClip())
+
+    const response = await GET(new Request('http://x'), context(CLIP))
+    const body = Buffer.from(await response.arrayBuffer()).toString()
+    expect(body).toBe('image-de:proxy')
   })
 })

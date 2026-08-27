@@ -109,10 +109,16 @@ export function urlProxy(projectId: string): string | null {
  * `delivered` dit que la route servira le rendu livré, pas le proxy — voir
  * `renderPoster` : sans lui, un clip sans proxy mais avec une livraison à jour
  * (le vivier) se voyait caché une affiche qui existe pourtant.
+ *
+ * **`?poster=render` porte ce choix jusqu'à la route**, qui sert le même
+ * chemin à l'écran de tri en 16:9. Sans ce paramètre, un clip gardé et déjà
+ * exporté s'y verrait servir le repère du rendu 9:16, cadré pour un tout
+ * autre conteneur (relevé par Codex).
  */
 export function urlVignette(clip: Clip, delivered = false): string | null {
   if (!delivered && !fs.existsSync(proxyPath(clip.projectId))) return null
-  return `/api/clips/${encodeURIComponent(clip.id)}/thumb`
+  const suffix = delivered ? '?poster=render' : ''
+  return `/api/clips/${encodeURIComponent(clip.id)}/thumb${suffix}`
 }
 
 // ---------------------------------------------------------------------------

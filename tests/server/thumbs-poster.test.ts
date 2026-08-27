@@ -59,17 +59,17 @@ function baseClip(): Clip {
   }
 }
 
-const OCTETS = Buffer.from('rendu')
+const RENDER_BYTES = Buffer.from('rendu')
 
 /** Pose la variante 9:16 dans `renders/`, comme un export l'aurait produite. */
-function poserRendu(): void {
+function writeRender(): void {
   const folder = path.join(root, 'projects', PROJECT, 'renders')
   fs.mkdirSync(folder, { recursive: true })
-  fs.writeFileSync(path.join(folder, `${CLIP}-9x16.mp4`), OCTETS)
+  fs.writeFileSync(path.join(folder, `${CLIP}-9x16.mp4`), RENDER_BYTES)
 }
 
 /** L'empreinte qu'un export aurait laissée à côté du rendu (#48). */
-function poserFingerprint(clip: Clip): void {
+function writeFingerprint(clip: Clip): void {
   const framing = clipFraming(clip)
   const filePath = pathsRender(clip.projectId, clip.id, framing.ratio).fingerprint
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -118,7 +118,7 @@ afterEach(() => {
 describe('renderPoster', () => {
   it('rend null sans livraison à jour', async () => {
     putClip(getDb(), { ...baseClip(), status: 'kept' })
-    poserRendu()
+    writeRender()
 
     expect(await renderPoster({ ...baseClip(), status: 'kept' })).toBeNull()
     expect(ffmpegMock.runFfmpeg).not.toHaveBeenCalled()
@@ -126,8 +126,8 @@ describe('renderPoster', () => {
 
   it('produit l’affiche quand elle manque', async () => {
     putClip(getDb(), baseClip())
-    poserRendu()
-    poserFingerprint(baseClip())
+    writeRender()
+    writeFingerprint(baseClip())
 
     const destination = posterPath(PROJECT, CLIP)
     expect(fs.existsSync(destination)).toBe(false)
@@ -140,8 +140,8 @@ describe('renderPoster', () => {
 
   it('réutilise une affiche plus récente que le rendu', async () => {
     putClip(getDb(), baseClip())
-    poserRendu()
-    poserFingerprint(baseClip())
+    writeRender()
+    writeFingerprint(baseClip())
 
     await renderPoster(baseClip())
     expect(ffmpegMock.runFfmpeg).toHaveBeenCalledTimes(1)
@@ -152,8 +152,8 @@ describe('renderPoster', () => {
 
   it('régénère une affiche plus vieille que le rendu', async () => {
     putClip(getDb(), baseClip())
-    poserRendu()
-    poserFingerprint(baseClip())
+    writeRender()
+    writeFingerprint(baseClip())
 
     await renderPoster(baseClip())
     expect(ffmpegMock.runFfmpeg).toHaveBeenCalledTimes(1)

@@ -119,6 +119,12 @@ export async function vignette(clip: Clip): Promise<string | null> {
  * elle est plus vieille que le rendu dont elle est extraite : `deliveredVideo`
  * n'a donc rien à savoir invalider ailleurs, ni `discardRenderStale`, ni le
  * `PATCH` d'édition.
+ *
+ * **La livraison est relue après ffmpeg, avant le renommage.** Un réexport
+ * pendant l'extraction changerait `deliveredVideo` sans que rien ne le
+ * signale : la mtime posée par le renommage suivrait alors le nouveau rendu
+ * dans le temps, sans en porter le contenu — fraîche pour de bon, comme
+ * `vignette` ci-dessus (relevé par Copilot).
  */
 export async function renderPoster(clip: Clip, framing?: PublishedFraming): Promise<string | null> {
   const video = deliveredVideo(clip, framing)
@@ -136,6 +142,16 @@ export async function renderPoster(clip: Clip, framing?: PublishedFraming): Prom
     await runFfmpeg(posterArgs({ src: video.path, dst: temporary }), {
       what: `affiche de ${clip.id}`,
     })
+    const toDay = getClip(getDb(), clip.id)
+    const videoToDay = toDay === undefined ? null : deliveredVideo(toDay, framing)
+    const changed =
+      videoToDay === null ||
+      videoToDay.path !== video.path ||
+      fs.statSync(videoToDay.path).mtimeMs !== videoMtime
+    if (changed) {
+      await fsp.rm(temporary, { force: true }).catch(() => {})
+      return null
+    }
     await fsp.rename(temporary, destination)
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})

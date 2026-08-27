@@ -3,6 +3,7 @@
 import type { VariantProps } from 'class-variance-authority'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useRef } from 'react'
 
 import { PLATFORM_LABELS, PLATFORMS, PUBLICATION_STATUS_LABELS, type PublicationStatus } from '@/core/publication'
 import type { PlanningPoolClip } from '@/lib/api'
@@ -110,13 +111,31 @@ export function PoolPreview({
   )
 }
 
+/**
+ * Lit le rendu dès l'ouverture, sans le couper.
+ *
+ * **Jamais de repli muet sur un rejet.** Sans le geste du clic — l'ouverture
+ * directe par `?preview=` en est une —, le navigateur refuse la lecture non
+ * coupée : rester en pause, poster affiché, est honnête ; couper le son pour
+ * forcer la lecture ferait croire un clip silencieux qui ne l'est pas.
+ */
 function Player({ clip }: { clip: PlanningPoolClip }) {
   const url = clip.outputs.variant9x16Url ?? clip.outputs.mp4Url
+  const video = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    // Le clic donne le geste utilisateur qu'exige une lecture non coupée ;
+    // sans lui le navigateur rejette, et le rejet se rattrape sans repli
+    // muet ni bruit — `?.` : `play()` n'est pas implémenté sous jsdom.
+    video.current?.play()?.catch(() => {})
+  }, [url])
+
   if (url === null) {
     return <p className="text-sm text-muted-foreground">Aucun rendu à jour n’est disponible.</p>
   }
   return (
     <video
+      ref={video}
       src={url}
       controls
       preload="metadata"

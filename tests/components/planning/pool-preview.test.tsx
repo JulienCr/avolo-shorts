@@ -5,7 +5,7 @@
  * vide, et le lien d'édition.
  */
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PoolPreview } from '@/components/planning/pool-preview'
@@ -83,5 +83,48 @@ describe('PoolPreview', () => {
   it('rien ne se rend quand clip est null', () => {
     render(<PoolPreview clip={null} onClose={vi.fn()} />)
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  /**
+   * L'ouverture par `?preview=` — sans clic — est précisément le chemin sans
+   * geste utilisateur que Chrome refuse pour une lecture non coupée
+   * (mesuré : `play()` non coupé rejette avec `NotAllowedError` hors geste).
+   */
+  it('un rejet de lecture ne fait pas planter et ne coupe pas le son', async () => {
+    const play = vi
+      .spyOn(window.HTMLMediaElement.prototype, 'play')
+      .mockReturnValue(Promise.reject(new DOMException('Refusé', 'NotAllowedError')))
+
+    render(
+      <PoolPreview
+        clip={clip({ outputs: { mp4Url: null, mp4Due: false, variant9x16Url: '/a-9x16.mp4', variant9x16Due: false, textsUrl: null } })}
+        onClose={vi.fn()}
+      />,
+    )
+
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1))
+    const video = document.querySelector('video') as HTMLVideoElement
+    expect(video.muted).toBe(false)
+
+    play.mockRestore()
+  })
+
+  /**
+   * Base UI démonte `DialogContent` à la fermeture, mais notre propre garde
+   * (`clip !== null &&`) le fait déjà, avant toute animation de sortie : le
+   * `<video>` disparaît du DOM au rendu qui suit, sa lecture s'arrête donc
+   * avec lui plutôt que de continuer au-dessus de la grille.
+   */
+  it('la fermeture retire le lecteur du DOM plutôt que de le laisser jouer', () => {
+    const { rerender } = render(
+      <PoolPreview
+        clip={clip({ outputs: { mp4Url: null, mp4Due: false, variant9x16Url: '/a-9x16.mp4', variant9x16Due: false, textsUrl: null } })}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(document.querySelector('video')).not.toBeNull()
+
+    rerender(<PoolPreview clip={null} onClose={vi.fn()} />)
+    expect(document.querySelector('video')).toBeNull()
   })
 })

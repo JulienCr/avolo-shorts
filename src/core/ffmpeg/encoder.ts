@@ -97,13 +97,12 @@ export const RESAMPLE = 'aresample=48000'
 /**
  * L'horodatage de sortie du son, à poser **en dernier** sur la branche audio.
  *
- * `concat` avec `a=1` rend des trames qui partagent un horodatage : le muxeur
- * mov les décale d'un tick chacune, et les trois premières secondes se jouent
- * en accéléré puis calent. Mesuré sur neuf rendus à plusieurs morceaux, jamais
- * sur un rendu à un seul (issue #212).
+ * `concat` avec `a=1` rend des trames qui partagent un horodatage, que le
+ * muxeur mov décale d'un tick chacune : les trois premières secondes se jouent
+ * en accéléré puis calent (issue #212, neuf rendus touchés).
  *
- * `asetpts` réétiquette depuis le nombre d'échantillons écoulés sans en
- * insérer ni en retirer un ; `aresample=…:async=1` corrige aussi bien mais
- * s'autorise à combler, ce dont personne n'a besoin ici.
+ * `asetpts` réétiquette depuis le compte d'échantillons sans en insérer ni en
+ * retirer un ; `aresample=…:async=1` corrige aussi bien mais s'autorise à
+ * combler.
  */
 export const AUDIO_TIMELINE = 'asetpts=N/SR/TB'

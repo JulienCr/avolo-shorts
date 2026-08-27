@@ -450,9 +450,8 @@ describe('renderArgs', () => {
   })
 
   // **La branche audio finit par `asetpts`, et c'est `concat` qui l'exige.**
-  // Avec `a=1` il rend des trames qui partagent un horodatage ; le muxeur mov
-  // les décale d'un tick chacune et les trois premières secondes déraillent.
-  // Mesuré sur neuf rendus à plusieurs morceaux, aucun à un seul (issue #212).
+  // Avec `a=1` il rend des trames qui partagent un horodatage, que le muxeur
+  // mov décale d'un tick chacune. Neuf rendus touchés, aucun à un morceau.
   it.each([
     ['une entrée', [entry(0, 10)]],
     ['plusieurs entrées', [entry(0, 10), entry(20, 30)]],

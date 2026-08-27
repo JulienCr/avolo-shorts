@@ -252,3 +252,29 @@ export function outputNamed(
   const { mp4, variant9x16, texts } = outputs(clip, framing)
   return [mp4, variant9x16, texts].find((s) => s !== null && s.name === name) ?? null
 }
+
+/**
+ * Le fichier vidéo que la modale d'aperçu du vivier joue : la variante 9:16
+ * livrée, repliée sur le natif — jamais les deux (`RENDER_NATIVE = false`).
+ *
+ * `null` sans livraison à jour, ou quand le fichier a disparu du disque :
+ * `renderPoster` (`src/server/thumbs.ts`) s'en sert pour ne jamais tirer une
+ * affiche d'un rendu périmé ou absent.
+ */
+export function deliveredVideo(
+  clip: Clip,
+  framing: PublishedFraming = clipFraming(clip),
+  hookGlobals: HookSettings = effectiveSettings(getDb()).hook,
+): OutputClip | null {
+  if (!deliveryToDay(clip, framing, hookGlobals)) return null
+  const { mp4, variant9x16 } = outputs(clip, framing)
+  const candidate = variant9x16 ?? mp4
+  if (candidate === null) return null
+  try {
+    if (!fs.statSync(candidate.path).isFile()) return null
+  } catch (error) {
+    if (isAAbsence(error)) return null
+    throw error
+  }
+  return candidate
+}

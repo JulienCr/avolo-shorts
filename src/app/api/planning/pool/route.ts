@@ -39,7 +39,9 @@ export const GET = route('GET /api/planning/pool', async () => {
       projectId: clip.projectId,
       title: clip.title,
       duration: clipDuration(clip.segments),
-      thumbnailUrl: urlVignette(clip),
+      // `deliveryToDay` vient d'être vérifié (ligne au-dessus) : l'affiche du
+      // rendu livré peut donc se servir même sans proxy.
+      thumbnailUrl: urlVignette(clip, true),
       description: clip.description,
       outputs: clipOutputs(clip, framing, settings.hook),
       statuses,

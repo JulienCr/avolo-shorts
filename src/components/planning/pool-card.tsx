@@ -49,7 +49,7 @@ export function PoolCard({
         selected && 'border-stage/60 ring-1 ring-stage/25',
       )}
     >
-      <div className="relative aspect-video overflow-hidden bg-zinc-950">
+      <div className="relative aspect-[9/16] overflow-hidden bg-zinc-950">
         <Thumbnail url={clip.thumbnailUrl} title={clip.title} />
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-black/85 to-transparent p-2 pt-8">

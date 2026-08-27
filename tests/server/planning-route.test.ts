@@ -181,16 +181,21 @@ describe('GET /api/planning/pool', () => {
     expect(clip.statuses).toEqual({ instagram: 'published' })
   })
 
-  it('rend `thumbnailUrl` à `null` quand le proxy manque', async () => {
+  /**
+   * `urlVignette(clip, true)` : le vivier ne teste plus le proxy avant de
+   * publier l'URL — `deliveryToDay` venant d'être vérifié, la route du thumb
+   * peut servir l'affiche du rendu même sans lui.
+   */
+  it("rend l'URL de l'affiche même sans proxy, pour un clip à jour", async () => {
     putClip(getDb(), baseClip('sans-proxy'))
     fresh.add('sans-proxy')
 
     const response = await poolRoute()
     const payload = (await response.json()) as { clips: { thumbnailUrl: string | null }[] }
-    expect(payload.clips[0].thumbnailUrl).toBeNull()
+    expect(payload.clips[0].thumbnailUrl).toBe(`/api/clips/${encodeURIComponent('sans-proxy')}/thumb`)
   })
 
-  it("rend l'URL de la vignette quand le proxy est présent", async () => {
+  it("rend l'URL de l'affiche quand le proxy est aussi présent", async () => {
     putClip(getDb(), baseClip('avec-proxy'))
     fresh.add('avec-proxy')
     const proxy = proxyPath(PROJECT_ID)

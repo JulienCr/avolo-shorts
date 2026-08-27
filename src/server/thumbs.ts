@@ -3,10 +3,12 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 
 import type { Clip } from '@/core/edl'
-import { thumbArgs } from '@/core/ffmpeg/args'
+import { posterArgs, thumbArgs } from '@/core/ffmpeg/args'
+import type { PublishedFraming } from '@/lib/api'
 import { getClip, getDb } from '@/server/db'
 import { pathTemporary, runFfmpeg } from '@/server/ffmpeg'
 import { projectDir, proxyPath } from '@/server/paths'
+import { deliveredVideo } from '@/server/renders'
 
 /**
  * La vignette d'un candidat : une image tirée du proxy, au premier segment du
@@ -45,6 +47,11 @@ function verifyIdClip(clipId: string): string {
 /** `projects/<projet>/thumbs/<clip>.jpg`. */
 export function vignettePath(projectId: string, clipId: string): string {
   return path.join(projectDir(projectId), 'thumbs', `${verifyIdClip(clipId)}.jpg`)
+}
+
+/** `projects/<projet>/thumbs/<clip>.render.jpg`. */
+export function posterPath(projectId: string, clipId: string): string {
+  return path.join(projectDir(projectId), 'thumbs', `${verifyIdClip(clipId)}.render.jpg`)
 }
 
 /**
@@ -95,6 +102,40 @@ export async function vignette(clip: Clip): Promise<string | null> {
       await fsp.rm(temporary, { force: true }).catch(() => {})
       return null
     }
+    await fsp.rename(temporary, destination)
+  } catch (cause) {
+    await fsp.rm(temporary, { force: true }).catch(() => {})
+    throw cause
+  }
+  return destination
+}
+
+/**
+ * L'affiche d'un clip du vivier : le premier repère du **rendu livré**,
+ * jamais du proxy — voir `posterArgs`. `null` sans livraison à jour ou sans
+ * fichier vidéo sur le disque.
+ *
+ * **Fraîcheur sans point d'éviction.** Refaite quand elle manque, ou quand
+ * elle est plus vieille que le rendu dont elle est extraite : `deliveredVideo`
+ * n'a donc rien à savoir invalider ailleurs, ni `discardRenderStale`, ni le
+ * `PATCH` d'édition.
+ */
+export async function renderPoster(clip: Clip, framing?: PublishedFraming): Promise<string | null> {
+  const video = deliveredVideo(clip, framing)
+  if (video === null) return null
+
+  const destination = posterPath(clip.projectId, clip.id)
+  const videoMtime = fs.statSync(video.path).mtimeMs
+  if (fs.existsSync(destination) && fs.statSync(destination).mtimeMs >= videoMtime) {
+    return destination
+  }
+
+  await fsp.mkdir(path.dirname(destination), { recursive: true })
+  const temporary = pathTemporary(destination)
+  try {
+    await runFfmpeg(posterArgs({ src: video.path, dst: temporary }), {
+      what: `affiche de ${clip.id}`,
+    })
     await fsp.rename(temporary, destination)
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})

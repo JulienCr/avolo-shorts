@@ -103,9 +103,15 @@ export function urlProxy(projectId: string): string | null {
   return `/api/projects/${encodeURIComponent(projectId)}/proxy`
 }
 
-/** Idem pour la vignette, qui se tire du proxy — donc qui en dépend. */
-export function urlVignette(clip: Clip): string | null {
-  if (!fs.existsSync(proxyPath(clip.projectId))) return null
+/**
+ * L'URL de l'affiche d'un clip.
+ *
+ * `delivered` dit que la route servira le rendu livré, pas le proxy — voir
+ * `renderPoster` : sans lui, un clip sans proxy mais avec une livraison à jour
+ * (le vivier) se voyait caché une affiche qui existe pourtant.
+ */
+export function urlVignette(clip: Clip, delivered = false): string | null {
+  if (!delivered && !fs.existsSync(proxyPath(clip.projectId))) return null
   return `/api/clips/${encodeURIComponent(clip.id)}/thumb`
 }
 

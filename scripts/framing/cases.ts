@@ -412,4 +412,46 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     retired: null,
     baseline: { ratio: '16:9', split: true, rejection: null, on: '2026-08-26' },
   },
+  // Trois cas de doublage improvisé (PR1, issue de fleet run « doublage
+  // improvisé ») : deux instants réels dans le disque, mesurés à l'image par
+  // l'orchestrateur (amendement A1), et un faux positif connu — pas encore
+  // consommés par `computeFraming`, ils ne font que fixer les instants que la
+  // séquence traverse pour la PR de composition (PR2/PR3).
+  {
+    id: 'entre-nous-6390000',
+    show: 'entre-nous',
+    scope: { over: 'source' },
+    anchor: { at: 'instant', instants: [6390] },
+    probes: 'Un instant réel de la troisième séquence de doublage — le disque ajusté au pixel.',
+    label: null,
+    tags: [],
+    origin: 'fleet doublage improvisé, PR1',
+    retired: null,
+    baseline: { ratio: '16:9', split: false, rejection: 'bleedsIntoOther', on: '2026-08-27' },
+  },
+  {
+    id: 'caro-mdlm-5476000',
+    show: 'caro-mdlm',
+    scope: { over: 'source' },
+    anchor: { at: 'instant', instants: [5476] },
+    probes: "Un instant réel de la séquence de doublage de l'autre émission — le disque y agrée à moins de 1 %.",
+    label: null,
+    tags: [],
+    origin: 'fleet doublage improvisé, PR1',
+    retired: null,
+    baseline: { ratio: '9:16', split: false, rejection: 'notTwoPeople', on: '2026-08-27' },
+  },
+  {
+    id: 'nabla-7814000',
+    show: 'nabla',
+    scope: { over: 'source' },
+    anchor: { at: 'instant', instants: [7814] },
+    probes:
+      'Un faux positif connu du crible grossier — un fauteuil qui déborde du disque, jamais entièrement dedans (amendement A5).',
+    label: null,
+    tags: [],
+    origin: 'fleet doublage improvisé, PR1',
+    retired: null,
+    baseline: { ratio: '16:9', split: true, rejection: null, on: '2026-08-27' },
+  },
 ]

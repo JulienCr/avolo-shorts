@@ -85,6 +85,90 @@ Suivi dans
 d’un visuel de story 9:16 et publication automatique ou export manuel selon les
 possibilités de l’API Meta.
 
+### Ajouter un pied commun aux descriptions des Reels
+
+**Objectif**
+
+Composer chaque description à partir de deux blocs :
+
+1. une description personnalisée, générée ou éditée pour le Reel ;
+2. un pied commun présentant La Scène Avolo et redirigeant vers Twitch.
+
+Le pied commun doit notamment pouvoir contenir :
+
+- une présentation en une ligne de La Scène Avolo ;
+- un CTA du type « Retrouvez-nous tous les dimanches sur Twitch » ;
+- l’adresse exacte de la chaîne Twitch, à confirmer ;
+- éventuellement des hashtags ou mentions permanentes.
+
+**À prévoir**
+
+- Configuration du texte commun au niveau du projet ou de la plateforme.
+- Aperçu de la description finale avant publication.
+- Séparateur et retours à la ligne maîtrisés entre la partie personnalisée et
+  le pied commun.
+- Possibilité de désactiver ou modifier ponctuellement le pied pour une
+  publication.
+- Respect des limites et usages propres à Instagram, TikTok, YouTube et
+  Facebook.
+- Une seule fonction de composition utilisée par l’aperçu, le planning et les
+  connecteurs afin que le texte affiché soit celui réellement envoyé.
+
+**Formulation éditoriale à définir**
+
+La Scène Avolo est la chaîne Twitch d’une compagnie de théâtre et
+d’improvisation, consacrée à l’impro au sens large : émissions, interviews,
+spectacles et musique improvisée. La version finale doit rester courte et être
+validée avec l’URL exacte de la chaîne.
+
+### Ajouter un bumper final avec CTA Twitch
+
+**Objectif**
+
+Fermer chaque vidéo par un bumper animé très court, de **1 à 2 secondes
+maximum**, afin d’afficher un CTA que les API des plateformes ne permettent pas
+d’ajouter programmatiquement.
+
+Contenu envisagé :
+
+- apparition rapide du logo Avolo ou La Scène Avolo ;
+- message du type « Retrouvez-nous sur Twitch tous les dimanches » ;
+- éventuellement l’identifiant ou l’adresse courte de la chaîne ;
+- sortie nette marquant la fin de la vidéo.
+
+**Contraintes produit**
+
+- Le bumper ne doit pas ralentir la chute ni donner l’impression que la vidéo
+  continue.
+- Le message doit rester lisible malgré une durée très courte.
+- Le CTA doit rester dans la zone sûre des interfaces verticales.
+- Le rendu doit fonctionner aux différents ratios exportés, notamment 9:16 et
+  1:1.
+- L’activation, le texte et l’asset doivent être configurables.
+- Le logo existant utilisé pour les incrustations doit être réemployé si sa
+  définition convient.
+
+**Pistes techniques**
+
+- Traiter le bumper comme un segment final distinct, ajouté après le montage
+  principal.
+- Produire une animation déterministe plutôt qu’une vidéo dupliquée dans chaque
+  export.
+- Inclure la configuration et les assets du bumper dans l’empreinte de rendu
+  afin de périmer correctement les exports lorsqu’ils changent.
+- Tester la concaténation audio/vidéo, le dernier frame, la durée exacte et les
+  différents ratios.
+- Vérifier si le bumper doit être inclus sur toutes les plateformes ou
+  configurable plateforme par plateforme.
+
+**Validation**
+
+- Durée totale comprise entre 1 et 2 secondes.
+- Logo et CTA lisibles sur mobile.
+- Aucun saut audio ou image à la jonction.
+- Le changement de texte ou de logo force bien un nouveau rendu.
+- La vidéo publiée contient exactement le bumper prévisualisé.
+
 ## Planning
 
 ### Afficher le détail des échecs de publication

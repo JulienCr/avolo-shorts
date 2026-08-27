@@ -62,8 +62,15 @@ export function linkProject(projectId: string): string {
  * suggéré qu'ils lui appartiennent, alors que changer un réglage ne recalcule
  * rien — un recalcul reste une action explicite.
  */
-export function settingsLink(): string {
-  return '/settings'
+/** Les six onglets de l'écran de réglages, dans l'ordre où `SettingsScreen` les monte. */
+export type SettingsTab = 'selection' | 'ai' | 'source' | 'hook' | 'framing' | 'publication'
+
+/**
+ * Un onglet précis se cible par `?tab=`, sinon le premier onglet fait foi —
+ * `SettingsScreen` valide la valeur reçue, cette fonction ne fait qu'encoder.
+ */
+export function settingsLink(tab?: SettingsTab): string {
+  return tab === undefined ? '/settings' : `/settings?tab=${tab}`
 }
 
 /** L'URL du planning. Même raisonnement que `settingsLink` : un frère de la racine. */

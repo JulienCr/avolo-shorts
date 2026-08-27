@@ -1101,6 +1101,8 @@ export type PublicationSettings = {
 } & {
   /** Jusqu'à quatre `HH:MM` séparés par des virgules, du plus récemment employé au plus ancien. */
   scheduleHours: string
+  /** L'ordonnanceur publie-t-il ? La tâche planifiée tourne quand même et n'écrit rien si c'est faux. */
+  autoPublish: boolean
 }
 
 /** Le défaut de `publication.scheduleHours` — jamais un autre littéral `'19:00'` récrit à côté. */

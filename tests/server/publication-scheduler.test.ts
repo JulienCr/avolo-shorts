@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Clip } from '@/core/edl'
 import { PLATFORMS, type Platform } from '@/core/publication'
 import {
+  applySettings,
   closeDb,
   getDb,
   getPublications,
@@ -183,6 +184,45 @@ describe('runOnePass — passe normale', () => {
 
     expect(outcome.kind).toBe('done')
     expect(sendMail).not.toHaveBeenCalled()
+  })
+})
+
+describe('runOnePass — le drapeau autoPublish', () => {
+  it('drapeau à `false` : `disabled`, aucun verrou pris', async () => {
+    applySettings(getDb(), { publication: { autoPublish: false } })
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+
+    const outcome = await runOnePass(deps())
+
+    expect(outcome).toEqual({ kind: 'disabled' })
+    expect(fs.existsSync(path.join(lockDir, '.publish-scheduled.lock'))).toBe(false)
+  })
+
+  it('drapeau à `false` et échéance due : rien n’est publié', async () => {
+    applySettings(getDb(), { publication: { autoPublish: false } })
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+
+    await runOnePass(deps())
+
+    const rows = getPublications(getDb(), CLIP_ID)
+    expect(rows.every((r) => r.status === 'planned')).toBe(true)
+  })
+
+  it('drapeau à `false` en `--dry-run` : `disabled` aussi, pas de fuite de l’échéance', async () => {
+    applySettings(getDb(), { publication: { autoPublish: false } })
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+
+    const outcome = await runOnePass(deps(), { dryRun: true })
+
+    expect(outcome).toEqual({ kind: 'disabled' })
+  })
+
+  it('drapeau à `true` (défaut) : le comportement existant tourne sans changement', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+
+    const outcome = await runOnePass(deps())
+
+    expect(outcome.kind).toBe('done')
   })
 })
 

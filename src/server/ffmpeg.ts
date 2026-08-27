@@ -276,21 +276,52 @@ export const SIGKILL_DELAY_MS = 10_000
  * toute façon inoffensif. On l'attrape quand même, parce qu'une exception jetée
  * depuis une minuterie n'a personne pour la rattraper et couperait le serveur.
  */
+export type OptionsForwardAbort = {
+  /**
+   * Vise le groupe de processus (`-pid`) plutôt que le seul PID de `proc`. N'a
+   * de sens que si `proc` a été lancé avec `detached: true`, ce qui en fait le
+   * meneur d'un groupe qui n'appartient qu'à lui — sinon `-pid` viserait le
+   * groupe du serveur.
+   */
+  killGroup?: boolean
+}
+
 export function forwardAbort(
   proc: ChildProcess,
   signal: AbortSignal | undefined,
   delayMs: number = SIGKILL_DELAY_MS,
+  options: OptionsForwardAbort = {},
 ): () => void {
-  if (signal === undefined) return () => {}
+  const killGroup = options.killGroup === true
 
   let killTimer: NodeJS.Timeout | undefined
   const send = (sig: NodeJS.Signals): void => {
     try {
-      proc.kill(sig)
+      // Un PID mort peut être recyclé par le noyau : `-pid` viserait alors le
+      // groupe de quelqu'un d'autre. `exitCode`/`signalCode` disent que Node a
+      // déjà vu la fin du processus.
+      if (killGroup && proc.pid !== undefined) {
+        if (proc.exitCode === null && proc.signalCode === null) process.kill(-proc.pid, sig)
+      } else {
+        proc.kill(sig)
+      }
     } catch {
       // Le processus est déjà parti : c'est le résultat qu'on visait.
     }
   }
+
+  // **Un groupe détaché échappe aussi aux signaux du terminal.** `detached:
+  // true` retire le worker du groupe de premier plan : un `Ctrl-C` sur le
+  // serveur ne l'atteint plus tout seul, contrairement à un enfant ordinaire —
+  // `exit` tourne encore, une fois, avant que Node ne parte pour de bon.
+  const onExit = (): void => send('SIGKILL')
+  if (killGroup) process.once('exit', onExit)
+
+  const cleanup = (): void => {
+    if (killGroup) process.off('exit', onExit)
+  }
+
+  if (signal === undefined) return cleanup
 
   const onAbort = (): void => {
     send('SIGTERM')
@@ -306,6 +337,7 @@ export function forwardAbort(
   return () => {
     clearTimeout(killTimer)
     signal.removeEventListener('abort', onAbort)
+    cleanup()
   }
 }
 

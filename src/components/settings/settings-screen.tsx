@@ -1,6 +1,7 @@
 'use client'
 
 import { Check, LoaderCircle, TriangleAlert } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
 
 import { AppBar } from '@/components/navigation/app-bar'
 import { AiSection } from '@/components/settings/ai-section'
@@ -13,7 +14,27 @@ import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { SettingsTab } from '@/lib/navigation'
 import { useLlmAvailability, useSaveSettings, useSettings } from '@/lib/queries'
+
+const SETTINGS_TABS: readonly SettingsTab[] = [
+  'selection',
+  'ai',
+  'source',
+  'hook',
+  'framing',
+  'publication',
+]
+
+/**
+ * Le premier onglet valable reçu par `?tab=`, sinon Repérage.
+ *
+ * @param requested Valeur brute du paramètre d'URL, potentiellement absente ou forgée.
+ * @returns Un onglet réellement monté par cet écran.
+ */
+function resolveInitialTab(requested: string | null): SettingsTab {
+  return SETTINGS_TABS.find((tab) => tab === requested) ?? 'selection'
+}
 
 /**
  * L'écran des paramètres.
@@ -48,6 +69,7 @@ export function SettingsScreen() {
   const settings = useSettings()
   const save = useSaveSettings()
   const availability = useLlmAvailability()
+  const initialTab = resolveInitialTab(useSearchParams().get('tab'))
 
   return (
     <div className="flex min-h-full flex-col">
@@ -104,7 +126,7 @@ export function SettingsScreen() {
           </Alert>
         )}
 
-        <Tabs defaultValue="selection" orientation="vertical" className="flex-1 flex-col md:flex-row">
+        <Tabs defaultValue={initialTab} orientation="vertical" className="flex-1 flex-col md:flex-row">
           <TabsList variant="line" className="shrink-0 md:w-48">
             <TabsTrigger value="selection">Repérage</TabsTrigger>
             <TabsTrigger value="ai">Intelligence artificielle</TabsTrigger>

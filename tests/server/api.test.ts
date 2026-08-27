@@ -1753,6 +1753,7 @@ describe('/api/settings', () => {
     tiktok: 'auto',
     youtube: 'auto',
     scheduleHours: '19:00',
+    autoPublish: true,
   }
 
   const write = (body: unknown): Promise<Response> =>

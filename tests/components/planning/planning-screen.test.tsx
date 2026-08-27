@@ -56,6 +56,7 @@ const SETTINGS: Settings = {
     tiktok: 'auto',
     youtube: 'auto',
     scheduleHours: DEFAULT_SCHEDULE_HOURS,
+    autoPublish: true,
   },
   framing: { ...FRAMING_SETTINGS_DEFAULTS },
 }
@@ -80,13 +81,14 @@ function entry(fields: Partial<ScheduledEntry> = {}): ScheduledEntry {
 function server(options: {
   pool?: PlanningPoolClip[]
   schedule?: ScheduledEntry[]
+  settings?: Settings
   onSchedule?: (body: unknown) => ScheduledEntry[]
   onUnschedule?: (body: unknown) => number
 }) {
   const calls: { path: string; init?: RequestInit }[] = []
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ path: url, init })
-    if (url === '/api/settings') return response(SETTINGS)
+    if (url === '/api/settings') return response(options.settings ?? SETTINGS)
     if (url === '/api/planning/pool') return response({ clips: options.pool ?? [] })
     if (url.startsWith('/api/planning/schedule?')) {
       return response({ entries: options.schedule ?? [] })
@@ -193,5 +195,22 @@ describe('PlanningScreen', () => {
 
     await waitFor(() => expect(screen.getByText('La chute')).toBeTruthy())
     expect(screen.queryByRole('button', { name: 'Déprogrammer' })).toBeNull()
+  })
+
+  it('la publication automatique coupée affiche le bandeau et pointe vers l’onglet Publication', async () => {
+    server({ pool: [], settings: { ...SETTINGS, publication: { ...SETTINGS.publication, autoPublish: false } } })
+    render(<PlanningScreen />, { wrapper: wrapper() })
+
+    await waitFor(() => expect(screen.getByText('Publication automatique désactivée.')).toBeTruthy())
+    const link = screen.getByRole('link', { name: 'Ouvrir les réglages de publication' })
+    expect(link.getAttribute('href')).toBe('/settings?tab=publication')
+  })
+
+  it('la publication automatique active n’affiche pas le bandeau', async () => {
+    server({ pool: [] })
+    render(<PlanningScreen />, { wrapper: wrapper() })
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Planning' })).toBeTruthy())
+    expect(screen.queryByText('Publication automatique désactivée.')).toBeNull()
   })
 })

@@ -27,8 +27,10 @@ import {
 import type { Settings } from '@/lib/api'
 import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
 
+let query = ''
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(query),
 }))
 
 // La section « Cadrage » clique une `Checkbox` de Base UI, comme
@@ -39,6 +41,7 @@ afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  query = ''
 })
 
 function response(body: unknown, status = 200): Response {
@@ -75,6 +78,7 @@ const PUBLICATION_DEFAULTS: Settings['publication'] = {
   tiktok: 'auto',
   youtube: 'auto',
   scheduleHours: DEFAULT_SCHEDULE_HOURS,
+  autoPublish: true,
 }
 
 const DEFAULTS: Settings = {
@@ -644,5 +648,26 @@ describe('la section publication', () => {
     await userEvent.click(screen.getByLabelText('Revenir à Automatique pour Facebook'))
 
     await waitFor(() => expect(writes).toEqual([{ publication: { facebook: 'auto' } }]))
+  })
+
+  it('ouvre directement l’onglet Publication quand l’URL le demande', async () => {
+    query = 'tab=publication'
+    server()
+    const Wrapper = wrapper()
+    render(
+      <Wrapper>
+        <SettingsScreen />
+      </Wrapper>,
+    )
+
+    expect(await screen.findByRole('checkbox', { name: /publication automatique/i })).toBeTruthy()
+  })
+
+  it('ignore un `tab` inconnu et retombe sur Repérage', async () => {
+    query = 'tab=nimportequoi'
+    server()
+    await mountScreen()
+
+    expect(screen.getByLabelText(/tranche de/i)).toBeTruthy()
   })
 })

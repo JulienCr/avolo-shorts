@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { TriangleAlert } from 'lucide-react'
+import Link from 'next/link'
+import { CircleAlert, TriangleAlert } from 'lucide-react'
 
 import { composeScheduledAt, fiveWeekWindow } from '@/core/planning'
 import {
@@ -12,6 +13,7 @@ import {
   useSettings,
   useUnschedulePublication,
 } from '@/lib/queries'
+import { settingsLink } from '@/lib/navigation'
 import { AppBar } from '@/components/navigation/app-bar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { FiveWeekBand } from '@/components/planning/five-week-band'
@@ -84,6 +86,22 @@ export function PlanningScreen() {
             <TriangleAlert aria-hidden />
             <AlertTitle>Une opération n’a pas abouti.</AlertTitle>
             <AlertDescription>{errorMessage}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Un état, pas une erreur : le drapeau est une décision assumée
+            (`docs/publication-scheduler.md`), donc pas de variante destructive
+            ni de bandeau qu'on referme — la tâche planifiée tourne quand même,
+            elle n'écrit simplement rien tant que ce réglage est faux. */}
+        {settings.data?.publication.autoPublish === false && (
+          <Alert>
+            <CircleAlert aria-hidden />
+            <AlertTitle>Publication automatique désactivée.</AlertTitle>
+            <AlertDescription>
+              Les échéances programmées ci-dessous ne partiront pas tant que ce réglage reste
+              coupé.{' '}
+              <Link href={settingsLink('publication')}>Ouvrir les réglages de publication</Link>.
+            </AlertDescription>
           </Alert>
         )}
 

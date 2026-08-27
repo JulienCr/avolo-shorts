@@ -5,7 +5,7 @@ import path from 'node:path'
 import type Database from 'better-sqlite3'
 
 import { PLATFORM_LABELS, PLATFORMS, PUBLICATION_STATUS_LABELS, type Platform, type PublicationStatus } from '@/core/publication'
-import { getClip, getPublications, nextDueSchedule, upsertPublication } from '@/server/db'
+import { effectiveSettings, getClip, getPublications, nextDueSchedule, upsertPublication } from '@/server/db'
 import { messageSafe } from '@/server/errors'
 import { launchPublish } from '@/server/publication/service'
 import type { Mailer } from '@/server/publication/mailer'
@@ -35,6 +35,7 @@ export type DueSummary = { clipId: string; title: string; scheduledAt: number; p
 export type SchedulerOutcome =
   | { kind: 'idle' }
   | { kind: 'locked'; since: number }
+  | { kind: 'disabled' }
   | { kind: 'dry-run'; due: DueSummary | null }
   | { kind: 'done'; clipId: string; attempts: number; statuses: Record<Platform, PublicationStatus> }
   | { kind: 'abandoned'; clipId: string; attempts: number; statuses: Record<Platform, PublicationStatus> }
@@ -451,6 +452,11 @@ function dueSummary(db: Database.Database, clipId: string, scheduledAt: number):
  */
 export async function runOnePass(deps: SchedulerDeps, options?: { dryRun?: boolean }): Promise<SchedulerOutcome> {
   const { db, now, lockDir, pidAlive: isAlive = pidAlive } = deps
+
+  // Lu avant le verrou et avant `nextDueSchedule` : ce drapeau arrête la
+  // tâche planifiée, pas un humain devant l'écran — `POST /api/clips/:id/
+  // publish` appelle `launchPublish` directement et ne passe jamais ici.
+  if (!effectiveSettings(db).publication.autoPublish) return { kind: 'disabled' }
 
   if (options?.dryRun === true) {
     const due = nextDueSchedule(db, now())

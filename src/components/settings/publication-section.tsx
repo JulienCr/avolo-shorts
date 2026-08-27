@@ -4,6 +4,7 @@ import { RotateCcw } from 'lucide-react'
 import { useId } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -70,6 +71,8 @@ export function PublicationSection({
         </p>
       </div>
 
+      <AutoPublishToggle checked={values.autoPublish} disabled={disabled} onChange={onChange} />
+
       <div className="flex flex-col gap-3">
         {PLATFORMS.map((platform) => (
           <PlatformRow
@@ -82,6 +85,46 @@ export function PublicationSection({
         ))}
       </div>
     </section>
+  )
+}
+
+/**
+ * Le drapeau de l'ordonnanceur (contrat PR F) : la tâche planifiée continue
+ * de se réveiller toutes les cinq minutes, ce réglage décide seule si une
+ * passe publie. Le manuel (`POST /api/clips/:id/publish`) ne le lit jamais.
+ */
+function AutoPublishToggle({
+  checked,
+  disabled,
+  onChange,
+}: {
+  checked: boolean
+  disabled: boolean
+  onChange: (patch: Partial<PublicationSettings>) => void | Promise<unknown>
+}) {
+  const id = useId()
+  const helpId = `${id}-help`
+  return (
+    <div className="flex flex-col gap-1.5 rounded-xl border px-4 py-3">
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id={id}
+          checked={checked}
+          disabled={disabled}
+          aria-describedby={helpId}
+          onCheckedChange={(value) =>
+            void Promise.resolve(onChange({ autoPublish: value === true })).catch(() => {})
+          }
+        />
+        <Label htmlFor={id} className="text-sm font-medium">
+          Publication automatique à l’échéance
+        </Label>
+      </div>
+      <p id={helpId} className="text-xs text-muted-foreground">
+        La tâche planifiée continue de tourner toutes les cinq minutes ; décochée, cette option
+        l’empêche de publier quoi que ce soit.
+      </p>
+    </div>
   )
 }
 

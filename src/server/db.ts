@@ -528,12 +528,22 @@ export type SettingField = {
 /**
  * `raw` analyse comme une URL absolue `http:`/`https:`, sans requête ni
  * fragment — les deux casseraient la concaténation `${base}/api/chat` que
- * `createOllamaCall` fait ensuite (relevé par Copilot).
+ * `createOllamaCall` fait ensuite (relevé par Copilot) — ni espace de bord ni
+ * identifiants : `new URL` accepte et normalise silencieusement les deux, ce
+ * qui stockerait respectivement une adresse cassée et un mot de passe en
+ * clair dans `settings` (relevé par Aristarque).
  */
 function isValidUrl(raw: string): boolean {
+  if (raw !== raw.trim()) return false
   try {
     const url = new URL(raw)
-    return ['http:', 'https:'].includes(url.protocol) && url.search === '' && url.hash === ''
+    return (
+      ['http:', 'https:'].includes(url.protocol) &&
+      url.search === '' &&
+      url.hash === '' &&
+      url.username === '' &&
+      url.password === ''
+    )
   } catch {
     return false
   }

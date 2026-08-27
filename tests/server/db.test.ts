@@ -800,6 +800,29 @@ describe('la grammaire du registre', () => {
       expect(() => validateSetting(c, 'http://172.28.0.1:11434#x')).toThrow(InvalidSettingError)
       expect(parseSetting(c, 'http://172.28.0.1:11434#x')).toBeUndefined()
     })
+
+    /**
+     * #223 (relevé par Aristarque) : `new URL` accepte et normalise un espace
+     * de bord, ce que `validateSetting` stockerait tel quel — l'espace casse
+     * la même concaténation que la requête et le fragment ci-dessus.
+     */
+    it('refuse un espace de bord', () => {
+      expect(() => validateSetting(c, ' http://172.28.0.1:11434')).toThrow(InvalidSettingError)
+      expect(parseSetting(c, 'http://172.28.0.1:11434 ')).toBeUndefined()
+    })
+
+    /**
+     * #223 (relevé par Aristarque) : `new URL` accepte des identifiants
+     * (`user:pass@hôte`) sans les signaler — les stocker en clair dans
+     * `settings` en ferait une seconde source de secrets, plus facile à lire
+     * ou à partager que la base elle-même.
+     */
+    it('refuse des identifiants dans l’URL', () => {
+      expect(() => validateSetting(c, 'http://user:secret@172.28.0.1:11434')).toThrow(
+        InvalidSettingError,
+      )
+      expect(parseSetting(c, 'http://user:secret@172.28.0.1:11434')).toBeUndefined()
+    })
   })
 
   /**

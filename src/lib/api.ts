@@ -24,7 +24,7 @@
  * GET   /api/llm/availability               -> LlmAvailability
  * GET   /api/publication/availability        -> Record<Platform, PlatformAvailability>
  * POST  /api/clips/:id/publish { platforms, force? } -> { publications: PublicationRow[] }
- * GET   /api/clips/:id/publications         -> { publications: PublicationRow[] }
+ * GET   /api/clips/:id/publications         -> { publications: PublicationView[] }
  * GET   /api/planning/pool                  -> { clips: PlanningPoolClip[] }
  * GET   /api/planning/schedule?from=<ms>&to=<ms>      -> { entries: ScheduledEntry[] }
  * POST  /api/planning/schedule { clipIds, scheduledAt } -> { entries: ScheduledEntry[] }
@@ -53,7 +53,13 @@ import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import type { ClipFraming, FramingSettings, ShotFraming } from '@/core/framing'
 import type { StepName } from '@/core/graph'
 import type { HookSettings } from '@/core/hook'
-import type { Platform, PlatformAvailability, PublicationRow, PublicationStatus } from '@/core/publication'
+import type {
+  Platform,
+  PlatformAvailability,
+  PublicationRow,
+  PublicationStatus,
+  PublicationView,
+} from '@/core/publication'
 import type { TranscriptLine, WordCorrection } from '@/lib/editing'
 
 export type { Clip, ClipStatus, Ratio, Segment }
@@ -1366,8 +1372,8 @@ export function publishClip(
 }
 
 /** L'état de chaque publication d'un clip — `GET /api/clips/:id/publications`. */
-export function getPublications(clipId: string): Promise<{ publications: PublicationRow[] }> {
-  return lire<{ publications: PublicationRow[] }>(`/api/clips/${encodeURIComponent(clipId)}/publications`)
+export function getPublications(clipId: string): Promise<{ publications: PublicationView[] }> {
+  return lire<{ publications: PublicationView[] }>(`/api/clips/${encodeURIComponent(clipId)}/publications`)
 }
 
 // ---------------------------------------------------------------------------

@@ -56,18 +56,14 @@ const STATUS_BADGE_VARIANT: Record<PublicationStatus, VariantProps<typeof badgeV
 }
 
 /**
- * L'aperçu d'un clip du vivier : le rendu, la description, l'émission, la
- * durée, et les quatre plateformes une à une.
+ * L'aperçu d'un clip du vivier : rendu, description, émission, durée, et les
+ * quatre plateformes une à une.
  *
- * **Un seul lecteur vidéo.** `RENDER_NATIVE = false` : un clip exporté porte
- * `-9x16.mp4`, ou `.mp4` quand son ratio natif est déjà 9:16 — jamais les
- * deux. Un bouton pour choisir entre deux rendus dont un seul peut exister
- * mentirait, donc aucun choix n'est proposé.
+ * **Un seul lecteur.** `RENDER_NATIVE = false` : un export ne porte jamais les
+ * deux rendus à la fois, donc aucun choix n'est proposé entre eux.
  *
- * **Une modale URL-driven, et non une exception à « rien ne s'ouvre en
- * modale sauf une confirmation »** : cette règle vise l'URL, pas la forme
- * visuelle. `?preview=` rend l'aperçu rechargeable et partageable, ce qui est
- * précisément ce que la règle exige.
+ * **Modale URL-driven** : « rien ne s'ouvre en modale sauf une confirmation »
+ * vise l'URL, pas la forme visuelle — `?preview=` la rend rechargeable.
  */
 export function PoolPreview({
   clip,

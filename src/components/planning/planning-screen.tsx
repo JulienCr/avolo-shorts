@@ -47,9 +47,8 @@ export function PlanningScreen() {
   const [previewId, setPreviewId] = usePreviewUrl()
 
   // **Réconciliée avec le vivier, jamais lue seule** — même règle que
-  // `ReviewFeed` (`feed.tsx:173-181`) : un repérage forcé peut faire
-  // disparaître un clip entre deux rendus, et la sélection ne doit pas
-  // annoncer un compte qu'elle ne peut plus honorer.
+  // `ReviewFeed` (`feed.tsx:173-181`) : la sélection ne doit pas annoncer un
+  // compte qu'elle ne peut plus honorer.
   const poolClips = pool.data ?? []
   const selectedClips = poolClips.filter((c) => selected.has(c.clipId))
   // **Réconciliée avec le vivier, jamais lue seule dans l'URL** — même règle
@@ -96,9 +95,8 @@ export function PlanningScreen() {
         )}
 
         {/* Un état, pas une erreur : le drapeau est une décision assumée
-            (`docs/publication-scheduler.md`), donc pas de variante destructive
-            ni de bandeau qu'on referme — la tâche planifiée tourne quand même,
-            elle n'écrit simplement rien tant que ce réglage est faux. */}
+            (`docs/publication-scheduler.md`), sans variante destructive ni
+            bandeau qu'on referme — la tâche tourne, elle n'écrit rien. */}
         {settings.data?.publication.autoPublish === false && (
           <Alert>
             <CircleAlert aria-hidden />

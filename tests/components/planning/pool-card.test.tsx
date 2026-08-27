@@ -128,4 +128,20 @@ describe('PoolCard', () => {
     await user.click(screen.getByRole('button', { name: /Aperçu/ }))
     expect(onPreview).toHaveBeenCalledTimes(1)
   })
+
+  it('le tabIndex glissant sort les contrôles du parcours quand la carte n’est pas courante', () => {
+    render(
+      <PoolCard
+        clip={clip()}
+        selected={false}
+        current={false}
+        onToggle={vi.fn()}
+        onPreview={vi.fn()}
+        onFocus={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('checkbox', { name: /La chute/ }).getAttribute('tabindex')).toBe('-1')
+    expect(screen.getByRole('button', { name: /Aperçu/ }).getAttribute('tabindex')).toBe('-1')
+    expect(screen.getByRole('link', { name: /Éditer/ }).getAttribute('tabindex')).toBe('-1')
+  })
 })

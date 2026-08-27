@@ -1,5 +1,5 @@
-import { clipFraming } from '@/server/clip-framing'
-import { getClip, getDb, putClip } from '@/server/db'
+import { framingWith, projectAnalysis } from '@/server/clip-framing'
+import { effectiveSettings, getClip, getDb, putClip } from '@/server/db'
 import { notFound, json, route } from '@/server/http'
 import { generateHook } from '@/server/steps/hook'
 import { discardRenderStale, pathsRender, renderedFraming } from '@/server/steps/render'
@@ -59,13 +59,24 @@ export const POST = route(
     // Le cadrage se lit sur l'état d'avant l'écriture : ni `hookText` ni
     // `hookBadge` ne le changent, mais `discardRenderStale` en a besoin pour
     // retrouver les chemins des sorties à écarter.
-    const framing = clipFraming(fresh)
+    const analysis = projectAnalysis(fresh.projectId)
+    const framingGlobals = effectiveSettings(db).framing
+    const framing = framingWith(fresh, analysis, framingGlobals)
     const paths = pathsRender(fresh.projectId, id, framing.ratio)
     putClip(db, { ...fresh, hookText: text, hookBadge: badge })
     try {
-      // `keepScheduledOutputs: true`, même réserve que le `PATCH` (#205) —
-      // `undefined` reprend le résolveur de cadrage par défaut.
-      discardRenderStale(db, id, paths, fresh, renderedFraming(framing), undefined, true)
+      // Le résolveur passe l'analyse déjà lue, comme `PATCH /api/clips/:id` :
+      // sinon `discardRenderStale` rouvrirait `analysis.json` après l'écriture,
+      // et une panne passagère y démotait le clip (#210). `keepScheduledOutputs: true`, réserve du #205.
+      discardRenderStale(
+        db,
+        id,
+        paths,
+        fresh,
+        renderedFraming(framing),
+        (c) => renderedFraming(framingWith(c, analysis, framingGlobals)),
+        true,
+      )
     } catch (cause) {
       console.warn(`Sorties non mises à jour pour ${id} :`, cause)
       const toDay = getClip(db, id)

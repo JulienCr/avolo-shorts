@@ -525,10 +525,15 @@ export type SettingField = {
   format?: 'url'
 }
 
-/** `raw` analyse comme une URL absolue `http:`/`https:`. */
+/**
+ * `raw` analyse comme une URL absolue `http:`/`https:`, sans requête ni
+ * fragment — les deux casseraient la concaténation `${base}/api/chat` que
+ * `createOllamaCall` fait ensuite (relevé par Copilot).
+ */
 function isValidUrl(raw: string): boolean {
   try {
-    return ['http:', 'https:'].includes(new URL(raw).protocol)
+    const url = new URL(raw)
+    return ['http:', 'https:'].includes(url.protocol) && url.search === '' && url.hash === ''
   } catch {
     return false
   }
@@ -836,13 +841,35 @@ export const COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/
 const RAW_LOG_MAX = 80
 
 /**
+ * Par connexion : `effectiveSettings` relit la table à chaque appel (rendu,
+ * ordonnanceur), et une ligne corrompue non réparée avertirait sinon à
+ * chaque relecture plutôt qu'une fois (relevé par Codex). Une `WeakMap` sur
+ * `db` plutôt qu'un état global : `getDb()` n'ouvre qu'une connexion par
+ * processus, donc la portée coïncide avec la durée de vie réelle, et les
+ * tests qui ouvrent leur propre `db` en mémoire repartent de zéro sans rien
+ * à réinitialiser.
+ */
+const warnedRejectionsByDb = new WeakMap<Database.Database, Set<string>>()
+
+/**
  * Avertit qu'une ligne existante ne s'est pas relue, et rend `undefined` pour
  * que l'appelant retombe sur le défaut. **N'existe que pour une ligne qui
  * existe déjà** : `effectiveSettings` n'appelle `parseSetting` que sur un
  * `raw` tiré de la table, jamais sur un champ absent — une ligne absente est
  * l'expression normale d'un défaut et ne doit rien dire.
+ *
+ * `seen`, quand fourni, avertit une seule fois par (champ, valeur) plutôt
+ * qu'à chaque appel — `effectiveSettings` le passe pour ne pas noyer les
+ * journaux d'un rendu ou d'un ordonnanceur qui relit la même ligne corrompue
+ * en boucle (relevé par Codex). Absent des appels directs à `parseSetting`,
+ * qui n'ont pas cette répétition.
  */
-function warnRejected(field: SettingField, raw: string): undefined {
+function warnRejected(field: SettingField, raw: string, seen?: Set<string>): undefined {
+  if (seen) {
+    const key = `${storedKey(field)} ${raw}`
+    if (seen.has(key)) return undefined
+    seen.add(key)
+  }
   const shown = raw.length > RAW_LOG_MAX ? `${raw.slice(0, RAW_LOG_MAX)}…` : raw
   console.warn(
     `Réglage ${storedKey(field)} : valeur stockée invalide (${JSON.stringify(shown)}), retour au défaut ${JSON.stringify(field.defaultValue)}.`,
@@ -875,26 +902,28 @@ function warnRejected(field: SettingField, raw: string): undefined {
 export function parseSetting(
   field: SettingField,
   raw: string,
+  seen?: Set<string>,
 ): number | string | boolean | undefined {
   switch (field.type) {
     case 'integer': {
-      if (!/^\d+$/.test(raw.trim())) return warnRejected(field, raw)
+      if (!/^\d+$/.test(raw.trim())) return warnRejected(field, raw, seen)
       const value = Number(raw.trim())
-      if (!Number.isSafeInteger(value) || value < (field.min ?? 0)) return warnRejected(field, raw)
+      if (!Number.isSafeInteger(value) || value < (field.min ?? 0))
+        return warnRejected(field, raw, seen)
       // **Ignorée comme le plancher, jamais levée** : c'est `parseSetting`,
       // la lecture tolérante. `field.max` est absent partout sauf pour le
       // hook, donc les familles existantes ne voient jamais cette branche.
-      if (field.max !== undefined && value > field.max) return warnRejected(field, raw)
+      if (field.max !== undefined && value > field.max) return warnRejected(field, raw, seen)
       return value
     }
     case 'boolean':
-      return raw === 'true' ? true : raw === 'false' ? false : warnRejected(field, raw)
+      return raw === 'true' ? true : raw === 'false' ? false : warnRejected(field, raw, seen)
     case 'color': {
       // Même normalisation qu'à l'écriture (`validateSetting`) : la lecture
       // et l'écriture doivent s'accorder sur ce qu'une valeur stockée veut
       // dire, exactement comme pour les trois autres types.
       const trimmed = raw.trim()
-      return COLOR_PATTERN.test(trimmed) ? trimmed.toUpperCase() : warnRejected(field, raw)
+      return COLOR_PATTERN.test(trimmed) ? trimmed.toUpperCase() : warnRejected(field, raw, seen)
     }
     case 'text': {
       // **Les mêmes bornes que `validateSetting`, et c'est le contrat.** Une
@@ -909,12 +938,13 @@ export function parseSetting(
       // `ai.ollamaBaseUrl` est le seul champ qui la porte, et vide y est une
       // valeur à part entière plutôt qu'un champ oublié.
       if (field.allowEmpty && raw === '') return raw
-      if (raw.trim() === '' || raw.length > TEXT_MAX) return warnRejected(field, raw)
-      if (field.enum !== undefined && !field.enum.includes(raw)) return warnRejected(field, raw)
+      if (raw.trim() === '' || raw.length > TEXT_MAX) return warnRejected(field, raw, seen)
+      if (field.enum !== undefined && !field.enum.includes(raw))
+        return warnRejected(field, raw, seen)
       // **Sur le chemin de lecture aussi** : une ligne existante écrite avant
       // que le champ ne porte `format: 'url'` — ou modifiée à la main — reste
       // sinon acceptée pour toujours, alors que l'écriture la refuse depuis.
-      if (field.format === 'url' && !isValidUrl(raw)) return warnRejected(field, raw)
+      if (field.format === 'url' && !isValidUrl(raw)) return warnRejected(field, raw, seen)
       return raw
     }
   }
@@ -1043,6 +1073,11 @@ export function effectiveSettings(db: Database.Database): Settings {
     value: string
   }[]
   const stored = new Map(rows.map((row) => [row.key, row.value]))
+  let seen = warnedRejectionsByDb.get(db)
+  if (!seen) {
+    seen = new Set<string>()
+    warnedRejectionsByDb.set(db, seen)
+  }
 
   const families = {
     selection: { ...DEFAULT_SELECTION_DIMENSIONS },
@@ -1069,7 +1104,7 @@ export function effectiveSettings(db: Database.Database): Settings {
   for (const field of SETTING_FIELDS) {
     const raw = stored.get(storedKey(field))
     if (raw === undefined) continue
-    const value = parseSetting(field, raw)
+    const value = parseSetting(field, raw, seen)
     if (value === undefined) continue
     // L'assertion vaut ce que vaut le registre : le seul chemin qui écrive une
     // valeur ici passe par `validateSetting`, qui la contraint au type du champ.

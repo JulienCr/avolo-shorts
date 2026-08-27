@@ -359,6 +359,38 @@ describe('la famille `ai`', () => {
     warn.mockRestore()
   })
 
+  /**
+   * #223 (relevé par Copilot) : `createOllamaCall` concatène `${base}/api/chat`,
+   * donc une requête ou un fragment déplacent ce suffixe hors du chemin attendu.
+   */
+  it('refuse une URL Ollama porteuse d’une requête ou d’un fragment', () => {
+    expect(() =>
+      applySettings(db, { ai: { ollamaBaseUrl: 'http://172.28.0.1:11434?x=1' } }),
+    ).toThrow(InvalidSettingError)
+    expect(() =>
+      applySettings(db, { ai: { ollamaBaseUrl: 'http://172.28.0.1:11434#x' } }),
+    ).toThrow(InvalidSettingError)
+  })
+
+  /**
+   * #223 (relevé par Codex) : `effectiveSettings` relit la table à chaque appel
+   * — une ligne corrompue non réparée ne doit avertir qu'une fois, pas à chaque
+   * relecture d'un rendu ou de l'ordonnanceur.
+   */
+  it('n’avertit qu’une fois pour une ligne corrompue relue plusieurs fois', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    db.prepare('INSERT INTO settings (key, value, updatedAt) VALUES (?, ?, ?)').run(
+      'ai.ollamaBaseUrl',
+      'foo',
+      Date.now(),
+    )
+    effectiveSettings(db)
+    effectiveSettings(db)
+    effectiveSettings(db)
+    expect(warn).toHaveBeenCalledOnce()
+    warn.mockRestore()
+  })
+
   it('ne recalcule rien : les usages non branchés se règlent sans effet', () => {
     upsertProject(db, PROJECT)
     putClip(db, {
@@ -754,6 +786,19 @@ describe('la grammaire du registre', () => {
     it('un champ sans le format laisse passer n’importe quel texte', () => {
       const noFormat = field('text')
       expect(validateSetting(noFormat, 'foo')).toBe('foo')
+    })
+
+    /**
+     * #223 (relevé par Copilot) : `createOllamaCall` concatène `${base}/api/chat`
+     * ensuite — une requête ou un fragment déplacent ce suffixe hors du chemin.
+     */
+    it('refuse une requête ou un fragment', () => {
+      expect(() => validateSetting(c, 'http://172.28.0.1:11434?x=1')).toThrow(
+        InvalidSettingError,
+      )
+      expect(parseSetting(c, 'http://172.28.0.1:11434?x=1')).toBeUndefined()
+      expect(() => validateSetting(c, 'http://172.28.0.1:11434#x')).toThrow(InvalidSettingError)
+      expect(parseSetting(c, 'http://172.28.0.1:11434#x')).toBeUndefined()
     })
   })
 

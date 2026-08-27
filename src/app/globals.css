@@ -145,6 +145,21 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Les enfants de la barre (`StripProgress`, l'état d'enregistrement, le
+   bouton « Réessayer »…) lisent ces jetons pour leur propre style, sans
+   savoir qu'ils rendent sur `--brand-blue`. Revue Copilot/Codex sur la PR
+   #242 : `--muted-foreground` et `--destructive` n'atteignaient que 3,1:1
+   sur ce fond. Une portée locale corrige le contraste sans toucher ces
+   fichiers, possédés par un autre agent. */
+.bg-brand-blue {
+  --background: oklch(0.4 0.1 264.1);
+  --muted: oklch(0.46 0.1 264.1);
+  --muted-foreground: oklch(0.72 0.02 264.1);
+  --border: oklch(0.58 0.08 264.1);
+  --foreground: oklch(1 0 0);
+  --destructive: oklch(0.72 0.19 27.325);
+}
+
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);

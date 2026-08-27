@@ -70,3 +70,25 @@ describe.each(['root', 'dark'] as const)('contraste des jetons de marque (%s)', 
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(4.5)
   })
 })
+
+/**
+ * Les enfants de la barre (`StripProgress`, l'état d'enregistrement,
+ * « Réessayer ») lisent `--muted-foreground` et `--destructive` sans savoir
+ * qu'ils rendent sur `--brand-blue`. `.bg-brand-blue` les redéfinit
+ * localement (globals.css) ; ce test pin ce contrat plutôt que de laisser la
+ * régression Copilot/Codex (PR #242) revenir en silence.
+ */
+describe('contraste des jetons de barre sur .bg-brand-blue', () => {
+  const brandBlue = oklchToSrgb(...tokenOklch(extractBlock(':root'), 'brand-blue'))
+  const scope = extractBlock('.bg-brand-blue')
+
+  it.each(['muted-foreground', 'destructive', 'foreground'])('%s vs brand-blue >= 4.5:1', (name) => {
+    const fg = oklchToSrgb(...tokenOklch(scope, name))
+    expect(contrastRatio(fg, brandBlue)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('border vs brand-blue >= 3:1 (contraste non textuel, WCAG 1.4.11)', () => {
+    const border = oklchToSrgb(...tokenOklch(scope, 'border'))
+    expect(contrastRatio(border, brandBlue)).toBeGreaterThanOrEqual(3)
+  })
+})

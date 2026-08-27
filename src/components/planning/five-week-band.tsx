@@ -1,14 +1,24 @@
 'use client'
 
 import { useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { ChevronDown, ExternalLink } from 'lucide-react'
 
-import { hasSchedulablePlatform } from '@/core/publication'
+import { formatErrorDetail } from '@/core/publication-errors'
+import { hasSchedulablePlatform, PLATFORM_LABELS, PLATFORMS, PUBLICATION_STATUS_LABELS } from '@/core/publication'
 import { aggregatePublicationStatus, dayKeyFor, PLANNING_AGGREGATE_LABELS } from '@/core/planning'
-import type { ScheduledEntry } from '@/lib/api'
+import { publishClip, type PublicationDetail, type ScheduledEntry } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { formatDayLabel, formatDeadlineTime } from '@/components/planning/texts'
 import { cn } from '@/lib/utils'
+
+const FORMAT_ATTEMPT = new Intl.DateTimeFormat('fr-FR', {
+  dateStyle: 'short',
+  timeStyle: 'short',
+  timeZone: 'Europe/Paris',
+})
 
 /**
  * Le bandeau de cinq semaines, en lecture (spec §5.3).
@@ -71,15 +81,33 @@ export function FiveWeekBand({
   )
 }
 
-/** Le ton du badge d'état agrégé — `failed` reste seul à porter le rouge. */
+/** Le ton du badge d'état agrégé — `failed` reste seul à porter le rouge plein. */
 const AGGREGATE_BADGE_VARIANT = {
   planned: 'outline',
   failed: 'destructive',
+  partial_failure: 'outline',
   published: 'secondary',
   submitted: 'secondary',
   in_progress: 'outline',
   partial: 'outline',
 } as const
+
+const STATUS_BADGE_VARIANT = {
+  planned: 'secondary',
+  in_progress: 'outline',
+  submitted: 'secondary',
+  published: 'secondary',
+  failed: 'destructive',
+} as const
+
+/** Le statut seul, pour les fonctions pures de `@/core` qui n'ont pas besoin du reste. */
+function statusesOnly(
+  statuses: ScheduledEntry['statuses'],
+): Record<(typeof PLATFORMS)[number], PublicationDetail['status'] | undefined> {
+  const result = {} as Record<(typeof PLATFORMS)[number], PublicationDetail['status'] | undefined>
+  for (const platform of PLATFORMS) result[platform] = statuses[platform]?.status
+  return result
+}
 
 function DeadlineCard({
   entry,
@@ -88,11 +116,14 @@ function DeadlineCard({
   entry: ScheduledEntry
   onUnschedule: (clipId: string) => void
 }) {
+  const [detailOpen, setDetailOpen] = useState(false)
+  const statusMap = statusesOnly(entry.statuses)
   // **Une carte par clip, pas une par plateforme** (point de contrôle du 26
   // août) : « on publiera sur toutes les plateformes en même temps », donc
   // un seul état résume les quatre lignes — `aggregatePublicationStatus`,
-  // où `failed` gagne toujours.
-  const aggregate = aggregatePublicationStatus(entry.statuses)
+  // où seul un échec des quatre plateformes gagne seul.
+  const aggregate = aggregatePublicationStatus(statusMap)
+  const failedPlatforms = PLATFORMS.filter((platform) => entry.statuses[platform]?.status === 'failed')
 
   return (
     <div className="flex flex-col gap-1 rounded-md border bg-background px-2 py-1.5 text-xs">
@@ -117,7 +148,30 @@ function DeadlineCard({
         {PLANNING_AGGREGATE_LABELS[aggregate]}
       </Badge>
 
-      {hasSchedulablePlatform(entry.statuses) && (
+      {failedPlatforms.length > 0 && (
+        <Collapsible open={detailOpen} onOpenChange={setDetailOpen}>
+          <CollapsibleTrigger
+            render={
+              <Button type="button" variant="ghost" size="xs" className="w-fit gap-1 px-1 text-destructive">
+                <ChevronDown
+                  aria-hidden
+                  className={cn('size-3 transition-transform', detailOpen && 'rotate-180')}
+                />
+                {failedPlatforms.map((p) => PLATFORM_LABELS[p]).join(', ')} en échec
+              </Button>
+            }
+          />
+          <CollapsiblePanel className="flex flex-col gap-1.5 pt-1.5">
+            {PLATFORMS.map((platform) => {
+              const detail = entry.statuses[platform]
+              if (detail === undefined) return null
+              return <PlatformDetailRow key={platform} clipId={entry.clipId} platform={platform} detail={detail} />
+            })}
+          </CollapsiblePanel>
+        </Collapsible>
+      )}
+
+      {hasSchedulablePlatform(statusMap) && (
         <Button
           variant="ghost"
           size="xs"
@@ -125,6 +179,74 @@ function DeadlineCard({
           onClick={() => onUnschedule(entry.clipId)}
         >
           Déprogrammer
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function PlatformDetailRow({
+  clipId,
+  platform,
+  detail,
+}: {
+  clipId: string
+  platform: (typeof PLATFORMS)[number]
+  detail: PublicationDetail
+}) {
+  const client = useQueryClient()
+  const retry = useMutation({
+    mutationFn: () => publishClip(clipId, [platform]),
+    onSuccess() {
+      void client.invalidateQueries({ queryKey: ['planning-schedule'] })
+    },
+  })
+
+  return (
+    <div className="flex flex-col gap-0.5 rounded border px-1.5 py-1">
+      <div className="flex items-center gap-1.5">
+        <Badge variant={STATUS_BADGE_VARIANT[detail.status]} className="shrink-0">
+          {PUBLICATION_STATUS_LABELS[detail.status]}
+        </Badge>
+        <span className="font-medium">{PLATFORM_LABELS[platform]}</span>
+        {/* **`http`/`https` seulement**, même garde que `PlatformRecords`
+            (`src/components/publication/publish-dialog.tsx`) : `remoteUrl`
+            ne doit jamais devenir un `href` non vérifié. */}
+        {detail.remoteUrl !== null && /^https?:\/\//.test(detail.remoteUrl) && (
+          <a
+            href={detail.remoteUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-foreground hover:underline"
+          >
+            <ExternalLink className="size-3" aria-hidden />
+            <span className="sr-only">voir en ligne</span>
+          </a>
+        )}
+        <span className="ml-auto font-mono tabular-nums text-muted-foreground">
+          {FORMAT_ATTEMPT.format(new Date(detail.updatedAt))}
+        </span>
+      </div>
+
+      {/* **Le message brut, lisible sans survol** (`ui/tooltip.tsx`) : la
+          raison d'un échec ne doit dépendre ni d'un `hover`, ni du clavier
+          pour être découverte une fois le détail déplié. */}
+      {detail.status === 'failed' && detail.error !== null && (
+        <pre className="whitespace-pre-wrap break-words font-mono text-[0.7rem] text-destructive">
+          {formatErrorDetail(detail.error)}
+        </pre>
+      )}
+
+      {detail.status === 'failed' && (
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          className="w-fit"
+          disabled={retry.isPending}
+          onClick={() => retry.mutate()}
+        >
+          Relancer
         </Button>
       )}
     </div>

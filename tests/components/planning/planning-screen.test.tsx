@@ -13,12 +13,14 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { PublicationStatus } from '@/core/publication'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
 import {
   DEFAULT_SCHEDULE_HOURS,
   FRAMING_SETTINGS_DEFAULTS,
   HOOK_DEFAULTS,
   type PlanningPoolClip,
+  type PublicationDetail,
   type ScheduledEntry,
   type Settings,
 } from '@/lib/api'
@@ -87,13 +89,22 @@ function clip(fields: Partial<PlanningPoolClip> = {}): PlanningPoolClip {
   }
 }
 
+function detail(status: PublicationStatus, fields: Partial<Omit<PublicationDetail, 'status'>> = {}): PublicationDetail {
+  return { status, error: null, updatedAt: Date.now(), remoteUrl: null, ...fields }
+}
+
 function entry(fields: Partial<ScheduledEntry> = {}): ScheduledEntry {
   return {
     clipId: 'c1',
     projectId: '2026-06-15-cqlp',
     title: 'La chute',
     scheduledAt: Date.now() + 3_600_000,
-    statuses: { instagram: 'planned', facebook: 'planned', tiktok: 'planned', youtube: 'planned' },
+    statuses: {
+      instagram: detail('planned'),
+      facebook: detail('planned'),
+      tiktok: detail('planned'),
+      youtube: detail('planned'),
+    },
     stale: false,
     ...fields,
   }
@@ -209,7 +220,12 @@ describe('PlanningScreen', () => {
       pool: [],
       schedule: [
         entry({
-          statuses: { instagram: 'published', facebook: 'published', tiktok: 'failed', youtube: 'submitted' },
+          statuses: {
+            instagram: detail('published'),
+            facebook: detail('published'),
+            tiktok: detail('failed'),
+            youtube: detail('submitted'),
+          },
         }),
       ],
     })

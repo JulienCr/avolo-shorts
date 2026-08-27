@@ -29,6 +29,9 @@
  */
 @custom-variant workbench (@media (min-width: 1024px) and (min-height: 1000px));
 
+/** Un pointeur sans survol (tactile) doit voir les actions d'une carte sans y toucher. */
+@custom-variant hoverless (@media (hover: none));
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

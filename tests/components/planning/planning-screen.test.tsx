@@ -13,7 +13,6 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { PlanningScreen } from '@/components/planning/planning-screen'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
 import {
   DEFAULT_SCHEDULE_HOURS,
@@ -27,10 +26,23 @@ import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
 
 installPointerEventPolyfill()
 
+// `PoolPreview` lit `?preview=` par `useSearchParams` : même mock que
+// `transcript-panel.test.tsx`, une variable de module pour changer la
+// requête entre deux rendus.
+const replaceMock = vi.fn()
+let query = ''
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: replaceMock, push: vi.fn(), prefetch: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(query),
+}))
+
+const { PlanningScreen } = await import('@/components/planning/planning-screen')
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  query = ''
 })
 
 function response(body: unknown, status = 200): Response {
@@ -62,7 +74,17 @@ const SETTINGS: Settings = {
 }
 
 function clip(fields: Partial<PlanningPoolClip> = {}): PlanningPoolClip {
-  return { clipId: 'c1', projectId: '2026-06-15-cqlp', title: 'La chute', duration: 42, ...fields }
+  return {
+    clipId: 'c1',
+    projectId: '2026-06-15-cqlp',
+    title: 'La chute',
+    duration: 42,
+    thumbnailUrl: null,
+    description: '',
+    outputs: { mp4Url: null, mp4Due: false, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
+    statuses: {},
+    ...fields,
+  }
 }
 
 function entry(fields: Partial<ScheduledEntry> = {}): ScheduledEntry {
@@ -212,5 +234,23 @@ describe('PlanningScreen', () => {
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Planning' })).toBeTruthy())
     expect(screen.queryByText('Publication automatique désactivée.')).toBeNull()
+  })
+
+  it('?preview= ouvre l’aperçu du clip visé', async () => {
+    query = 'preview=c1'
+    server({ pool: [clip({ clipId: 'c1', title: 'La chute' })] })
+    render(<PlanningScreen />, { wrapper: wrapper() })
+
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    expect(screen.getAllByText('La chute').length).toBeGreaterThan(0)
+  })
+
+  it('?preview= visant un clip absent du vivier n’ouvre rien', async () => {
+    query = 'preview=introuvable'
+    server({ pool: [clip({ clipId: 'c1', title: 'La chute' })] })
+    render(<PlanningScreen />, { wrapper: wrapper() })
+
+    await waitFor(() => expect(screen.getByText('La chute')).toBeTruthy())
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

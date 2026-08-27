@@ -2,31 +2,33 @@ import { readFile } from 'node:fs/promises'
 
 import { getClip, getDb } from '@/server/db'
 import { notFound, route } from '@/server/http'
-import { vignette } from '@/server/thumbs'
+import { renderPoster, vignette } from '@/server/thumbs'
 
 /**
- * `GET /api/clips/:id/thumb` — la vignette d'un candidat.
+ * `GET /api/clips/:id/thumb` — l'affiche d'un clip.
  *
- * Elle est extraite du **proxy** au premier segment du clip, et gardée dans
- * `projects/<projet>/thumbs/`. Le chemin se construit à partir du projet lu en
- * base, jamais d'un morceau d'URL : l'identifiant de clip arrive du réseau, et
- * un clip absent de la base ne nomme aucun fichier.
+ * **Le proxy par défaut, le rendu livré sur demande explicite.** Cette route
+ * sert aussi l'écran de tri et le bandeau de couverture, en 16:9 — leur
+ * fournir le repère du rendu 9:16 les recadrerait en une bande centrale
+ * illisible (relevé par Codex sur ce lot). Seul `?poster=render`, posé par le
+ * vivier du planning (`urlVignette(clip, true)`), bascule vers `renderPoster`.
  *
- * Le fichier est petit — quelques dizaines de kilooctets en 960x540 — et se lit
- * d'un coup. Pas de requêtes partielles ici : c'est une image, pas une vidéo.
+ * Le chemin vient du projet lu en base, jamais d'un morceau d'URL : l'id de
+ * clip arrive du réseau. Fichier petit, lu d'un coup — une image, pas une vidéo.
  */
 export const GET = route(
   'GET /api/clips/:id/thumb',
-  async (_request: Request, context: { params: Promise<{ id: string }> }) => {
+  async (request: Request, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params
     const clip = getClip(getDb(), id)
     if (clip === undefined) throw notFound(`Clip inconnu : ${id}`)
 
-    const file = await vignette(clip)
-    // Pas de proxy, donc pas d'image à en tirer. Ce n'est pas une panne : c'est
-    // l'état d'un projet dont l'encodage n'a pas fini, et l'interface a un repli
-    // pour `thumbnailUrl: null` comme pour un 404.
-    if (file === null) throw notFound(`Pas encore de proxy pour ${clip.projectId}.`)
+    const preferRender = new URL(request.url).searchParams.get('poster') === 'render'
+    const file = preferRender ? ((await renderPoster(clip)) ?? (await vignette(clip))) : await vignette(clip)
+    // Ni rendu à jour ni proxy : rien à en tirer. Ce n'est pas une panne —
+    // c'est l'état d'un projet dont l'encodage n'a pas fini, et l'interface a
+    // un repli pour `thumbnailUrl: null` comme pour un 404.
+    if (file === null) throw notFound(`Pas d’affiche disponible pour ${clip.id}.`)
 
     const data = await readFile(file)
     return new Response(new Uint8Array(data), {

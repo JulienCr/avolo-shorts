@@ -17,7 +17,8 @@ import { settingsLink } from '@/lib/navigation'
 import { AppBar } from '@/components/navigation/app-bar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { FiveWeekBand } from '@/components/planning/five-week-band'
-import { PoolList } from '@/components/planning/pool-list'
+import { PoolGrid } from '@/components/planning/pool-grid'
+import { PoolPreview, usePreviewUrl } from '@/components/planning/pool-preview'
 import { pushScheduleHour } from '@/components/planning/schedule-hours'
 import { ScheduleForm } from '@/components/planning/schedule-form'
 
@@ -43,13 +44,17 @@ export function PlanningScreen() {
   const unschedulePublication = useUnschedulePublication()
 
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [previewId, setPreviewId] = usePreviewUrl()
 
   // **Réconciliée avec le vivier, jamais lue seule** — même règle que
-  // `ReviewFeed` (`feed.tsx:173-181`) : un repérage forcé peut faire
-  // disparaître un clip entre deux rendus, et la sélection ne doit pas
-  // annoncer un compte qu'elle ne peut plus honorer.
+  // `ReviewFeed` (`feed.tsx:173-181`) : la sélection ne doit pas annoncer un
+  // compte qu'elle ne peut plus honorer.
   const poolClips = pool.data ?? []
   const selectedClips = poolClips.filter((c) => selected.has(c.clipId))
+  // **Réconciliée avec le vivier, jamais lue seule dans l'URL** — même règle
+  // que la sélection : un `?preview=` nommant un clip absent du vivier
+  // n'ouvre rien.
+  const previewClip = poolClips.find((c) => c.clipId === previewId) ?? null
 
   function toggle(clipId: string) {
     setSelected((current) => {
@@ -90,9 +95,8 @@ export function PlanningScreen() {
         )}
 
         {/* Un état, pas une erreur : le drapeau est une décision assumée
-            (`docs/publication-scheduler.md`), donc pas de variante destructive
-            ni de bandeau qu'on referme — la tâche planifiée tourne quand même,
-            elle n'écrit simplement rien tant que ce réglage est faux. */}
+            (`docs/publication-scheduler.md`), sans variante destructive ni
+            bandeau qu'on referme — la tâche tourne, elle n'écrit rien. */}
         {settings.data?.publication.autoPublish === false && (
           <Alert>
             <CircleAlert aria-hidden />
@@ -107,8 +111,16 @@ export function PlanningScreen() {
 
         <section className="flex flex-col gap-3">
           <h2 className="text-sm font-medium text-muted-foreground">Vivier</h2>
-          <PoolList clips={poolClips} selected={selected} onToggle={toggle} />
+          <PoolGrid
+            clips={poolClips}
+            loading={pool.isPending}
+            selected={selected}
+            onToggle={toggle}
+            onPreview={setPreviewId}
+          />
         </section>
+
+        <PoolPreview clip={previewClip} onClose={() => setPreviewId(null)} />
 
         {selectedClips.length > 0 && (
           <ScheduleForm

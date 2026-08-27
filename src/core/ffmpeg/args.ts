@@ -288,6 +288,30 @@ export function sourceThumbArgs(o: { src: string; dst: string; at: number }): st
   ]
 }
 
+/**
+ * L'affiche d'un clip : le premier repère du **rendu livré**, jamais du proxy.
+ *
+ * Le proxy montre la source — 16:9, sans cadrage ni sous-titres ni hook ; le
+ * rendu livré montre ce qui part en publication. `-ss 0` : l'instant n'est pas
+ * un paramètre, c'est toujours la première image. `h=640` fixe la hauteur, `w=-2`
+ * en déduit la largeur au rapport du rendu (9:16 la plupart du temps), arrondie
+ * à un nombre pair pour le 4:2:0.
+ */
+export function posterArgs(o: { src: string; dst: string }): string[] {
+  return [
+    ...GLOBAL,
+    '-ss', seconds(0),
+    '-i', o.src,
+    '-map', '0:v:0',
+    '-an',
+    '-frames:v', '1',
+    '-vf', 'scale=w=-2:h=640',
+    '-q:v', '4',
+    '-update', '1',
+    ...destination(o.dst),
+  ]
+}
+
 /** `-hwaccel cuda` seul, et seulement quand on encodera sur le GPU. */
 function acceleration(encoder: EncoderName): string[] {
   return encoder === 'nvenc' ? ['-hwaccel', 'cuda'] : []

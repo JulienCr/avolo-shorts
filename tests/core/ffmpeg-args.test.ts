@@ -14,6 +14,7 @@ import {
   blurredVariantArgs,
   proxyArgs,
   renderArgs,
+  posterArgs,
   sourceThumbArgs,
   thumbArgs,
   type FramedSegment,
@@ -195,6 +196,27 @@ describe('sourceThumbArgs', () => {
   it('ne demande jamais un instant négatif', () => {
     const a = sourceThumbArgs({ src: '/s.mp4', dst: '/c/v.jpg', at: -3 })
     expect(a[a.indexOf('-ss') + 1]).toBe('0')
+  })
+})
+
+describe('posterArgs', () => {
+  it('prend toujours la première image, jamais un instant paramétrable', () => {
+    const a = posterArgs({ src: '/renders/c1-9x16.mp4', dst: '/thumbs/c1.render.jpg' })
+    expect(a[a.indexOf('-ss') + 1]).toBe('0')
+  })
+
+  it('déduit la largeur d’une hauteur fixe, sans son ni suite d’images', () => {
+    const a = posterArgs({ src: '/renders/c1-9x16.mp4', dst: '/thumbs/c1.render.jpg' })
+    expect(a[a.indexOf('-vf') + 1]).toBe('scale=w=-2:h=640')
+    expect(a.join(' ')).toContain('-frames:v 1')
+    expect(a).toContain('-an')
+    expect(a.join(' ')).toContain('-update 1')
+  })
+
+  it('ferme les options avant la destination, qui est positionnelle', () => {
+    const a = posterArgs({ src: '/renders/c1-9x16.mp4', dst: '/thumbs/c1.render.jpg' })
+    expect(a[a.length - 2]).toBe('--')
+    expect(a[a.length - 1]).toBe('/thumbs/c1.render.jpg')
   })
 })
 

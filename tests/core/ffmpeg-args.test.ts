@@ -1027,6 +1027,16 @@ describe('blurredVariantArgs', () => {
     expect(g).toContain('[1:v]overlay=x=30:y=40')
   })
 
+  // Le même piège que le test suivant, sur le correctif de l'issue #212 : les
+  // deux sorties partagent `buildRender` aujourd'hui, et rien d'autre qu'un
+  // test ne l'obligera à le rester. (relevé par Aristarque)
+  it('pose la timeline audio et la cadence constante sur la variante aussi', () => {
+    const a = blurredVariantArgs({ ...base, segments: [entry(0, 10), entry(20, 30)] })
+    expect(graph(a)).toContain(`${RESAMPLE},${AUDIO_TIMELINE}[a]`)
+    expect(a.filter((x) => x === '-fps_mode')).toHaveLength(1)
+    expect(a[a.indexOf('-fps_mode') + 1]).toBe('cfr')
+  })
+
   // `buildRender` est partagé avec `renderArgs`, mais rien ne garantit que la
   // variante reçoive le même traitement temporel sans un test qui le vérifie
   // ICI : le piège documenté par le contrat de la seconde manche (« les deux

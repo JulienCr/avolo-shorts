@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useRef } from 'react'
 
 /**
- * Le point commun à `framing-fields.tsx` et `hook-fields.tsx` (issue #189) :
- * `setStyle`/`resetField` rebâtissaient l'objet `*Style` depuis `clip.*Style`,
- * capturé par fermeture. Deux écritures sur deux champs, la seconde émise
- * avant que le cache n'ait absorbé la première `PATCH`, partaient donc toutes
- * les deux de la même valeur de départ : la seconde écrasait la première.
- *
  * `base` porte la valeur sur laquelle la **prochaine** écriture se fusionne,
  * et elle est mise à jour de façon synchrone à chaque écriture — donc dans le
  * même tick qu'une écriture sœur, pas seulement au prochain rendu. Elle se
  * resynchronise sur `style` dès que ce prop change réellement (nouvelle
  * réponse serveur, changement de clip), pour ne pas dériver du serveur.
  *
- * **Ne ferme pas le cas à deux onglets** (issue #122) : deux onglets sur le
- * même clip ont chacun leur propre `base`, et rien ici ne les réconcilie.
+ * **Ne ferme pas le cas à deux onglets** : deux onglets sur le même clip ont
+ * chacun leur propre `base`, et rien ici ne les réconcilie.
  */
 export function useStyleWrites<S extends Record<string, unknown>>(
   style: S,

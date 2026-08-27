@@ -319,18 +319,16 @@ describe('POST /api/clips/:id/hook', () => {
    */
   it('une panne d’analyse survenue après la lecture ne redescend plus le clip exporté', async () => {
     writeAnalysisFixture()
-    // Le modèle rend le même texte que celui déjà écrit : le rendu reste
-    // fraîche par construction (`renderIsStale` compare le hook), et c'est ce
-    // qui isole le bug de la démotion légitime — la seule cause de démotion
-    // possible ici est la panne de relecture, pas un hook qui a changé.
+    // Le modèle rend le même texte que celui déjà écrit : le rendu reste frais
+    // par construction (`renderIsStale` compare le hook), ce qui isole le bug —
+    // seule la panne de relecture peut démoter le clip ici, pas un hook changé.
     const clip = baseClip({ status: 'exported', hookText: 'Un hook régénéré', hookBadge: '' })
     putClip(getDb(), clip)
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('Un hook régénéré')))
 
-    // `statSync`, pas `readFileSync` : c'est là que le montage mort se
-    // trahit d'abord, et un cache déjà chaud sur la même paire taille/mtime
-    // n'atteindrait plus `readFileSync` au second appel — masquant le bug
-    // que ce test vérifie.
+    // `statSync`, pas `readFileSync` : le montage mort s'y trahit d'abord, et un
+    // cache chaud sur la même taille/mtime n'atteindrait plus `readFileSync` au
+    // second appel — masquant justement le bug que ce test vérifie.
     const statSync = fs.statSync
     let reads = 0
     const spy = vi.spyOn(fs, 'statSync').mockImplementation((file, options) => {

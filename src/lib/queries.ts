@@ -893,11 +893,20 @@ export function usePublicationRecordsByClip(clipIds: readonly string[]) {
   // porte que les clips effectivement interrogés dont la réponse n'est pas
   // encore là. (relevé par Copilot)
   const pendingClipIds = new Set<string>()
+  // **Distincte de `pendingClipIds` : un échec ne se rattrapera pas tout
+  // seul.** Sans elle, un échec se lisait comme `byClip[clipId] === undefined`
+  // — le même signal qu'un clip jamais publié —, et la sélection par défaut
+  // proposait sa republication sans `force` (issue #150).
+  const failedClipIds = new Set<string>()
   clipIds.forEach((clipId, index) => {
     const result = results[index]
     if (result === undefined) return
     if (result.isPending) {
       pendingClipIds.add(clipId)
+      return
+    }
+    if (result.isError) {
+      failedClipIds.add(clipId)
       return
     }
     const rows = result.data
@@ -915,7 +924,7 @@ export function usePublicationRecordsByClip(clipIds: readonly string[]) {
       ]),
     )
   })
-  return { byClip, pendingClipIds }
+  return { byClip, pendingClipIds, failedClipIds }
 }
 
 /**

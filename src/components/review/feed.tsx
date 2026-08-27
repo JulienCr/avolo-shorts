@@ -76,8 +76,11 @@ export function ReviewFeed({
   onStatus,
   header,
   publicationAvailability,
+  publicationAvailabilityError,
+  onRetryPublicationAvailability,
   publicationRecords,
   publicationRecordsPending,
+  publicationRecordsFailed,
   publishError,
   onPublish,
 }: {
@@ -91,6 +94,10 @@ export function ReviewFeed({
   summary: SelectionReport | null
   /** Injectée par la page, comme `PublishDialog` — voir son propre commentaire. */
   publicationAvailability?: Readonly<Record<Platform, PlatformAvailability>>
+  /** `usePublicationAvailability` a échoué — voir `PublishDialog.availabilityError`. */
+  publicationAvailabilityError?: boolean
+  /** Réessaie la disponibilité — voir `PublishDialog.onRetryAvailability`. */
+  onRetryPublicationAvailability?: () => void
   /**
    * Ce qu'une publication précédente a laissé, par clip et par plateforme —
    * la page l'interroge par `usePublicationRecordsByClip`. Sans lui, la boîte
@@ -101,6 +108,8 @@ export function ReviewFeed({
   publicationRecords?: Readonly<Record<string, Partial<Record<Platform, PublicationRecord>>>>
   /** Les clips dont l'enregistrement n'a pas encore répondu — voir `PublishDialog.recordsLoading`. */
   publicationRecordsPending?: ReadonlySet<string>
+  /** Les clips dont l'enregistrement a échoué — voir `PublishDialog.recordsError`. */
+  publicationRecordsFailed?: ReadonlySet<string>
   /** Ce qu'un envoi groupé a laissé en échec — la page l'attend avec `mutateAsync`. */
   publishError?: string | null
   /** Lance la publication en masse — la page en fait un `POST` par clip. */
@@ -180,6 +189,7 @@ export function ReviewFeed({
     }))
   const selectedForPublishCount = clipsToPublish.length
   const publicationRecordsLoading = clipsToPublish.some((c) => publicationRecordsPending?.has(c.clipId))
+  const publicationRecordsError = clipsToPublish.some((c) => publicationRecordsFailed?.has(c.clipId))
 
   // La carte sur laquelle le clavier travaille. Elle se déduit plutôt qu'elle ne
   // se stocke : une sélection gardée dans l'état survivrait à la disparition de
@@ -522,7 +532,10 @@ export function ReviewFeed({
         onOpenChange={setPublishDialogOpen}
         clips={clipsToPublish}
         availability={publicationAvailability}
+        availabilityError={publicationAvailabilityError}
+        onRetryAvailability={onRetryPublicationAvailability}
         recordsLoading={publicationRecordsLoading}
+        recordsError={publicationRecordsError}
         onLaunch={onPublish}
       />
     </div>

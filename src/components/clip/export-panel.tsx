@@ -82,8 +82,11 @@ export function PanelExport({
   writeInCurrent,
   writeInFailure,
   publicationAvailability,
+  publicationAvailabilityError,
+  onRetryPublicationAvailability,
   publicationRecords,
   recordsLoading,
+  recordsError,
   publishError,
   onPublish,
 }: {
@@ -127,10 +130,16 @@ export function PanelExport({
   writeInFailure: boolean
   /** Injectée par la page, comme `PublishDialog` — voir son propre commentaire. */
   publicationAvailability?: Readonly<Record<Platform, PlatformAvailability>>
+  /** `usePublicationAvailability` a échoué — voir `PublishDialog.availabilityError`. */
+  publicationAvailabilityError?: boolean
+  /** Réessaie la disponibilité — voir `PublishDialog.onRetryAvailability`. */
+  onRetryPublicationAvailability?: () => void
   /** Ce qu'une publication précédente a laissé, par plateforme — voir `PublishClipTarget.records`. */
   publicationRecords?: Partial<Record<Platform, PublicationRecord>>
   /** `usePublications` n'a pas encore répondu — voir `PublishDialog.recordsLoading`. */
   recordsLoading?: boolean
+  /** `usePublications` a échoué — voir `PublishDialog.recordsError`. */
+  recordsError?: boolean
   /** Lance la publication — la page en fait un `POST /api/clips/:id/publish`. */
   onPublish?: (targets: readonly { clipId: string; platform: Platform }[], force: boolean) => void
   /** Ce qu'un envoi a laissé en échec après la fermeture de la boîte — voir son commentaire dans `clip-screen.tsx`. */
@@ -465,7 +474,10 @@ export function PanelExport({
         onOpenChange={setPublishDialogOpen}
         clips={[publishTarget]}
         availability={publicationAvailability}
+        availabilityError={publicationAvailabilityError}
+        onRetryAvailability={onRetryPublicationAvailability}
         recordsLoading={recordsLoading}
+        recordsError={recordsError}
         onLaunch={onPublish}
       />
 

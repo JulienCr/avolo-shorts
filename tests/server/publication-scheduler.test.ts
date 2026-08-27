@@ -681,4 +681,15 @@ describe('runOnePass — le courriel de brouillon TikTok', () => {
     expect(outcome.kind).toBe('dry-run')
     expect(sendMail).not.toHaveBeenCalled()
   })
+
+  it('n’envoie rien quand `autoPublish` est à `false` : la passe rend `disabled` avant `processDueClip`', async () => {
+    applySettings(getDb(), { publication: { autoPublish: false } })
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const sendMail = vi.fn(async () => {})
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome).toEqual({ kind: 'disabled' })
+    expect(sendMail).not.toHaveBeenCalled()
+  })
 })

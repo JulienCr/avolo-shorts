@@ -306,10 +306,8 @@ export function PublishDialog({
           </Alert>
         )}
 
-        {/* **`unavailable`, jamais `not_configured`** : le premier dit une panne,
-            le second dit un état honnête faute de connecteur branché — les
-            confondre affichait « aucun connecteur n'est branché » pour une
-            requête qui a réellement échoué (issue #150). */}
+        {/* `unavailable`, jamais `not_configured` : le second dit « rien n'est
+            branché », la vérité ici est que la requête est en panne. */}
         {availabilityUnavailable && (
           <Alert variant="destructive">
             <TriangleAlert aria-hidden />

@@ -63,6 +63,10 @@ assets/brand/*
 # Worktrees des agents. Ce sont des dépôts git imbriqués et actifs : sans cette
 # règle, n'importe quel `git add -A` les embarque comme gitlinks.
 .claude/worktrees/
+# Les contrats d'implémentation sont des brouillons de session : ils vivent le
+# temps d'un lot, plusieurs appartiennent à des sessions encore en vol, et un
+# agent les reçoit dans son prompt, jamais depuis le disque.
+.claude/contracts/
 
 # Fichiers de travail jetables (scripts de vérification manuelle, preuves
 # visuelles pour une revue). Ancré à la racine pour ne pas gober un `tmp/` de

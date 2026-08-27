@@ -601,7 +601,7 @@ describe('runOnePass — le courriel de brouillon TikTok', () => {
       }
       return outcomes
     })
-    fakeAdapter = adapterAlwaysPublishing(publish)
+    fakeAdapter = { ...adapterAlwaysPublishing(publish), id: 'tiktok' }
     const mails: Array<{ subject: string; body: string }> = []
     const sendMail = vi.fn(async (subject: string, body: string) => {
       mails.push({ subject, body })
@@ -630,7 +630,7 @@ describe('runOnePass — le courriel de brouillon TikTok', () => {
       }
       return outcomes
     })
-    fakeAdapter = adapterAlwaysPublishing(publish)
+    fakeAdapter = { ...adapterAlwaysPublishing(publish), id: 'tiktok' }
     const mails: Array<{ subject: string; body: string; html?: string }> = []
     const sendMail = vi.fn(async (subject: string, body: string, html?: string) => {
       mails.push({ subject, body, html })
@@ -671,7 +671,7 @@ describe('runOnePass — le courriel de brouillon TikTok', () => {
       for (const platform of platforms) outcomes[platform] = { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
       return outcomes
     })
-    fakeAdapter = adapterAlwaysPublishing(publish)
+    fakeAdapter = { ...adapterAlwaysPublishing(publish), id: 'tiktok' }
     const sendMail = vi.fn(async () => {})
 
     const outcome = await runOnePass(deps({ sendMail }))
@@ -691,7 +691,7 @@ describe('runOnePass — le courriel de brouillon TikTok', () => {
       }
       return outcomes
     })
-    fakeAdapter = adapterAlwaysPublishing(publish)
+    fakeAdapter = { ...adapterAlwaysPublishing(publish), id: 'tiktok' }
     const mails: Array<{ subject: string; body: string }> = []
     const sendMail = vi.fn(async (subject: string, body: string) => {
       mails.push({ subject, body })
@@ -739,7 +739,7 @@ describe('runOnePass — le courriel de brouillon TikTok', () => {
       }
       return outcomes
     })
-    fakeAdapter = adapterAlwaysPublishing(publish)
+    fakeAdapter = { ...adapterAlwaysPublishing(publish), id: 'tiktok' }
     const sleep = vi.fn(async () => {})
     const mails: Array<{ subject: string; body: string }> = []
     const sendMail = vi.fn(async (subject: string, body: string) => {
@@ -757,5 +757,26 @@ describe('runOnePass — le courriel de brouillon TikTok', () => {
     expect(mails).toHaveLength(2)
     expect(mails.some((m) => m.subject.includes('Brouillon TikTok'))).toBe(true)
     expect(mails.some((m) => !m.subject.includes('Brouillon TikTok'))).toBe(true)
+  })
+
+  it('n’envoie rien quand Upload Post porte TikTok : il envoie déjà la légende (relevé en revue)', async () => {
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] =
+          platform === 'tiktok'
+            ? { status: 'submitted', remoteId: 'p1', remoteUrl: null }
+            : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      }
+      return outcomes
+    })
+    fakeAdapter = adapterAlwaysPublishing(publish) // id: 'upload-post', par défaut
+    const sendMail = vi.fn(async () => {})
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome.kind).toBe('done')
+    expect(sendMail).not.toHaveBeenCalled()
   })
 })

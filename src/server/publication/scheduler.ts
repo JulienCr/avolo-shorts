@@ -7,6 +7,7 @@ import type Database from 'better-sqlite3'
 import { PLATFORM_LABELS, PLATFORMS, PUBLICATION_STATUS_LABELS, platformTexts, type Platform, type PublicationStatus } from '@/core/publication'
 import { effectiveSettings, getClip, getPublications, nextDueSchedule, upsertPublication } from '@/server/db'
 import { messageSafe } from '@/server/errors'
+import { adapterFor } from '@/server/publication'
 import { launchPublish } from '@/server/publication/service'
 import type { Mailer } from '@/server/publication/mailer'
 
@@ -469,8 +470,9 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
 
   // Indépendant du verdict `done` / `abandoned` : un dépôt TikTok réussi
   // mérite son courriel même si une autre plateforme de la même échéance a
-  // été abandonnée à côté.
-  if (tiktokWasOutstanding && statuses.tiktok === 'submitted') {
+  // été abandonnée à côté. Réservé au connecteur direct (`tiktok`) : Upload
+  // Post envoie déjà `job.description` comme légende (relevé en revue).
+  if (tiktokWasOutstanding && statuses.tiktok === 'submitted' && adapterFor('tiktok')?.id === 'tiktok') {
     await notifyTikTokDraft(sendMail, clipId, clip.title, scheduledAt, platformTexts(clip, 'tiktok').description)
   }
 

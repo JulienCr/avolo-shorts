@@ -878,11 +878,9 @@ function warnRejected(field: SettingField, raw: string, seen?: Set<string>): und
     if (seen.has(key)) return undefined
     seen.add(key)
   }
-  // **N'importe quel champ peut porter un secret** : une ligne écrite à la
-  // main ou par une migration ratée ne respecte pas le type déclaré, et le
-  // journal serveur est plus facile à lire ou à partager que la table
-  // elle-même (#229, relevé par Aristarque). La valeur rejetée n'est donc
-  // jamais recopiée, quel que soit `field.type` ou `field.format`.
+  // Le type déclaré ne garantit rien sur ce qui est réellement en base :
+  // un champ entier ou booléen peut porter un secret tout comme un champ
+  // url.
   const shown = `(masqué, ${raw.length} caractère${raw.length === 1 ? '' : 's'})`
   console.warn(
     `Réglage ${storedKey(field)} : valeur stockée invalide ${shown}, retour au défaut ${JSON.stringify(field.defaultValue)}.`,

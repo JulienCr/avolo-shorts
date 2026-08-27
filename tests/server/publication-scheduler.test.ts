@@ -367,13 +367,17 @@ describe('runOnePass — le verrou', () => {
 describe('runOnePass — les réessais', () => {
   it('trois essais, l’échelle 5 s puis 10 s, le deuxième essai ne vise que les échecs, un seul courriel', async () => {
     schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const instagramError =
+      'Meta refuse le fichier : rupload a refusé le fichier après 3 tentatives : {"debug_info":{"retriable":false,"message":"A & B <script>"}}'
     const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
       const outcomes = {} as Record<Platform, PlatformOutcome>
       for (const platform of platforms) {
         outcomes[platform] =
-          platform === 'instagram' || platform === 'facebook'
-            ? { status: 'failed', error: 'Panne simulée' }
-            : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+          platform === 'instagram'
+            ? { status: 'failed', error: instagramError }
+            : platform === 'facebook'
+              ? { status: 'failed', error: 'Panne simulée' }
+              : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
       }
       return outcomes
     })
@@ -383,9 +387,9 @@ describe('runOnePass — les réessais', () => {
     const sleep = vi.fn(async (ms: number) => {
       delays.push(ms)
     })
-    const mails: Array<{ subject: string; body: string }> = []
-    const sendMail = vi.fn(async (subject: string, body: string) => {
-      mails.push({ subject, body })
+    const mails: Array<{ subject: string; body: string; html?: string }> = []
+    const sendMail = vi.fn(async (subject: string, body: string, html?: string) => {
+      mails.push({ subject, body, html })
     })
     const outcome = await runOnePass(deps({ sleep, sendMail }))
 
@@ -412,6 +416,18 @@ describe('runOnePass — les réessais', () => {
     expect(mails[0]?.subject).toContain('La chute')
     expect(mails[0]?.body).toContain('instagram')
     expect(mails[0]?.body).toContain('Panne simulée')
+
+    // Le HTML : un tableau par plateforme, l'échappement des caractères
+    // spéciaux, et le blob Meta ré-indenté sans perdre son préfixe français
+    // (relevé en revue, Copilot).
+    const html = mails[0]?.html
+    expect(html).toContain('<table')
+    expect(html).toContain('Instagram')
+    expect(html).toContain('échec')
+    expect(html).toContain('A &amp; B &lt;script&gt;')
+    expect(html).not.toContain('<script>')
+    expect(html).toContain('rupload a refusé le fichier après 3 tentatives :')
+    expect(html).toContain('"retriable": false')
   })
 
   it('un titre YouTube manquant isole son échec sans marquer les autres plateformes', async () => {

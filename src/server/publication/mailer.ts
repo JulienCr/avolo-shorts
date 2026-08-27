@@ -7,7 +7,7 @@ import { isReference, type Environment } from '@/server/secrets'
  * dépendance d'infrastructure. `Mailer` est l'interface que `scheduler.ts`
  * appelle ; `createResendMailer` est la seule implémentation.
  */
-export type Mailer = (subject: string, body: string) => Promise<void>
+export type Mailer = (subject: string, body: string, html?: string) => Promise<void>
 
 export const ALERT_RECIPIENT = 'julien@avolo.fr'
 
@@ -43,7 +43,7 @@ function resendFrom(env: Environment): string {
  * les tests injectent un `fetch` qui ne touche jamais le réseau.
  */
 export function createResendMailer(env: Environment = process.env, fetchImpl: typeof fetch = fetch): Mailer {
-  return async (subject, body) => {
+  return async (subject, body, html) => {
     const apiKey = resendApiKey(env)
     if (apiKey === undefined) {
       console.error(`RESEND_API_KEY absente ou non résolue : alerte perdue — ${subject}`)
@@ -54,7 +54,7 @@ export function createResendMailer(env: Environment = process.env, fetchImpl: ty
       const response = await fetchImpl(ENDPOINT, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ from, to: ALERT_RECIPIENT, subject, text: body }),
+        body: JSON.stringify({ from, to: ALERT_RECIPIENT, subject, text: body, ...(html !== undefined ? { html } : {}) }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       })
       if (!response.ok) console.error(`Resend a refusé l'alerte (${response.status}) : ${await response.text()}`)

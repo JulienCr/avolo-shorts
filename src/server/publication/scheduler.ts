@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import type Database from 'better-sqlite3'
 
-import { PLATFORMS, type Platform, type PublicationStatus } from '@/core/publication'
+import { PLATFORM_LABELS, PLATFORMS, PUBLICATION_STATUS_LABELS, type Platform, type PublicationStatus } from '@/core/publication'
 import { effectiveSettings, getClip, getPublications, nextDueSchedule, upsertPublication } from '@/server/db'
 import { messageSafe } from '@/server/errors'
 import { launchPublish } from '@/server/publication/service'
@@ -292,6 +292,49 @@ function statusesFor(db: Database.Database, clipId: string): Record<Platform, Pu
   return result
 }
 
+const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
+  published: { bg: '#e6f4ea', fg: '#1e7e34' },
+  submitted: { bg: '#e6f4ea', fg: '#1e7e34' },
+  failed: { bg: '#fce8e6', fg: '#c5221f' },
+}
+const DEFAULT_STATUS_COLOR = { bg: '#f1f3f4', fg: '#5f6368' }
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/**
+ * Ré-indente le suffixe JSON d'une erreur Meta (cas `MetaFileRefusedError`,
+ * `src/server/publication/meta.ts:124-126` : un préfixe en français suivi d'un
+ * blob JSON, jamais du JSON pur) pour rester lisible dans le tableau HTML — le
+ * préfixe reste tel quel (relevé en revue, Copilot).
+ */
+function formatErrorDetail(error: string): string {
+  const jsonStart = error.indexOf('{')
+  if (jsonStart === -1) return error
+  try {
+    const pretty = JSON.stringify(JSON.parse(error.slice(jsonStart)), null, 2)
+    return error.slice(0, jsonStart) + pretty
+  } catch {
+    return error
+  }
+}
+
+function platformRowHtml(platform: Platform, status: PublicationStatus, error: string | null | undefined): string {
+  const { bg, fg } = STATUS_COLORS[status] ?? DEFAULT_STATUS_COLOR
+  const detail =
+    error != null && error !== ''
+      ? `<pre style="margin:0;white-space:pre-wrap;font-family:monospace;font-size:12px;color:#3c4043">${escapeHtml(formatErrorDetail(error))}</pre>`
+      : ''
+  return `<tr>
+    <td style="padding:6px 12px;border-bottom:1px solid #e0e0e0">${escapeHtml(PLATFORM_LABELS[platform])}</td>
+    <td style="padding:6px 12px;border-bottom:1px solid #e0e0e0">
+      <span style="display:inline-block;padding:2px 8px;border-radius:12px;background:${bg};color:${fg};font-size:12px">${escapeHtml(PUBLICATION_STATUS_LABELS[status])}</span>
+    </td>
+    <td style="padding:6px 12px;border-bottom:1px solid #e0e0e0">${detail}</td>
+  </tr>`
+}
+
 /** Le courriel d'abandon (spec §5.5) : le clip, l'échéance, chaque plateforme et son erreur. */
 async function notifyAbandoned(
   sendMail: Mailer,
@@ -307,14 +350,29 @@ async function notifyAbandoned(
     return `  ${p} : ${row?.status ?? 'planned'}${error}`
   })
   const label = clipTitle === '' ? clipId : clipTitle
+  const deadline = new Date(scheduledAt).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })
+  const rows = PLATFORMS.map((p) => {
+    const row = byPlatform.get(p)
+    return platformRowHtml(p, row?.status ?? 'planned', row?.error)
+  }).join('')
+  const html = `<div style="font-family:sans-serif;color:#202124">
+    <p><strong>Clip :</strong> ${escapeHtml(label)} (${escapeHtml(clipId)})</p>
+    <p><strong>Échéance :</strong> ${escapeHtml(deadline)}</p>
+    <table style="border-collapse:collapse;width:100%;max-width:640px">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:6px 12px;border-bottom:2px solid #202124">Plateforme</th>
+          <th style="text-align:left;padding:6px 12px;border-bottom:2px solid #202124">Statut</th>
+          <th style="text-align:left;padding:6px 12px;border-bottom:2px solid #202124">Détail</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`
   await sendMail(
     `Publication en échec : ${label}`,
-    [
-      `Clip : ${label} (${clipId})`,
-      `Échéance : ${new Date(scheduledAt).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })}`,
-      'Plateformes :',
-      ...lines,
-    ].join('\n'),
+    [`Clip : ${label} (${clipId})`, `Échéance : ${deadline}`, 'Plateformes :', ...lines].join('\n'),
+    html,
   )
 }
 

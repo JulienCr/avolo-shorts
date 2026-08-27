@@ -727,3 +727,95 @@ describe('runAnalysis', () => {
     expect(fs.readdirSync(project).filter((n) => n.includes('.partiel-'))).toEqual([])
   })
 })
+
+/**
+ * Le worker de détection n'est pas seul dans son groupe : c'est ce que
+ * l'issue #77 mesure. `detect.py` lance `ffmpeg` sans jamais s'en détacher, et
+ * un `forwardAbort` qui ne tuait que le PID du worker laissait tourner
+ * l'`ffmpeg` orphelin.
+ *
+ * Ce test tient le chemin réel — le `spawn(..., { detached: true })` et le
+ * `forwardAbort(..., { killGroup: true })` d'`analysis.ts` — avec un faux
+ * worker en `sh` qui fait comme `detect.py` : il lance un enfant de longue
+ * durée en arrière-plan et l'attend. Pas de GPU, pas de vraie vidéo, pas de
+ * vrai `ffmpeg` — seulement le même graphe de processus.
+ */
+describe('runAnalysis, le groupe de processus du worker', () => {
+  let root: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-analysis-groupe-'))
+    process.env.PROJECTS_DIR = path.join(root, 'projects')
+    fs.mkdirSync(path.join(root, 'projects', 'projet'), { recursive: true })
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  /** Sonde un PID par un signal 0, jusqu'à ce qu'il réponde ESRCH ou expire. */
+  async function untilGone(pid: number, timeoutMs = 2000): Promise<void> {
+    const start = Date.now()
+    for (;;) {
+      try {
+        process.kill(pid, 0)
+      } catch {
+        return
+      }
+      if (Date.now() - start > timeoutMs) throw new Error(`pid ${pid} toujours vivant`)
+      await new Promise((r) => setTimeout(r, 20))
+    }
+  }
+
+  it("tue l'enfant que le worker a lancé en arrière-plan quand on arrête l'analyse", async () => {
+    fs.writeFileSync(path.join(root, 'projects', 'projet', 'proxy.mp4'), '')
+
+    const ffprobe = path.join(root, 'ffprobe-ok')
+    fs.writeFileSync(
+      ffprobe,
+      '#!/bin/sh\necho \'{"streams":[{"width":960,"height":540,"r_frame_rate":"30/1"}],' +
+        '"format":{"duration":"10"}}\'\n',
+      { mode: 0o755 },
+    )
+    process.env.FFPROBE_BIN = ffprobe
+
+    const pidFile = path.join(root, 'enfant.pid')
+    const python = path.join(root, 'faux-detect-groupe')
+    // Comme `detect.py` : un enfant de longue durée lancé sans s'en détacher,
+    // et attendu. `$!` est le PID du dernier job en arrière-plan.
+    fs.writeFileSync(
+      python,
+      ['#!/bin/sh', 'sleep 30 </dev/null >/dev/null 2>&1 &', 'child=$!', `echo "$child" > ${JSON.stringify(pidFile)}`, 'wait "$child"'].join(
+        '\n',
+      ),
+      { mode: 0o755 },
+    )
+    const script = path.join(root, 'detect.py')
+    fs.writeFileSync(script, '')
+    const template = path.join(root, 'yolo11m.pt')
+    fs.writeFileSync(template, '')
+    process.env.DETECT_PYTHON = python
+    process.env.DETECT_WORKER = script
+    process.env.DETECT_MODEL = template
+
+    const controller = new AbortController()
+    const promise = runAnalysis({
+      projectId: 'projet',
+      source: '/absent.mp4',
+      signal: controller.signal,
+    })
+
+    const start = Date.now()
+    while (!fs.existsSync(pidFile) || fs.readFileSync(pidFile, 'utf8').trim() === '') {
+      if (Date.now() - start > 2000) throw new Error('le worker n’a jamais annoncé son enfant')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    const childPid = Number(fs.readFileSync(pidFile, 'utf8').trim())
+
+    controller.abort()
+
+    await expect(promise).rejects.toThrow(/Arrêt demandé/)
+    await untilGone(childPid)
+  })
+})
+

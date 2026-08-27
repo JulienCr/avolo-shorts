@@ -399,6 +399,80 @@ describe('propagerArrêt', () => {
   })
 })
 
+/**
+ * Le groupe de processus : l'opt-in que seule l'analyse d'image utilise.
+ *
+ * `detached: true` fait du parent le meneur d'un groupe qui lui est propre ;
+ * ses propres enfants Unix héritent de ce groupe tant qu'ils ne s'en
+ * détachent pas eux-mêmes. `killGroup: true` vise ce groupe entier (`-pid`)
+ * plutôt que le seul PID du parent : c'est ce qui atteint l'ffmpeg qu'un
+ * worker Python a lancé, sans que rien d'autre ne le sache.
+ */
+describe('forwardAbort, le groupe de processus', () => {
+  /** Un « worker » détaché qui lance lui-même un `sleep` et annonce son PID. */
+  function spawnWorkerWithChild(): ReturnType<typeof spawn> {
+    return spawn(
+      process.execPath,
+      [
+        '-e',
+        "const { spawn } = require('child_process');" +
+          "const child = spawn('sleep', ['30']);" +
+          "console.log(child.pid);" +
+          "setTimeout(() => {}, 30000)",
+      ],
+      { detached: true, stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+  }
+
+  /** Le PID annoncé sur la première ligne de stdout. */
+  function firstPid(proc: ReturnType<typeof spawn>): Promise<number> {
+    return new Promise((resolve) => {
+      proc.stdout?.once('data', (chunk: Buffer) => resolve(Number(chunk.toString().trim())))
+    })
+  }
+
+  /** Sonde un PID par un signal 0, jusqu'à ce qu'il réponde ESRCH ou expire. */
+  async function untilGone(pid: number, timeoutMs = 2000): Promise<void> {
+    const start = Date.now()
+    for (;;) {
+      try {
+        process.kill(pid, 0)
+      } catch {
+        return
+      }
+      if (Date.now() - start > timeoutMs) throw new Error(`pid ${pid} toujours vivant`)
+      await new Promise((r) => setTimeout(r, 20))
+    }
+  }
+
+  it("tue l'enfant du worker quand l'appelant vise le groupe", async () => {
+    const proc = spawnWorkerWithChild()
+    const childPid = await firstPid(proc)
+    const controller = new AbortController()
+    const detach = forwardAbort(proc, controller.signal, undefined, { killGroup: true })
+    controller.abort()
+    await untilGone(childPid)
+    detach()
+  })
+
+  /**
+   * Le pendant, et il épingle le critère 2 : un appelant qui n'opte pas — la
+   * forme des trois autres appels de `forwardAbort` — ne change rien à son
+   * comportement. Même worker détaché, même enfant : sans l'option, il survit.
+   */
+  it("laisse l'enfant du worker en vie quand l'appelant n'opte pas", async () => {
+    const proc = spawnWorkerWithChild()
+    const childPid = await firstPid(proc)
+    const controller = new AbortController()
+    forwardAbort(proc, controller.signal)
+    controller.abort()
+    await new Promise((r) => setTimeout(r, 300))
+    expect(() => process.kill(childPid, 0)).not.toThrow()
+    // Nettoyage : cet enfant ne meurt jamais tout seul dans ce test.
+    process.kill(childPid, 'SIGKILL')
+  })
+})
+
 describe('runFfmpeg, l’arrêt demandé', () => {
   let folder: string
 

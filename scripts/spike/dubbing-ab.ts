@@ -59,6 +59,32 @@ const PERFORMER_BANDS_REL = {
   D3: { x: 48, y: 110, w: 318, h: 230 },
 } as const satisfies Record<string, Rect>
 
+/**
+ * Le disque comme ellipse en fraction du cadre source (rond=fraction != rond=pixel
+ * sur une source non carree). Ronde 3 : cx/cy/rx/ry fournis par `src/core/dubbing.ts`
+ * en production, repris ici tels quels — ne pas les re-mesurer.
+ */
+const DISC_ELLIPSE_PX = {
+  cx: 0.881 * SOURCE.w,
+  cy: 0.2165 * SOURCE.h,
+  rx: 0.1078 * SOURCE.w,
+  ry: 0.1917 * SOURCE.h,
+} as const
+
+/**
+ * La bande comediens mesuree par la production pour un plan donne, bornee par le
+ * disque au pire des deux bords horizontaux (jamais au milieu) — une bande dont
+ * les coins sortent du cercle collerait du film sur le canevas.
+ */
+function measuredBandRectPx(bandYFraction: readonly [number, number]): Rect {
+  const top = bandYFraction[0] * SOURCE.h
+  const bottom = bandYFraction[1] * SOURCE.h
+  const { cx, cy, rx, ry } = DISC_ELLIPSE_PX
+  const d = Math.max(Math.abs(top - cy), Math.abs(bottom - cy))
+  const halfWidth = rx * Math.sqrt(Math.max(0, 1 - (d / ry) ** 2))
+  return { x: Math.round(cx - halfWidth), y: Math.round(top), w: Math.round(2 * halfWidth), h: Math.round(bottom - top) }
+}
+
 const stripTopPx = evenFloor(STRIP_Y_FRACTION * SOURCE.h)
 const stripPx: Rect = { x: 0, y: stripTopPx, w: SOURCE.w, h: SOURCE.h - stripTopPx }
 const filmFullPx: Rect = { x: 0, y: 0, w: SOURCE.w, h: stripTopPx }
@@ -73,7 +99,7 @@ function scaledHeight(rect: Rect): number {
   return evenFloor((rect.h / rect.w) * CANVAS.w)
 }
 
-type VariantId = 'A' | 'D1' | 'D2' | 'D3'
+type VariantId = 'A' | 'D1' | 'D2' | 'D3' | 'M'
 
 type Variant = {
   id: VariantId
@@ -99,6 +125,11 @@ const VARIANTS: readonly Variant[] = [
   makeVariant('D2', 'D2 - tetes + epaules', performerRectPx('D2')),
   makeVariant('D3', 'D3 - tetes + bustes', performerRectPx('D3')),
 ]
+
+/** Ronde 3 : la bande mesuree par la production, propre a chaque instant/plan. */
+function buildMeasuredVariant(instant: Instant): Variant {
+  return makeVariant('M', 'M - bande mesuree (prod)', measuredBandRectPx(instant.bandY))
+}
 
 // ---------------------------------------------------------------------------
 // Le filtergraph.
@@ -254,17 +285,24 @@ function probeDimensions(file: string): { w: number; h: number } {
 // Les instants du contrat (§5), fixes.
 // ---------------------------------------------------------------------------
 
-type Instant = { file: string; slug: string; t: number }
+type Instant = { file: string; slug: string; t: number; bandY: readonly [number, number] }
 
 const INSTANTS: readonly Instant[] = [
-  { file: '2026-22-02-entre-nous.mp4', slug: 'entre-nous-t6390', t: 6390 },
-  { file: '2026-22-02-entre-nous.mp4', slug: 'entre-nous-t2400', t: 2400 },
-  { file: '2026-03-08-caro-mdlm.mp4', slug: 'caro-mdlm-t5476', t: 5476 },
+  { file: '2026-22-02-entre-nous.mp4', slug: 'entre-nous-t6390', t: 6390, bandY: [0.092, 0.277] },
+  { file: '2026-22-02-entre-nous.mp4', slug: 'entre-nous-t2400', t: 2400, bandY: [0.066, 0.251] },
+  { file: '2026-03-08-caro-mdlm.mp4', slug: 'caro-mdlm-t5476', t: 5476, bandY: [0.070, 0.255] },
 ]
 
-/** Video demandee uniquement sur le cas 16:9, pour D1/D2/D3 (contrat v2). */
+/**
+ * Video : cas 16:9 complet (D1/D2/D3/M, contrat v2+v3), plus D2/M sur
+ * `caro-mdlm` (ronde 3) — le clip est ou le tetes clippaient, l'evidence en
+ * mouvement doit porter sur le repere fixe autant que sur la mesure.
+ */
 function needsVideo(instant: Instant, variant: Variant): boolean {
-  return instant.slug === 'entre-nous-t6390' && variant.id !== 'A'
+  if (variant.id === 'A') return false
+  if (instant.slug === 'entre-nous-t6390') return true
+  if (instant.slug === 'caro-mdlm-t5476') return variant.id === 'D2' || variant.id === 'M'
+  return false
 }
 
 const CLIP_DURATION_SEC = 20
@@ -285,6 +323,11 @@ async function main(): Promise<number> {
       `comediens D1=${JSON.stringify(performerRectPx('D1'))}, D2=${JSON.stringify(performerRectPx('D2'))}, ` +
       `D3=${JSON.stringify(performerRectPx('D3'))}.`,
   )
+  console.log(
+    `Ronde 3 : ellipse du disque=${JSON.stringify(DISC_ELLIPSE_PX)}. Bandes mesurees par instant : ` +
+      INSTANTS.map((i) => `${i.slug}=${JSON.stringify(measuredBandRectPx(i.bandY))}`).join(', ') +
+      '.',
+  )
 
   const produced: string[] = []
 
@@ -300,7 +343,7 @@ async function main(): Promise<number> {
     }
 
     const stillFiles: { id: VariantId; label: string; file: string }[] = []
-    for (const variant of VARIANTS) {
+    for (const variant of [...VARIANTS, buildMeasuredVariant(instant)]) {
       const stillDst = path.join(OUT_DIR, `still_${instant.slug}_${variant.id}.png`)
       console.log(`Image : ${instant.slug} / ${variant.id} -> ${stillDst}`)
       await runFfmpeg(stillArgs(source, instant.t, variant, stillDst), { what: `image ${instant.slug}/${variant.id}` })
@@ -319,9 +362,17 @@ async function main(): Promise<number> {
     }
 
     const sheetDst = path.join(OUT_DIR, `contact_${instant.slug}.png`)
-    console.log(`Planche : ${instant.slug} -> ${sheetDst}`)
+    console.log(`Planche (A/D1/D2/D3/M) : ${instant.slug} -> ${sheetDst}`)
     await buildContactSheet(stillFiles, OUT_DIR, sheetDst)
     produced.push(sheetDst)
+
+    // Ronde 3 : la planche que le proprietaire doit trancher, D2 (fixe) contre
+    // M (mesuree par la production) — deux colonnes seulement.
+    const roundThreeStills = stillFiles.filter((s) => s.id === 'D2' || s.id === 'M')
+    const roundThreeSheetDst = path.join(OUT_DIR, `contact-d2-vs-m_${instant.slug}.png`)
+    console.log(`Planche (D2 vs M) : ${instant.slug} -> ${roundThreeSheetDst}`)
+    await buildContactSheet(roundThreeStills, OUT_DIR, roundThreeSheetDst)
+    produced.push(roundThreeSheetDst)
   }
 
   console.log('\nFichiers produits :')

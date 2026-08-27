@@ -616,6 +616,38 @@ describe('runOnePass — le courriel de brouillon TikTok', () => {
     expect(mails[0]?.body).toContain('Une impro qui part en vrille')
   })
 
+  it('échappe la légende dans le HTML, la laisse intacte dans le texte', async () => {
+    putClip(getDb(), baseClip({ title: 'A & B <script>', description: 'un <b>gras</b> qui ne doit pas passer' }))
+    await renderClip(CLIP_ID, { db: getDb() })
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] =
+          platform === 'tiktok'
+            ? { status: 'submitted', remoteId: 'p1', remoteUrl: null }
+            : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      }
+      return outcomes
+    })
+    fakeAdapter = adapterAlwaysPublishing(publish)
+    const mails: Array<{ subject: string; body: string; html?: string }> = []
+    const sendMail = vi.fn(async (subject: string, body: string, html?: string) => {
+      mails.push({ subject, body, html })
+    })
+
+    await runOnePass(deps({ sendMail }))
+
+    expect(mails).toHaveLength(1)
+    // Le texte brut porte la légende telle quelle, ligne vide titre/description comprise.
+    expect(mails[0]?.body).toContain('A & B <script>\n\nun <b>gras</b> qui ne doit pas passer')
+    const html = mails[0]?.html
+    expect(html).toContain('A &amp; B &lt;script&gt;')
+    expect(html).toContain('un &lt;b&gt;gras&lt;/b&gt; qui ne doit pas passer')
+    expect(html).not.toContain('<script>')
+    expect(html).not.toContain('<b>gras</b>')
+  })
+
   it('n’envoie rien quand TikTok n’était pas parmi les plateformes dues de cette passe', async () => {
     schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
     const due = getPublications(getDb(), CLIP_ID)[0]?.scheduledAt as number

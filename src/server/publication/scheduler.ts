@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import type Database from 'better-sqlite3'
 
-import { PLATFORMS, type Platform, type PublicationStatus } from '@/core/publication'
+import { PLATFORM_LABELS, PLATFORMS, PUBLICATION_STATUS_LABELS, type Platform, type PublicationStatus } from '@/core/publication'
 import { getClip, getPublications, nextDueSchedule, upsertPublication } from '@/server/db'
 import { messageSafe } from '@/server/errors'
 import { launchPublish } from '@/server/publication/service'
@@ -302,10 +302,18 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-/** Ré-indente une erreur JSON (cas Meta) pour rester lisible dans le tableau HTML ; sinon, le texte brut. */
+/**
+ * Ré-indente le suffixe JSON d'une erreur Meta (cas `MetaFileRefusedError`,
+ * `src/server/publication/meta.ts:124-126` : un préfixe en français suivi d'un
+ * blob JSON, jamais du JSON pur) pour rester lisible dans le tableau HTML — le
+ * préfixe reste tel quel (relevé en revue, Copilot).
+ */
 function formatErrorDetail(error: string): string {
+  const jsonStart = error.indexOf('{')
+  if (jsonStart === -1) return error
   try {
-    return JSON.stringify(JSON.parse(error), null, 2)
+    const pretty = JSON.stringify(JSON.parse(error.slice(jsonStart)), null, 2)
+    return error.slice(0, jsonStart) + pretty
   } catch {
     return error
   }
@@ -318,9 +326,9 @@ function platformRowHtml(platform: Platform, status: PublicationStatus, error: s
       ? `<pre style="margin:0;white-space:pre-wrap;font-family:monospace;font-size:12px;color:#3c4043">${escapeHtml(formatErrorDetail(error))}</pre>`
       : ''
   return `<tr>
-    <td style="padding:6px 12px;border-bottom:1px solid #e0e0e0">${escapeHtml(platform)}</td>
+    <td style="padding:6px 12px;border-bottom:1px solid #e0e0e0">${escapeHtml(PLATFORM_LABELS[platform])}</td>
     <td style="padding:6px 12px;border-bottom:1px solid #e0e0e0">
-      <span style="display:inline-block;padding:2px 8px;border-radius:12px;background:${bg};color:${fg};font-size:12px">${escapeHtml(status)}</span>
+      <span style="display:inline-block;padding:2px 8px;border-radius:12px;background:${bg};color:${fg};font-size:12px">${escapeHtml(PUBLICATION_STATUS_LABELS[status])}</span>
     </td>
     <td style="padding:6px 12px;border-bottom:1px solid #e0e0e0">${detail}</td>
   </tr>`

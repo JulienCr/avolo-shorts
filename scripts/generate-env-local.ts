@@ -155,8 +155,11 @@ function quoteValue(name: string, value: string): string {
     throw new Error(
       `${name} : la valeur résolue contient un $, que le dotenv-expand de @next/env ` +
         "interprète comme une expansion de variable même entre apostrophes, alors que " +
-        "process.loadEnvFile ne le décode jamais. Retirer la référence op:// de .env " +
-        'pour cette variable et la garder littérale.',
+        'process.loadEnvFile ne le décode jamais. Aucun fichier .env* ne règle ce cas : ' +
+        "@next/env charge aussi bien .env que .env.local, donc garder la valeur littérale " +
+        "dans .env expose next dev à la même corruption. Sortir cette variable de tout " +
+        'fichier .env* et l\'injecter directement dans l\'environnement du process (export ' +
+        'shell, secret manager du déploiement) avant de lancer next dev ou next start.',
     )
   }
   return `'${value}'`

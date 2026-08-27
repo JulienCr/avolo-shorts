@@ -204,3 +204,25 @@ it('le défaut du champ modèle suit le fournisseur courant, pas toujours Gemini
   await user.click(button)
   expect(onChange).toHaveBeenCalledWith({ hookModel: 'gpt-4.1-mini' })
 })
+
+/**
+ * #88 : `foo` était accepté à l'écran et n'échouait qu'au premier `fetch`,
+ * loin de l'écran où il avait été tapé. Le refus vient du serveur
+ * (`InvalidSettingError`, `db.ts`) ; ce champ suit **le même mécanisme que
+ * les autres** — `onChange` rejette, le brouillon revient à ce qui est
+ * enregistré — plutôt que d'inventer une validation côté client.
+ */
+it('revient à l’adresse enregistrée quand le serveur refuse l’adresse saisie', async () => {
+  const onChange = vi.fn().mockRejectedValue(
+    new Error('Réglage ai.ollamaBaseUrl : une URL absolue http:// ou https:// est attendue, reçu "foo".'),
+  )
+  const user = userEvent.setup()
+  render(<AiSection values={VALUES} availability={AVAILABLE} onChange={onChange} />)
+
+  const input = screen.getByLabelText('Adresse du serveur Ollama')
+  await user.type(input, 'foo')
+  await user.tab()
+
+  await waitFor(() => expect(onChange).toHaveBeenCalledWith({ ollamaBaseUrl: 'foo' }))
+  await waitFor(() => expect(input).toHaveProperty('value', ''))
+})

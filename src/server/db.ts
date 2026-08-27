@@ -515,6 +515,39 @@ export type SettingField = {
    * texte contraint, pas une forme nouvelle.
    */
   enum?: readonly string[]
+  /**
+   * Pour un champ `text`, une forme au-delà de « non vide, assez court » —
+   * aujourd'hui seule `'url'` existe, exigeant une URL absolue `http:`/`https:`
+   * via `new URL`. Porté par la grammaire du champ plutôt que par un cas
+   * particulier sur `ollamaBaseUrl` : un second champ URL l'hérite sans code
+   * neuf.
+   */
+  format?: 'url'
+}
+
+/**
+ * `raw` analyse comme une URL absolue `http:`/`https:`, sans requête ni
+ * fragment — les deux casseraient la concaténation `${base}/api/chat` que
+ * `createOllamaCall` fait ensuite (relevé par Copilot) — ni espace de bord ni
+ * identifiants : `new URL` accepte et normalise silencieusement les deux, ce
+ * qui stockerait respectivement une adresse cassée et un mot de passe en
+ * clair dans `settings` (relevé par Aristarque).
+ */
+function isValidUrl(raw: string): boolean {
+  if (raw !== raw.trim()) return false
+  // `?`/`#` vides (`http://h?`, `http://h#`) survivraient à un contrôle sur
+  // `url.search`/`url.hash` : l'API `URL` les normalise à `''` tout en
+  // gardant le délimiteur dans `href`, donc c'est le délimiteur lui-même
+  // qu'il faut chercher dans le brut (relevé par Copilot).
+  if (raw.includes('?') || raw.includes('#')) return false
+  try {
+    const url = new URL(raw)
+    return (
+      ['http:', 'https:'].includes(url.protocol) && url.username === '' && url.password === ''
+    )
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -597,6 +630,7 @@ const AI_FIELD_SHAPES = {
     type: 'text',
     defaultValue: '',
     allowEmpty: true,
+    format: 'url',
   },
 } satisfies Record<keyof AiSettings, Omit<SettingField, 'family' | 'name'>>
 
@@ -814,6 +848,56 @@ const TEXT_MAX = 2_048
  */
 export const COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/
 
+/** Longueur au-delà de laquelle la valeur brute d'un avertissement est tronquée. */
+const RAW_LOG_MAX = 80
+
+/**
+ * Par connexion : `effectiveSettings` relit la table à chaque appel (rendu,
+ * ordonnanceur), et une ligne corrompue non réparée avertirait sinon à
+ * chaque relecture plutôt qu'une fois (relevé par Codex). Une `WeakMap` sur
+ * `db` plutôt qu'un état global : `getDb()` n'ouvre qu'une connexion par
+ * processus, donc la portée coïncide avec la durée de vie réelle, et les
+ * tests qui ouvrent leur propre `db` en mémoire repartent de zéro sans rien
+ * à réinitialiser.
+ */
+const warnedRejectionsByDb = new WeakMap<Database.Database, Set<string>>()
+
+/**
+ * Avertit qu'une ligne existante ne s'est pas relue, et rend `undefined` pour
+ * que l'appelant retombe sur le défaut. **N'existe que pour une ligne qui
+ * existe déjà** : `effectiveSettings` n'appelle `parseSetting` que sur un
+ * `raw` tiré de la table, jamais sur un champ absent — une ligne absente est
+ * l'expression normale d'un défaut et ne doit rien dire.
+ *
+ * `seen`, quand fourni, avertit une seule fois par (champ, valeur) plutôt
+ * qu'à chaque appel — `effectiveSettings` le passe pour ne pas noyer les
+ * journaux d'un rendu ou d'un ordonnanceur qui relit la même ligne corrompue
+ * en boucle (relevé par Codex). Absent des appels directs à `parseSetting`,
+ * qui n'ont pas cette répétition.
+ */
+function warnRejected(field: SettingField, raw: string, seen?: Set<string>): undefined {
+  if (seen) {
+    const key = `${storedKey(field)} ${raw}`
+    if (seen.has(key)) return undefined
+    seen.add(key)
+  }
+  // **Un champ `format: 'url'` peut porter `user:motdepasse@hôte`** : une
+  // valeur rejetée n'en reste pas moins un secret potentiel, et le journal
+  // serveur est plus facile à lire ou à partager que la table elle-même
+  // (relevé par Copilot). Masquée plutôt que tronquée, contrairement aux
+  // autres champs texte.
+  const shown =
+    field.format === 'url'
+      ? '(masqué, format url)'
+      : raw.length > RAW_LOG_MAX
+        ? `${raw.slice(0, RAW_LOG_MAX)}…`
+        : raw
+  console.warn(
+    `Réglage ${storedKey(field)} : valeur stockée invalide (${JSON.stringify(shown)}), retour au défaut ${JSON.stringify(field.defaultValue)}.`,
+  )
+  return undefined
+}
+
 /**
  * Relit une valeur stockée, ou rend `undefined` si elle n'a aucun sens.
  *
@@ -839,26 +923,28 @@ export const COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/
 export function parseSetting(
   field: SettingField,
   raw: string,
+  seen?: Set<string>,
 ): number | string | boolean | undefined {
   switch (field.type) {
     case 'integer': {
-      if (!/^\d+$/.test(raw.trim())) return undefined
+      if (!/^\d+$/.test(raw.trim())) return warnRejected(field, raw, seen)
       const value = Number(raw.trim())
-      if (!Number.isSafeInteger(value) || value < (field.min ?? 0)) return undefined
+      if (!Number.isSafeInteger(value) || value < (field.min ?? 0))
+        return warnRejected(field, raw, seen)
       // **Ignorée comme le plancher, jamais levée** : c'est `parseSetting`,
       // la lecture tolérante. `field.max` est absent partout sauf pour le
       // hook, donc les familles existantes ne voient jamais cette branche.
-      if (field.max !== undefined && value > field.max) return undefined
+      if (field.max !== undefined && value > field.max) return warnRejected(field, raw, seen)
       return value
     }
     case 'boolean':
-      return raw === 'true' ? true : raw === 'false' ? false : undefined
+      return raw === 'true' ? true : raw === 'false' ? false : warnRejected(field, raw, seen)
     case 'color': {
       // Même normalisation qu'à l'écriture (`validateSetting`) : la lecture
       // et l'écriture doivent s'accorder sur ce qu'une valeur stockée veut
       // dire, exactement comme pour les trois autres types.
       const trimmed = raw.trim()
-      return COLOR_PATTERN.test(trimmed) ? trimmed.toUpperCase() : undefined
+      return COLOR_PATTERN.test(trimmed) ? trimmed.toUpperCase() : warnRejected(field, raw, seen)
     }
     case 'text': {
       // **Les mêmes bornes que `validateSetting`, et c'est le contrat.** Une
@@ -873,8 +959,13 @@ export function parseSetting(
       // `ai.ollamaBaseUrl` est le seul champ qui la porte, et vide y est une
       // valeur à part entière plutôt qu'un champ oublié.
       if (field.allowEmpty && raw === '') return raw
-      if (raw.trim() === '' || raw.length > TEXT_MAX) return undefined
-      if (field.enum !== undefined && !field.enum.includes(raw)) return undefined
+      if (raw.trim() === '' || raw.length > TEXT_MAX) return warnRejected(field, raw, seen)
+      if (field.enum !== undefined && !field.enum.includes(raw))
+        return warnRejected(field, raw, seen)
+      // **Sur le chemin de lecture aussi** : une ligne existante écrite avant
+      // que le champ ne porte `format: 'url'` — ou modifiée à la main — reste
+      // sinon acceptée pour toujours, alors que l'écriture la refuse depuis.
+      if (field.format === 'url' && !isValidUrl(raw)) return warnRejected(field, raw, seen)
       return raw
     }
   }
@@ -955,6 +1046,19 @@ export function validateSetting(
           `Réglage ${key} : une valeur parmi ${field.enum.join(', ')} est attendue, reçu ${JSON.stringify(value)}.`,
         )
       }
+      // **Vide n'est jamais une URL invalide** : quand `allowEmpty` l'a
+      // laissé passer, il veut dire « non configuré », un état légitime que
+      // `isValidUrl` rejetterait sinon comme n'importe quel autre texte creux.
+      // **La valeur refusée n'est pas répétée** : `responseError`
+      // (`src/server/http.ts`) journalise l'objet erreur entier, et une
+      // saisie rejetée précisément parce qu'elle porte des identifiants ou
+      // un jeton ne doit pas les recopier dans les logs serveur (relevé par
+      // Copilot).
+      if (field.format === 'url' && !isEmpty && !isValidUrl(value)) {
+        throw new InvalidSettingError(
+          `Réglage ${key} : une URL absolue http:// ou https:// est attendue, sans requête, fragment ni identifiants.`,
+        )
+      }
       return value
     }
   }
@@ -995,6 +1099,11 @@ export function effectiveSettings(db: Database.Database): Settings {
     value: string
   }[]
   const stored = new Map(rows.map((row) => [row.key, row.value]))
+  let seen = warnedRejectionsByDb.get(db)
+  if (!seen) {
+    seen = new Set<string>()
+    warnedRejectionsByDb.set(db, seen)
+  }
 
   const families = {
     selection: { ...DEFAULT_SELECTION_DIMENSIONS },
@@ -1021,7 +1130,7 @@ export function effectiveSettings(db: Database.Database): Settings {
   for (const field of SETTING_FIELDS) {
     const raw = stored.get(storedKey(field))
     if (raw === undefined) continue
-    const value = parseSetting(field, raw)
+    const value = parseSetting(field, raw, seen)
     if (value === undefined) continue
     // L'assertion vaut ce que vaut le registre : le seul chemin qui écrive une
     // valeur ici passe par `validateSetting`, qui la contraint au type du champ.

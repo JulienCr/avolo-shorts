@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Clip } from '@/core/edl'
 import { framingWith, clipFraming, projectAnalysis, forgetAnalyses } from '@/server/clip-framing'
 import { FRAMING_SETTINGS_DEFAULTS } from '@/core/framing'
-import type { FramingSettings } from '@/core/framing'
+import type { FramingSettings, FramingStyleOverride } from '@/core/framing'
 import { DUBBING_ANCHORS } from '@/core/dubbing'
 import { POINT, POINT_COUNT } from '@/core/shots'
 import type { PersonBox } from '@/core/shots'
@@ -525,9 +525,9 @@ describe('le split-screen à travers le registre des réglages', () => {
 })
 
 /**
- * `dubbingLayout` (PR4, issue #180) : le seul réglage booléen de la famille
- * qui ne passe par aucune division. Sa surcharge par clip doit arriver
- * jusqu'à `computeFraming` telle quelle — c'est le point que
+ * `dubbingLayout` (PR4, issue #180) : comme `splitScreen`, un booléen qui ne
+ * passe par aucune division. Sa surcharge par clip doit arriver jusqu'à
+ * `computeFraming` telle quelle — c'est le point que
  * `src/server/clip-framing.ts` teste ailleurs pour les cinq réglages
  * numériques, et qui manquait pour celui-ci.
  */
@@ -554,7 +554,7 @@ describe('`dubbingLayout` à travers le registre des réglages', () => {
     writeTwoPersonAnalysis(DUBBING_ID, boxes, 69)
   }
 
-  function dubbingClip(framingStyle: Partial<FramingSettings> = {}): Clip {
+  function dubbingClip(framingStyle: FramingStyleOverride = {}): Clip {
     return {
       id: 'clip_dubbing',
       projectId: DUBBING_ID,
@@ -611,7 +611,7 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
   // `framingStyle` par défaut à `{}` : les cinq tests existants ne changent
   // donc pas de comportement. Les cinq nouveaux, plus bas, le fournissent à
   // la place de `withSettings` (ADDENDUM 2 : épingler la surcharge, pas une suite parallèle).
-  function clipOn(id: string, end: number, framingStyle: Partial<FramingSettings> = {}): Clip {
+  function clipOn(id: string, end: number, framingStyle: FramingStyleOverride = {}): Clip {
     return {
       id: 'clip_pin',
       projectId: id,

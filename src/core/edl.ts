@@ -1,5 +1,5 @@
 import type { HookSettings } from '@/core/hook'
-import type { FramingSettings } from '@/core/framing'
+import type { FramingStyleOverride } from '@/core/framing'
 
 /**
  * L'EDL — la liste des morceaux de source qui composent un clip.
@@ -87,7 +87,7 @@ export type Clip = {
    * Les seules clés `framing` que ce clip surcharge. `{}` = aux valeurs
    * globales — même convention que `hookStyle` juste au-dessus.
    */
-  framingStyle: Partial<FramingSettings>
+  framingStyle: FramingStyleOverride
 }
 
 /**

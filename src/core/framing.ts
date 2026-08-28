@@ -491,6 +491,17 @@ export type FramingSettings = {
 }
 
 /**
+ * La surcharge par clip de la famille `framing` (`Clip.framingStyle`) : le
+ * patron de `Partial<FramingSettings>`, sauf `dubbingLayout` qui ne sait que
+ * désactiver (§1 du contrat PR4) — `true` réactiverait le montage doublage là
+ * où le défaut global l'a coupé, l'asymétrie que le schéma serveur
+ * (`FRAMING_STYLE_SHAPE`, `z.literal(false)`) applique déjà à l'exécution.
+ */
+export type FramingStyleOverride = Omit<Partial<FramingSettings>, 'dubbingLayout'> & {
+  dubbingLayout?: false
+}
+
+/**
  * Les défauts de la famille `framing`, **dérivés de `FRAMING_DEFAULTS`** plutôt
  * que recopiés en littéraux : un défaut de `FRAMING_DEFAULTS` qui bougerait
  * sans que celui-ci ne suive redonnerait exactement la divergence que

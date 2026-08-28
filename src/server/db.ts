@@ -24,6 +24,7 @@ import {
   PUBLICATION_ADAPTER_CHOICES,
   type AiSettings,
   type FramingSettings,
+  type FramingStyleOverride,
   type HookSettings,
   type IngestionSettings,
   type PublicationSettings,
@@ -1381,7 +1382,7 @@ const FRAMING_STYLE_SCHEMA = z.strictObject(FRAMING_STYLE_SHAPE).partial().catch
  * (`console.warn`), une clé hors bornes ou inconnue retombe sur `{}` en
  * silence via le `.catch({})` du schéma.
  */
-function readFramingStyle(raw: string, clipId: string): Partial<FramingSettings> {
+function readFramingStyle(raw: string, clipId: string): FramingStyleOverride {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)

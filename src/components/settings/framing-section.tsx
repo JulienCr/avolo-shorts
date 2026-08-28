@@ -90,10 +90,10 @@ export function FramingSection({
         </h2>
         <p className="text-sm text-muted-foreground">
           Les réglages globaux du cadrage automatique : le split-screen d’un
-          plan à deux personnes, et le plancher qui exclut une boîte trop
-          petite pour être quelqu’un à cadrer. Changer une valeur ne recalcule
-          rien — un clip déjà cadré garde son crop jusqu’à sa prochaine
-          ouverture.
+          plan à deux personnes, le montage doublage détecté automatiquement,
+          et le plancher qui exclut une boîte trop petite pour être quelqu’un
+          à cadrer. Changer une valeur ne recalcule rien — un clip déjà cadré
+          garde son crop jusqu’à sa prochaine ouverture.
         </p>
       </div>
 

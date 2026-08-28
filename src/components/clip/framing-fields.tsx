@@ -15,6 +15,7 @@ import {
   type Clip,
   type ClipPatch,
   type FramingSettings,
+  type FramingStyleOverride,
 } from '@/lib/api'
 
 /**
@@ -65,7 +66,7 @@ export function FramingFields({
 
   const { setStyle, resetField, resetAll } = useStyleWrites(
     clip.framingStyle,
-    useCallback((framingStyle: Partial<FramingSettings>) => onWrite({ framingStyle }), [onWrite]),
+    useCallback((framingStyle: FramingStyleOverride) => onWrite({ framingStyle }), [onWrite]),
   )
 
   return (

@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState } from 'react'
 
-import type { PlanningPoolClip } from '@/lib/api'
+import type { PlanningPendingClip, PlanningPoolClip } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,27 +10,32 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { PoolCard } from '@/components/planning/pool-card'
 import { filterPool, POOL_FILTER_NONE, showsInPool, type PoolFilter } from '@/components/planning/pool-filter'
+import { PendingExport } from '@/components/planning/pool-pending'
 import { formatShowOrigin } from '@/components/planning/texts'
 
 const ALL_SHOWS = 'all'
 const SKELETONS = 8
 
 /**
- * Le vivier en grille : filtre par émission, recherche, et navigation
- * clavier bidimensionnelle.
+ * Le vivier en grille : filtre, recherche, navigation clavier à deux axes.
  *
  * **Le filtre reste dans le composant, pas dans l'URL** — même règle que
- * `LibraryGrid` (`sources/library.tsx`) : une recherche à demi tapée dans une
- * URL est une URL qu'on ne peut plus partager.
+ * `LibraryGrid` : une recherche à demi tapée est une URL impartageable.
+ *
+ * **`PendingExport` occupe la même place de l'arbre dans les deux états** : le
+ * placer par branche le démonterait à l'arrivée du premier clip, réarmant le
+ * bouton au milieu de sa boucle — deux ffmpeg concurrents à un clic.
  */
 export function PoolGrid({
   clips,
+  pending,
   loading,
   selected,
   onToggle,
   onPreview,
 }: {
   clips: readonly PlanningPoolClip[]
+  pending: readonly PlanningPendingClip[]
   loading: boolean
   selected: ReadonlySet<string>
   onToggle: (clipId: string) => void
@@ -75,20 +80,28 @@ export function PoolGrid({
     )
   }
 
-  if (clips.length === 0) {
-    return (
-      <div className="rounded-xl border border-dashed px-6 py-14 text-center">
-        <p className="text-sm font-medium">Aucun clip à programmer.</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Exportez un clip depuis son émission pour qu’il rejoigne le vivier.
-        </p>
-      </div>
-    )
-  }
-
   return (
     <div className="flex flex-col gap-3">
-      <FilterBar clips={clips} filter={filter} onFilter={setFilter} restricted={visible.length !== clips.length} />
+      {/* `empty:hidden` retire la ligne — et l'espacement qu'elle prendrait —
+          quand ni le filtre ni le rattrapage n'ont rien à y mettre, sans pour
+          autant démonter `PendingExport`. */}
+      <div className="flex flex-wrap items-end justify-between gap-3 empty:hidden">
+        {clips.length > 0 && (
+          <FilterBar clips={clips} filter={filter} onFilter={setFilter} restricted={visible.length !== clips.length} />
+        )}
+        <PendingExport pending={pending} />
+      </div>
+
+      {clips.length === 0 && (
+        <div className="rounded-xl border border-dashed px-6 py-14 text-center">
+          <p className="text-sm font-medium">Aucun clip à programmer.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {pending.length === 0
+              ? 'Exportez un clip depuis son émission pour qu’il rejoigne le vivier.'
+              : 'Des clips gardés n’ont pas de vidéo à jour. Les exporter les fera entrer ici.'}
+          </p>
+        </div>
+      )}
 
       {hiddenSelectedCount > 0 && (
         <p className="text-sm text-muted-foreground">
@@ -98,14 +111,16 @@ export function PoolGrid({
         </p>
       )}
 
-      {visible.length === 0 ? (
+      {clips.length > 0 && visible.length === 0 && (
         <div className="rounded-xl border border-dashed px-6 py-14 text-center">
           <p className="text-sm font-medium">Aucun clip ne correspond au filtre.</p>
           <Button variant="outline" size="sm" className="mt-3" onClick={() => setFilter(POOL_FILTER_NONE)}>
             Tout afficher
           </Button>
         </div>
-      ) : (
+      )}
+
+      {visible.length > 0 && (
         <div
           ref={grid}
           className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7"

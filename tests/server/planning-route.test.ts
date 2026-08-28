@@ -156,6 +156,53 @@ describe('GET /api/planning/pool', () => {
     expect(payload.clips.map((c) => c.clipId)).toEqual([])
   })
 
+  it('rend en `pending` un clip gardé et un clip exporté périmé, avec leur raison', async () => {
+    putClip(getDb(), baseClip('jamais-monté', { status: 'kept' }))
+    putClip(getDb(), baseClip('périmé'))
+    putClip(getDb(), baseClip('à-jour'))
+    fresh.add('à-jour')
+
+    const response = await poolRoute()
+    const payload = (await response.json()) as {
+      clips: { clipId: string }[]
+      pending: { clipId: string; title: string; reason: string }[]
+    }
+    expect(payload.clips.map((c) => c.clipId)).toEqual(['à-jour'])
+    expect(payload.pending).toEqual([
+      { clipId: 'jamais-monté', projectId: PROJECT_ID, title: 'Titre jamais-monté', reason: 'unedited' },
+      { clipId: 'périmé', projectId: PROJECT_ID, title: 'Titre périmé', reason: 'stale' },
+    ])
+  })
+
+  // Le bouton d'export du vivier ne propose que ce qui pourra ensuite y entrer.
+  // Un clip qu'aucune de ces deux règles n'écarterait serait rendu, puis
+  // resterait invisible — ce qui se lit comme une panne, pas comme une règle.
+  it('exclut de `pending` un clip déjà programmé et un clip aux plateformes épuisées', async () => {
+    putClip(getDb(), baseClip('programmé', { status: 'kept' }))
+    schedulePublications(getDb(), ['programmé'], 5000, 1000)
+
+    putClip(getDb(), baseClip('épuisé-périmé'))
+    for (const platform of ['instagram', 'facebook', 'tiktok', 'youtube'] as const) {
+      upsertPublication(getDb(), {
+        clipId: 'épuisé-périmé',
+        platform,
+        status: 'published',
+        remoteId: 'p1',
+        remoteUrl: 'https://example.test/p1',
+        requestId: null,
+        error: null,
+        publishedFingerprint: null,
+        createdAt: 1000,
+        updatedAt: 1000,
+        scheduledAt: null,
+      })
+    }
+
+    const response = await poolRoute()
+    const payload = (await response.json()) as { pending: { clipId: string }[] }
+    expect(payload.pending).toEqual([])
+  })
+
   it('rend la description, les sorties et les statuts du clip', async () => {
     putClip(getDb(), baseClip('complet', { description: 'Une scène.' }))
     fresh.add('complet')

@@ -164,6 +164,36 @@ export function CropOverlay({
     e.preventDefault()
   }
 
+  if (dubbing && shot?.dubbing) {
+    // Trois pavés inégaux, jamais un slider : même raisonnement que le split
+    // ci-dessous, dans les mêmes fractions que `splitCellRect` les rend.
+    const { film, pip, strip } = shot.dubbing
+    return (
+      <div
+        ref={frame}
+        role="group"
+        tabIndex={reason !== null ? 0 : -1}
+        aria-label="Cadre de ce plan, en composition de doublage improvisé"
+        aria-describedby={reason !== null ? describedBy : undefined}
+        className="pointer-events-none absolute inset-0 outline-none focus-visible:ring-2 focus-visible:ring-stage focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+      >
+        {[film, pip, strip].map((cell, i) => (
+          <div
+            key={i}
+            aria-hidden
+            className="absolute border-2 border-stage/90 shadow-[0_0_0_1px_rgba(0,0,0,0.45)]"
+            style={{
+              left: `${cell.x0 * 100}%`,
+              top: `${cell.y0 * 100}%`,
+              width: `${(cell.x1 - cell.x0) * 100}%`,
+              height: `${(cell.y1 - cell.y0) * 100}%`,
+            }}
+          />
+        ))}
+      </div>
+    )
+  }
+
   if (split && shot?.split) {
     // Pas de crop unique à situer : deux rectangles, un par cellule, dans les
     // coordonnées de la source (mêmes fractions que `splitCellRect`). Un
@@ -373,10 +403,12 @@ export function RatioPicker({
           plan qu'on regarde*, et qu'un ratio épinglé vaut pour tous. */}
       <p className="font-mono text-[0.75rem] text-muted-foreground">
         {ratio === 'auto'
-          ? `auto → ${split ? 'split' : effective}`
+          ? `auto → ${split ? 'split' : dubbing ? 'doublage' : effective}`
           : split
             ? 'split · sur ce plan'
-            : `${effective} · épinglé partout`}
+            : dubbing
+              ? 'doublage · sur ce plan'
+              : `${effective} · épinglé partout`}
         {' · natif '}
         {nativeRatio}
       </p>

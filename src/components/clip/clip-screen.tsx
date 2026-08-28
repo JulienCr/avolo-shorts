@@ -25,6 +25,7 @@ import {
   isComputedFraming,
   effectiveRatio,
   activeSplit,
+  activeDubbing,
   useCurrentShot,
 } from '@/components/clip/framing'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
@@ -834,11 +835,13 @@ function ShotFrameLine({
   const position = isComputedFraming(framing) ? (shot?.cropX ?? 0.5) : cropX
   const percent = Math.round(clampCropX(position, cropWidthFraction(effective)) * 100)
   // Un plan splitté n'a pas de position de crop unique : le pourcentage ne
-  // décrirait rien (spec du 25 août, addendum #178).
+  // décrirait rien (spec du 25 août, addendum #178). Un plan de doublage non
+  // plus — c'est la composition qui pose les pavés, pas un crop.
   const split = activeSplit(shot, framing, ratio)
+  const dubbing = activeDubbing(shot, framing, ratio)
   return (
     <dd className="font-mono tabular-nums">
-      {split ? 'split' : `${effective} · ${percent} %`}
+      {split ? 'split' : dubbing ? 'doublage' : `${effective} · ${percent} %`}
       {shot?.source === 'default' && (
         <span className="ml-1 font-sans text-amber-500 dark:text-amber-400">
           rien mesuré sur ce plan

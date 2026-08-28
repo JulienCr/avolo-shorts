@@ -20,7 +20,9 @@ import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
 import { HOOK_DEFAULTS, type ResolvedHook } from '@/core/hook'
-import { RATIOS } from '@/core/framing'
+import { RATIOS, splitCellRect } from '@/core/framing'
+import { DUBBING_ANCHORS, dubbingCellsFor } from '@/core/dubbing'
+import { dubbingDiscMask, dubbingLayout } from '@/core/ffmpeg/args'
 import { framing, manualFraming, shot, splitCells } from '../../fixtures/framing'
 
 afterEach(() => {
@@ -45,6 +47,12 @@ function context() {
     fillRect: vi.fn(),
     clearRect: vi.fn(),
     fillStyle: '',
+    save: vi.fn(),
+    restore: vi.fn(),
+    beginPath: vi.fn(),
+    ellipse: vi.fn(),
+    clip: vi.fn(),
+    filter: '',
   }
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
     ctx as unknown as CanvasRenderingContext2D,
@@ -109,6 +117,74 @@ describe('paintOutput', () => {
     // La cellule de droite couvre la moitié droite de la source (960x540).
     expect([sx2, sy2, sw2, sh2]).toEqual([480, 0, 480, 540])
     expect([dx2, dy2, dw2, dh2]).toEqual([0, 100, 100, 100])
+  })
+
+  /**
+   * **Les cellules viennent de `dubbingCellsFor`, jamais d'un rectangle
+   * recopié à la main** — un fixture indépendant a déjà laissé passer la
+   * bande synchro rendue deux fois pour une ronde de revue entière.
+   */
+  it('peint la composition de doublage aux hauteurs que `dubbingLayout` annonce, sans double bande', () => {
+    const ctx = {
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      ellipse: vi.fn(),
+      clip: vi.fn(),
+      filter: '',
+    }
+    const v = video(1920, 1080)
+    const cells = dubbingCellsFor(DUBBING_ANCHORS[0], DUBBING_ANCHORS[0].pip.y0)
+    const width = 200
+    const hauteur = 300
+    const filmR = splitCellRect(cells.film, 1920, 1080)
+    const pipR = splitCellRect(cells.pip, 1920, 1080)
+    const stripR = splitCellRect(cells.strip, 1920, 1080)
+    const { filmH, pipH, stripH, top } = dubbingLayout(
+      { film: filmR, pip: pipR, strip: stripR },
+      width,
+      hauteur,
+    )
+
+    paintOutput(ctx as unknown as CanvasRenderingContext2D, v, {
+      ratio: '9:16',
+      cropX: 0.5,
+      width,
+      hauteur,
+      dubbing: cells,
+    })
+
+    // Fond flouté, puis les trois pavés : jamais un cinquième appel qui
+    // rendrait la bande une deuxième fois.
+    expect(ctx.drawImage).toHaveBeenCalledTimes(4)
+    const [, , , , , filmDx, filmDy, filmDw, filmDh] = ctx.drawImage.mock.calls[1]
+    expect([filmDx, filmDy, filmDw, filmDh]).toEqual([0, top, width, filmH])
+    const [, , , , , pipDx, pipDy, pipDw, pipDh] = ctx.drawImage.mock.calls[2]
+    expect([pipDx, pipDy, pipDw, pipDh]).toEqual([0, top + filmH, width, pipH])
+    const [, , , , , stripDx, stripDy, stripDw, stripDh] = ctx.drawImage.mock.calls[3]
+    expect([stripDx, stripDy, stripDw, stripDh]).toEqual([0, top + filmH + pipH, width, stripH])
+
+    // Le pavé film ne recoupe jamais la bande synchro dans la source :
+    // c'est exactement la régression du double rendu.
+    expect(filmR.y + filmR.h).toBeLessThanOrEqual(stripR.y)
+
+    // Le masque coupe les coins : un arc, jamais le rectangle du pavé. Le coin
+    // haut-gauche du pavé dessiné (0, top + filmH) doit tomber hors de
+    // l'ellipse — sinon le masque couvrirait tout le rectangle, sans rogner
+    // aucun coin.
+    const mask = dubbingDiscMask(pipR, width, 1920, 1080)
+    expect(ctx.ellipse).toHaveBeenCalledWith(
+      mask.cx,
+      top + filmH + mask.cy,
+      mask.rx,
+      mask.ry,
+      0,
+      0,
+      Math.PI * 2,
+    )
+    const cornerValue = mask.cx ** 2 / mask.rx ** 2 + mask.cy ** 2 / mask.ry ** 2
+    expect(cornerValue).toBeGreaterThan(1)
   })
 
   it('ne peint rien tant que la vidéo n’a pas de dimensions', () => {
@@ -239,6 +315,46 @@ describe('PreviewOutput', () => {
     expect(container.textContent).toContain('split')
     expect(container.textContent).toContain('100')
     expect(ctx.drawImage).toHaveBeenCalledTimes(2)
+  })
+
+  /**
+   * Le doublage (amendement 3 du contrat, PR3) n'existe lui aussi que sur la variante
+   * 9:16 : la légende doit le dire, et le canevas occupe 100 % de la hauteur
+   * du téléphone — la composition remplit tout le canevas, sans fond floué
+   * en plus de celui qu'elle porte déjà.
+   */
+  it('montre « doublage » et 100 % sur un plan de doublage', () => {
+    const ctx = context()
+    const cells = dubbingCellsFor(DUBBING_ANCHORS[0], DUBBING_ANCHORS[0].pip.y0)
+    const two = framing({
+      ratio: '16:9',
+      shots: [shot(0, 100, '16:9', 0.5, 'auto', undefined, cells)],
+    })
+    const { container } = render(
+      <PreviewOutput video={video(1920, 1080)} framing={two} ratio="auto" cropX={0.5} />,
+    )
+    expect(container.textContent).toContain('doublage')
+    expect(container.textContent).toContain('100')
+    expect(ctx.drawImage).toHaveBeenCalledTimes(4)
+  })
+
+  /**
+   * Régression Copilot (contrat) : épingler `9:16` supprime la variante que
+   * `render.ts` compose, comme il le fait déjà pour le split — le doublage ne
+   * doit pas rester peint sur le natif déjà vertical.
+   */
+  it('cesse de peindre le doublage quand le ratio épinglé supprime la variante', () => {
+    const ctx = context()
+    const cells = dubbingCellsFor(DUBBING_ANCHORS[0], DUBBING_ANCHORS[0].pip.y0)
+    const two = framing({
+      ratio: '16:9',
+      shots: [shot(0, 100, '16:9', 0.5, 'auto', undefined, cells)],
+    })
+    const { container } = render(
+      <PreviewOutput video={video(1920, 1080)} framing={two} ratio="9:16" cropX={0.5} />,
+    )
+    expect(container.textContent).not.toContain('doublage')
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1)
   })
 
   /**

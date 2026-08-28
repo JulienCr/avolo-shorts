@@ -362,4 +362,45 @@ describe('CropOverlay', () => {
     expect(screen.getByRole('slider')).toBeTruthy()
   })
 
+  it('rend les trois pavés plutôt qu’un slider, sur un plan de doublage', () => {
+    // Pas de crop unique à situer, comme pour le split : un `slider` mentirait
+    // sur les trois pavés (`aria-valuenow` d'une position qui n'existe pas).
+    render(
+      <CropOverlay
+        framing={framing({
+          origin: 'no-analysis',
+          shots: [shot(0, 100, '16:9', 0.5, 'manual', undefined, dubbingCells())],
+        })}
+        ratio="16:9"
+        cropX={0.5}
+        onCropX={vi.fn()}
+        describedBy="raison-cadrage"
+      />,
+    )
+    expect(screen.queryByRole('slider')).toBeNull()
+    const group = screen.getByRole('group')
+    expect(group.getAttribute('aria-label')).toContain('doublage')
+    expect(group.getAttribute('aria-describedby')).toBe('raison-cadrage')
+    expect(group.querySelectorAll('[aria-hidden="true"]')).toHaveLength(3)
+  })
+
+  it('ne rend pas les pavés quand le ratio épinglé supprime le doublage', () => {
+    // Épingler 9:16 supprime la variante et le doublage avec elle, même
+    // raisonnement qu'`activeSplit` (régression Copilot citée dans le contrat).
+    render(
+      <CropOverlay
+        framing={framing({
+          origin: 'no-analysis',
+          shots: [shot(0, 100, '16:9', 0.5, 'manual', undefined, dubbingCells())],
+        })}
+        ratio="9:16"
+        cropX={0.5}
+        onCropX={vi.fn()}
+        describedBy="raison-cadrage"
+      />,
+    )
+    expect(screen.queryByRole('group')).toBeNull()
+    expect(screen.getByRole('slider')).toBeTruthy()
+  })
+
 })

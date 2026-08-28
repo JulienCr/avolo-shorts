@@ -1,6 +1,6 @@
 ---
 name: cadrage
-description: Le comportement du cadrage automatique d'avolo-shorts — le choix du ratio, du crop et du **split-screen**, ce qui a déjà été essayé et écarté, les pièges qui ne se voient pas, et comment mesurer un changement. À lire avant de toucher à `src/core/framing.ts`, `worker/detect.py`, `src/core/ffmpeg/args.ts`, `scripts/framing/**` ou `analysis.json`, et avant de régler quoi que ce soit dans `FRAMING_DEFAULTS`. À lire aussi quand quelqu'un dit qu'un clip sort « trop large », qu'un ratio est « mauvais », que le cadre « coupe quelqu'un », que le **split** est mauvais ou « coupe une tête », qu'il faudrait « baisser le seuil » ou « détecter autre chose » — chacune de ces phrases a déjà été instruite, et la réponse évidente a déjà été mesurée puis écartée au moins une fois. Et pour tout ce qui **mesure** le cadrage : produire une **planche** de comparaison, faire trancher un cadrage à l'œil, lire ou étiqueter les **cas de contrôle** (`scripts/framing/cases.ts`), chercher des cas difficiles dans le corpus, ou lancer `framing-board`, `framing-cases`, `framing-sieve`, `measure-ratios`, `framing-thumbnails`, `framing-preview`.
+description: Le comportement du cadrage automatique d'avolo-shorts — le choix du ratio, du crop, du **split-screen** et de la **composition du doublage improvisé**, ce qui a déjà été essayé et écarté, les pièges qui ne se voient pas, et comment mesurer un changement. À lire avant de toucher à `src/core/framing.ts`, `src/core/dubbing.ts`, `worker/detect.py`, `src/core/ffmpeg/args.ts`, `scripts/framing/**` ou `analysis.json`, et avant de régler quoi que ce soit dans `FRAMING_DEFAULTS`. À lire aussi quand quelqu'un dit qu'un clip sort « trop large », qu'un ratio est « mauvais », que le cadre « coupe quelqu'un », que le **split** est mauvais ou « coupe une tête », que l'export « ne bascule pas en mode doublage », que la **bande synchro** apparaît deux fois ou que le **cercle des comédiens** est mal cadré, qu'il faudrait « baisser le seuil » ou « détecter autre chose » — chacune de ces phrases a déjà été instruite, et la réponse évidente a déjà été mesurée puis écartée au moins une fois. Et pour tout ce qui **mesure** le cadrage : produire une **planche** de comparaison, faire trancher un cadrage à l'œil, lire ou étiqueter les **cas de contrôle** (`scripts/framing/cases.ts`), chercher des cas difficiles dans le corpus, ou lancer `framing-board`, `framing-cases`, `framing-sieve`, `measure-ratios`, `framing-thumbnails`, `framing-preview`.
 ---
 
 # Le cadrage
@@ -35,6 +35,56 @@ version 1, modèle de détection au lieu de pose, personne de dos.
 Tout se règle par `FramingOptions`, dont les défauts sont dans `FRAMING_DEFAULTS`.
 Chaque valeur y est mesurée ; aucune n'est un choix de goût.
 
+## Le doublage improvisé : un type de contenu, pas un plan
+
+L'émission diffuse une séquence où un film occupe l'écran, un **disque fixe en
+haut à droite** montre les deux comédiens qui le doublent, et une bande rythmo
+défile en bas. C'est une composition OBS, donc rien de ce que le cadrage sait
+faire ne s'y applique : il n'y a pas de corps à cadrer, il y a un habillage à
+recomposer. `src/core/dubbing.ts` le détecte, `computeFraming` pose
+`ShotFraming.dubbing`, et `args.ts` en fait une quatrième branche de graphe sur
+la seule sortie 9:16 — le natif l'ignore, comme il ignore `split`.
+
+**La détection est au niveau de la séquence, jamais du plan.** Le film coupe sans
+arrêt à l'intérieur d'une séquence : une règle par plan y laisse des trous. Elle
+vote sur les boîtes déjà écrites dans `analysis.json` — aucun champ neuf, aucune
+version 3, aucune ré-analyse GPU — et donne zéro faux positif sur les cinq
+projets du corpus.
+
+**Ce qui a été essayé et écarté**, chacun sur image :
+
+- **Recadrer le film pour retirer le disque incrusté.** Techniquement séduisant,
+  puisque ça supprime le doublon visuel — refusé par le propriétaire du dépôt,
+  qui veut le disque conservé dans le film.
+- **Ne pas reprendre le disque du tout.** Laisse 68 % du canevas en fond flouté.
+- **Un bandeau fixe sur les visages.** Coupe une tête sur `caro-mdlm`, parce que
+  le cadrage *à l'intérieur du disque* n'est pas constant d'une émission à
+  l'autre. La position se mesure donc sur les points de pose — le regard le plus
+  haut au tiers supérieur, médiane sur la séquence — comme les cellules du split.
+- **Un bandeau inscrit dans le disque.** C'est le piège de la famille : le monter
+  raccourcit la corde, donc le rectangle se dimensionne sur sa rangée la plus
+  étroite et ampute le comédien qui se tient là où le cercle est large. Le
+  corriger a sauvé une tête et détruit l'autre. La sortie n'est pas un meilleur
+  compromis, c'est de **masquer au lieu d'inscrire** : le pavé prend toute la
+  largeur du disque et l'arc rogne ses coins. Ce que l'arc retire était déjà hors
+  du disque à la diffusion, et le couplage largeur/hauteur disparaît au lieu
+  d'être arbitré.
+- **Une sonde de pixels dans le worker.** Inutile : le signal des boîtes suffit.
+
+**Trois pièges propres à cette composition, tous payés :**
+
+1. **Le disque est un cercle en pixels et une ellipse en fractions** — la source
+   est en 16:9, donc `rx ≈ 0,108` de largeur contre `ry ≈ 0,192` de hauteur. Une
+   formule à rayon unique laisse les coins du pavé sortir du cercle.
+2. **Le pavé film doit s'arrêter au sommet de la bande**, sinon la bande synchro
+   est rendue **deux fois** — une fois dans le film, une fois comme pavé. Et le
+   test de filtergraph écrit sur des rectangles saisis à la main ne l'attrape
+   pas : il verrouille des nombres que la production ne produit jamais. Un test
+   de composition se **dérive de `dubbingCellsFor`**, jamais de constantes.
+3. **Le masque doit se dériver des dimensions sondées**, pas d'un 1080p figé :
+   `render.ts` convertit les cellules à la taille réelle de la source.
+
+
 ## Les décisions qu'on défait par réflexe
 
 | Décision | Le réflexe qu'elle remplace |
@@ -46,6 +96,7 @@ Chaque valeur y est mesurée ; aucune n'est un choix de goût.
 | Les deux sorties sont **indépendantes** | dériver la verticale du natif |
 | Le fond flouté se tire d'**avant** toute incrustation | flouter le rendu fini |
 | Une mesure se vérifie **à l'image** | se fier à la distribution |
+| Le pavé comédiens d'un doublage prend **toute la largeur du disque**, l'arc masque | inscrire un rectangle dedans |
 
 Les quatre dernières ont chacune coûté un défaut réel. Incruster avant la mise à
 l'échelle réduit le texte à 31,6 % de sa taille sur un plan 16:9 posé dans un
@@ -214,6 +265,12 @@ changement de détection est **le nombre de sauts de cadre effectifs**, pas le
 nombre de frontières ni le nombre de bascules détectées. Voir
 `docs/ratios-par-clip.md` pour la distinction chiffrée sur les quatre
 émissions.
+
+**Un critère précis protège de ce qu'il nomme et rend aveugle au reste.** Écrit
+pour la composition du doublage, « les deux têtes entièrement dans le pavé,
+mesurées en pixels » a été vérifié, il passait — et la bande synchro rendue deux
+fois était visible sur l'image même qu'on regardait. Sur une composition, compter
+aussi ce qui **ne doit apparaître qu'une fois**.
 
 **Et vérifie à l'image.** Ce n'est pas une précaution de style : sur ce sujet, une
 lecture d'image a renversé une conclusion chiffrée à répétition. `CLAUDE.md` en

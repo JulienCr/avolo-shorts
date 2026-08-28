@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ClipScreen } from '@/components/clip/clip-screen'
 import { framing, shot, splitCells } from '../../fixtures/framing'
+import { DUBBING_ANCHORS, dubbingCellsFor } from '@/core/dubbing'
 import { defaultPlatformAvailability } from '@/core/publication'
 import type { CandidateClip, ClipDetail } from '@/lib/api'
 import { useEditor } from '@/store/editor'
@@ -200,6 +201,18 @@ describe('le cadre du plan sous la lecture, splitté', () => {
     await mount('c2', d)
     const label = await screen.findByText('Cadre (9:16)')
     expect(label.nextElementSibling?.textContent).toContain('split')
+  })
+})
+
+describe('le cadre du plan sous la lecture, en doublage', () => {
+  it('dit « doublage » plutôt qu’un ratio et un pourcentage que la composition ne suit pas', async () => {
+    const d = detail()
+    const cells = dubbingCellsFor(DUBBING_ANCHORS[0], DUBBING_ANCHORS[0].pip.y0)
+    d.framing = framing({ shots: [shot(0, 200, '4:5', 0.5, 'auto', undefined, cells)] })
+    await mount('c2', d)
+    const label = await screen.findByText('Cadre (9:16)')
+    expect(label.nextElementSibling?.textContent).toContain('doublage')
+    expect(label.nextElementSibling?.textContent).not.toContain('4:5')
   })
 })
 

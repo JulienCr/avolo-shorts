@@ -320,6 +320,9 @@ function acceleration(encoder: EncoderName): string[] {
 /** Un rectangle à découper dans l'image source, tel que `cropRect` le rend. */
 export type Rectangle = { w: number; h: number; x: number; y: number }
 
+/** Les trois pavés d'une composition de doublage, en pixels de la source. */
+export type DubbingPanes = { film: Rectangle; pip: Rectangle; strip: Rectangle }
+
 /**
  * Un morceau à décoder, **avec le cadre qui lui appartient**.
  *
@@ -359,7 +362,7 @@ export type FramedSegment = Segment & {
    * une. Comme `split`, `render.ts` ne les construit que pour la variante
    * 9:16 : un segment natif n'en porte jamais.
    */
-  dubbing?: { film: Rectangle; pip: Rectangle; strip: Rectangle }
+  dubbing?: DubbingPanes
 }
 
 export type RenderOptions = {
@@ -472,31 +475,64 @@ const BACKGROUND_SIGMA = 12
 const DUBBING_DISC_ELLIPSE_PX = { cx: 1691.52, cy: 233.82, rx: 206.976, ry: 207.036 } as const
 
 /**
- * L'expression alpha du masque du disque, transposée dans le repère du pavé
- * comédiens à l'échelle où il est porté à la largeur du canevas — l'arc
- * rogne les coins, jamais un rectangle inscrit dans une corde.
+ * Le disque, transposé dans le repère du pavé comédiens à l'échelle où il est
+ * porté à `canvasWidth` — l'arc rogne les coins, jamais un rectangle inscrit.
+ * Exporté : `output-preview.tsx` en a besoin pour peindre le même masque.
  *
- * `DUBBING_DISC_ELLIPSE_PX` est mesuré en pixels source 1920x1080 ; `sourceW`/
- * `sourceH` remettent l'ellipse à l'échelle de la vraie source avant de la
- * transposer, sinon une source 4K sort le masque hors du pavé (relevé par
- * Copilot et Codex).
+ * @param sourceW largeur réelle de la source ; l'ellipse, mesurée en
+ *   1920x1080, s'y remet à l'échelle (sinon une source 4K la sort du pavé).
+ * @param sourceH hauteur réelle de la source, même raison.
  */
-function discAlphaExpr(pip: Rectangle, canvasWidth: number, sourceW: number, sourceH: number): string {
+export function dubbingDiscMask(
+  pip: Rectangle,
+  canvasWidth: number,
+  sourceW: number,
+  sourceH: number,
+): { cx: number; cy: number; rx: number; ry: number } {
   const scale = canvasWidth / pip.w
   const scaleX = sourceW / 1920
   const scaleY = sourceH / 1080
   const { cx, cy, rx, ry } = DUBBING_DISC_ELLIPSE_PX
+  return {
+    cx: (cx * scaleX - pip.x) * scale,
+    cy: (cy * scaleY - pip.y) * scale,
+    rx: rx * scaleX * scale,
+    ry: ry * scaleY * scale,
+  }
+}
+
+/** L'expression alpha `geq=` du masque du disque, voir `dubbingDiscMask`. */
+function discAlphaExpr(pip: Rectangle, canvasWidth: number, sourceW: number, sourceH: number): string {
+  const { cx, cy, rx, ry } = dubbingDiscMask(pip, canvasWidth, sourceW, sourceH)
   const fmt = (n: number): string => n.toFixed(3)
-  const x = fmt((cx * scaleX - pip.x) * scale)
-  const y = fmt((cy * scaleY - pip.y) * scale)
-  const a = fmt(rx * scaleX * scale)
-  const b = fmt(ry * scaleY * scale)
+  const x = fmt(cx)
+  const y = fmt(cy)
+  const a = fmt(rx)
+  const b = fmt(ry)
   return `if(lte((X-${x})*(X-${x})/(${a}*${a})+(Y-${y})*(Y-${y})/(${b}*${b}),1),255,0)`
 }
 
 /** La hauteur d'un pavé porté à la largeur du canevas, aspect conservé. */
 function paneHeight(rect: Rectangle, canvasWidth: number): number {
   return Math.floor((rect.h / rect.w) * canvasWidth)
+}
+
+/**
+ * L'empilement des trois pavés du doublage sur le canevas : leurs hauteurs et
+ * le décalage qui centre le bloc verticalement. Exporté pour que
+ * `output-preview.tsx` peigne le même geste que `buildRender`, plutôt que de
+ * le recalculer à côté.
+ */
+export function dubbingLayout(
+  panes: DubbingPanes,
+  canvasW: number,
+  canvasH: number,
+): { filmH: number; pipH: number; stripH: number; top: number } {
+  const filmH = paneHeight(panes.film, canvasW)
+  const pipH = paneHeight(panes.pip, canvasW)
+  const stripH = paneHeight(panes.strip, canvasW)
+  const top = Math.round((canvasH - (filmH + pipH + stripH)) / 2)
+  return { filmH, pipH, stripH, top }
 }
 
 /**
@@ -805,10 +841,7 @@ function buildRender(
         `${number(r.x, `segments[${i}].dubbing.${name}.x`)}:` +
         `${number(r.y, `segments[${i}].dubbing.${name}.y`)}`
 
-      const filmH = paneHeight(film, canvas.w)
-      const pipH = paneHeight(pip, canvas.w)
-      const stripH = paneHeight(strip, canvas.w)
-      const top = Math.round((canvas.h - (filmH + pipH + stripH)) / 2)
+      const { filmH, pipH, stripH, top } = dubbingLayout(s.dubbing, canvas.w, canvas.h)
 
       graph.push(`[${i}:v]${fps},split=4[dbg${i}][dfilm${i}][dpip${i}][dstrip${i}]`)
       graph.push(

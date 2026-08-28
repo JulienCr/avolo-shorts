@@ -7,14 +7,17 @@ import {
   effectiveRatio,
   useCurrentShot,
   activeSplit,
+  activeDubbing,
 } from '@/components/clip/framing'
 import { HookOverlay } from '@/components/clip/hook-overlay'
 import { CaptionOverlay, useCaptionClock } from '@/components/captions/caption-overlay'
 import type { CaptionStyle } from '@/core/captions/ass'
 import { elapsedInClip } from '@/core/captions/retime'
+import type { DubbingCells } from '@/core/dubbing'
 import type { Word } from '@/core/transcript'
 import type { Ratio, Segment } from '@/core/edl'
 import { RATIOS, cropRect, outputSize, splitCellRect, type Cell } from '@/core/framing'
+import { dubbingDiscMask, dubbingLayout } from '@/core/ffmpeg/args'
 import type { ResolvedHook } from '@/core/hook'
 import type { PublishedFraming } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -75,7 +78,15 @@ export function paintOutput(
     width,
     hauteur,
     split,
-  }: { ratio: Ratio; cropX: number; width: number; hauteur: number; split?: [Cell, Cell] },
+    dubbing,
+  }: {
+    ratio: Ratio
+    cropX: number
+    width: number
+    hauteur: number
+    split?: [Cell, Cell]
+    dubbing?: DubbingCells
+  },
 ): void {
   const { videoWidth, videoHeight } = video
   // Le proxy se charge en requêtes partielles : le premier rendu tombe avant les
@@ -91,8 +102,60 @@ export function paintOutput(
     return
   }
 
+  if (dubbing !== undefined) {
+    paintDubbing(ctx, video, dubbing, width, hauteur)
+    return
+  }
+
   const frame = cropRect(ratio, cropX, videoWidth, videoHeight)
   ctx.drawImage(video, frame.x, frame.y, frame.w, frame.h, 0, 0, width, hauteur)
+}
+
+/**
+ * Peint la composition de doublage : film, comédiens masqués par le disque,
+ * bande synchro, empilés sur un fond flouté — même geste et même échelle que
+ * `buildRender` (`args.ts`), avec `dubbingDiscMask` en commun pour l'ellipse.
+ */
+function paintDubbing(
+  ctx: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  { film, pip, strip }: DubbingCells,
+  width: number,
+  hauteur: number,
+): void {
+  const { videoWidth, videoHeight } = video
+  const filmR = splitCellRect(film, videoWidth, videoHeight)
+  const pipR = splitCellRect(pip, videoWidth, videoHeight)
+  const stripR = splitCellRect(strip, videoWidth, videoHeight)
+
+  const { filmH, pipH, stripH, top } = dubbingLayout(
+    { film: filmR, pip: pipR, strip: stripR },
+    width,
+    hauteur,
+  )
+
+  ctx.save()
+  // `blur(6px)` en CSS vaut sigma 3 (sigma = rayon / 2). Le canevas est au
+  // quart du rendu (`PETIT_SIDE` 270 contre 1080), donc 3 x 4 = 12 =
+  // `BACKGROUND_SIGMA` : même flou que le graphe, pas une valeur à corriger.
+  ctx.filter = 'blur(6px)'
+  const bgScale = Math.max(width / videoWidth, hauteur / videoHeight)
+  const bgW = videoWidth * bgScale
+  const bgH = videoHeight * bgScale
+  ctx.drawImage(video, 0, 0, videoWidth, videoHeight, (width - bgW) / 2, (hauteur - bgH) / 2, bgW, bgH)
+  ctx.restore()
+
+  ctx.drawImage(video, filmR.x, filmR.y, filmR.w, filmR.h, 0, top, width, filmH)
+
+  const mask = dubbingDiscMask(pipR, width, videoWidth, videoHeight)
+  ctx.save()
+  ctx.beginPath()
+  ctx.ellipse(mask.cx, top + filmH + mask.cy, mask.rx, mask.ry, 0, 0, Math.PI * 2)
+  ctx.clip()
+  ctx.drawImage(video, pipR.x, pipR.y, pipR.w, pipR.h, 0, top + filmH, width, pipH)
+  ctx.restore()
+
+  ctx.drawImage(video, stripR.x, stripR.y, stripR.w, stripR.h, 0, top + filmH + pipH, width, stripH)
 }
 
 /** La taille du canevas, dans le rapport du rendu et au quart de sa définition. */
@@ -186,8 +249,11 @@ export function PreviewOutput({
   // cellules remplissent tout le canevas, `effective`/`position` n'y servent
   // plus. Le natif, lui, garde `ratio`/`cropXNative` sans jamais lire `split`.
   const split = activeSplit(shot, framing, ratio) ? shot?.split : undefined
-  const { width, hauteur } = canvasSize(split !== undefined ? '9:16' : effective)
-  const part = split !== undefined ? 1 : lScreenPart(effective)
+  // Le doublage (amendement 3 du contrat, PR3) n'existe que sur la variante 9:16, comme le
+  // split : `activeDubbing` porte déjà la même condition sur le ratio épinglé.
+  const dubbing = activeDubbing(shot, framing, ratio) ? shot?.dubbing : undefined
+  const { width, hauteur } = canvasSize(split !== undefined || dubbing !== undefined ? '9:16' : effective)
+  const part = split !== undefined || dubbing !== undefined ? 1 : lScreenPart(effective)
   /**
    * Le canevas vertical **n'est pas toujours la variante**.
    *
@@ -206,8 +272,8 @@ export function PreviewOutput({
     if (target === null || video === null) return
     const ctx = target.getContext('2d')
     if (ctx === null) return
-    paintOutput(ctx, video, { ratio: effective, cropX: position, width, hauteur, split })
-  }, [video, effective, position, width, hauteur, split])
+    paintOutput(ctx, video, { ratio: effective, cropX: position, width, hauteur, split, dubbing })
+  }, [video, effective, position, width, hauteur, split, dubbing])
 
   // **Le premier des deux déclencheurs, et le plus important.** Tout changement
   // de crop ou de ratio repeint sur l'image courante : le geste réel est « on
@@ -287,7 +353,9 @@ export function PreviewOutput({
       <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
         {isVariant ? 'variante 9:16' : 'fichier natif 9:16'} ·{' '}
         <span className="font-mono tabular-nums">{Math.round(part * 100)} %</span> · cadre{' '}
-        <span className="font-mono">{split !== undefined ? 'split' : effective}</span>
+        <span className="font-mono">
+          {split !== undefined ? 'split' : dubbing !== undefined ? 'doublage' : effective}
+        </span>
       </figcaption>
 
       {/* Le cadre du téléphone. C'est lui qui donne l'échelle : le canvas y

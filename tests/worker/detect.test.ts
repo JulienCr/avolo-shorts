@@ -296,12 +296,15 @@ describe('detect.py — le refus, étendu à --min-shot et aux bascules de compo
         `    switch_tolerance=${name === 'switch_tolerance' ? expression : '0.03'},`,
         `    switch_share=${name === 'switch_share' ? expression : '6'},`,
         `    switch_point_score=${name === 'switch_point_score' ? expression : '0.5'},`,
+        `    rupture_threshold=${name === 'rupture_threshold' ? expression : '0.35'},`,
+        `    rupture_min_score=${name === 'rupture_min_score' ? expression : '0.12'},`,
+        `    rupture_box_score=${name === 'rupture_box_score' ? expression : '0.6'},`,
         ')',
         'print(json.dumps(result))',
       ].join('\n'),
     )
 
-  it('laisse passer les cinq valeurs valides, sans rien à leur reprocher', () => {
+  it('laisse passer les huit valeurs valides, sans rien à leur reprocher', () => {
     expect(extended('plan_min', '1.0')).toBeNull()
   })
 
@@ -352,6 +355,43 @@ describe('detect.py — le refus, étendu à --min-shot et aux bascules de compo
     expect(typeof extended('switch_point_score', '1.4')).toBe('string')
     expect(typeof extended('switch_point_score', "float('nan')")).toBe('string')
     expect(extended('switch_point_score', '1')).toBeNull()
+  })
+
+  /**
+   * **Borné en haut, là où `--switch-shift` ne l'est pas** — et le test qui
+   * l'accepte au-dessus de 1 vit quelques lignes plus haut, exprès. Les deux se
+   * servent de repoussoir : une rupture se mesure sur des coordonnées de boîte,
+   * que le schéma borne à [0, 1] ; un déplacement se mesure sur des ancrages de
+   * pose, qui sortent légitimement du cadre. Harmoniser les deux gardes casserait
+   * celui-ci ou l'autre.
+   */
+  it('refuse un --rupture-threshold hors de ]0, 1] ou non fini', () => {
+    expect(typeof extended('rupture_threshold', '0')).toBe('string')
+    expect(typeof extended('rupture_threshold', '-0.2')).toBe('string')
+    expect(typeof extended('rupture_threshold', '1.4')).toBe('string')
+    expect(typeof extended('rupture_threshold', "float('nan')")).toBe('string')
+    // 1 est le témoin négatif : aucune fraction ne l'atteint, le déclencheur
+    // se tait, et c'est une ligne de balayage légitime.
+    expect(extended('rupture_threshold', '1')).toBeNull()
+  })
+
+  it('accepte un --rupture-min-score nul, qui est le comportement d\'avant', () => {
+    // Zéro reproduit `refine_switch` sans plancher : la ligne témoin du
+    // balayage. Le refuser rendrait le balayage incapable d'exprimer sa base.
+    expect(extended('rupture_min_score', '0')).toBeNull()
+    expect(extended('rupture_min_score', '1')).toBeNull()
+    expect(typeof extended('rupture_min_score', '-0.1')).toBe('string')
+    expect(typeof extended('rupture_min_score', '1.2')).toBe('string')
+    expect(typeof extended('rupture_min_score', "float('inf')")).toBe('string')
+  })
+
+  it('refuse un --rupture-box-score hors de ]0, 1] ou non fini', () => {
+    // À zéro les boîtes fantômes entrent dans la médiane ; au-dessus de 1
+    // aucune image n'a de profil et le déclencheur se tait sans le dire.
+    expect(typeof extended('rupture_box_score', '0')).toBe('string')
+    expect(typeof extended('rupture_box_score', '1.5')).toBe('string')
+    expect(typeof extended('rupture_box_score', "float('nan')")).toBe('string')
+    expect(extended('rupture_box_score', '1')).toBeNull()
   })
 })
 
@@ -738,15 +778,180 @@ describe('detect.py — composition_switches', () => {
   })
 })
 
+describe('detect.py — composition_ruptures', () => {
+  type Box = { t: number; x0: number; x1: number; y0: number; y1: number; score: number }
+
+  const ruptures = (
+    boxes: Box[],
+    fps: number,
+    minBoxScore: number,
+    threshold: number,
+  ): [number, number][] =>
+    evaluate(
+      `print(json.dumps(detect.composition_ruptures(${JSON.stringify(boxes)}, ${fps}, ${minBoxScore}, ${threshold})))`,
+    ) as [number, number][]
+
+  const box = (t: number, x0: number, width: number, y0: number, score = 0.9): Box => ({
+    t,
+    x0,
+    x1: x0 + width,
+    y0,
+    y1: 0.99,
+    score,
+  })
+
+  it('déclare une rupture quand l\'échelle des corps change d\'un coup', () => {
+    // Un gros plan — une personne large — qui devient un plan large à trois
+    // corps étroits : la médiane des largeurs passe de 0,6 à 0,15.
+    const closeToWide = [
+      box(0.0, 0.2, 0.6, 0.1),
+      box(0.5, 0.1, 0.15, 0.1),
+      box(0.5, 0.4, 0.15, 0.1),
+      box(0.5, 0.7, 0.15, 0.1),
+    ]
+    expect(ruptures(closeToWide, 2.0, 0.5, 0.4)).toEqual([[0.0, 0.5]])
+  })
+
+  it('déclare une rupture quand seule l\'assise change, à largeurs égales', () => {
+    // Mêmes largeurs des deux côtés : c'est `y0` qui porte le signal, et une
+    // règle qui ne regarderait que l'échelle passerait à côté.
+    const sameWidthLower = [
+      box(0.0, 0.1, 0.2, 0.1),
+      box(0.0, 0.6, 0.2, 0.1),
+      box(0.5, 0.1, 0.2, 0.55),
+      box(0.5, 0.6, 0.2, 0.55),
+    ]
+    expect(ruptures(sameWidthLower, 2.0, 0.5, 0.4)).toEqual([[0.0, 0.5]])
+  })
+
+  it('ne compare jamais par-dessus un trou de détection', () => {
+    const withGap = [
+      box(0.0, 0.2, 0.6, 0.1),
+      box(1.0, 0.1, 0.15, 0.1),
+      box(1.0, 0.4, 0.15, 0.1),
+      box(1.0, 0.7, 0.15, 0.1),
+    ]
+    expect(ruptures(withGap, 2.0, 0.5, 0.4)).toEqual([])
+  })
+
+  it('refuse une variation réelle mais sous le seuil', () => {
+    // 0,6 -> 0,5 : une variation de 0,1667, loin des 0,4 demandés.
+    const mild = [box(0.0, 0.2, 0.6, 0.1), box(0.5, 0.2, 0.5, 0.1)]
+    expect(ruptures(mild, 2.0, 0.5, 0.4)).toEqual([])
+  })
+
+  it('tient les boîtes fantômes hors du profil, et ne bat donc pas avec elles', () => {
+    // Deux corps stables, plus deux boîtes fantômes minuscules et peu sûres
+    // que YOLO produit sur une seule image. Retenues, elles feraient tomber la
+    // médiane des largeurs de 0,5 à 0,26 — une fausse rupture de 0,48.
+    const withPhantoms = [
+      box(0.0, 0.1, 0.5, 0.1),
+      box(0.0, 0.4, 0.5, 0.1),
+      box(0.5, 0.1, 0.5, 0.1),
+      box(0.5, 0.4, 0.5, 0.1),
+      box(0.5, 0.7, 0.02, 0.1, 0.3),
+      box(0.5, 0.9, 0.02, 0.1, 0.3),
+    ]
+    expect(ruptures(withPhantoms, 2.0, 0.5, 0.4)).toEqual([])
+    // Le même jeu, filtre desserré : la fausse rupture apparaît. C'est bien le
+    // filtre de confiance qui la retenait, pas la robustesse de la médiane.
+    expect(ruptures(withPhantoms, 2.0, 0.2, 0.4)).toEqual([[0.0, 0.5]])
+  })
+
+  /**
+   * **Le test qui énonce la cécité que ce déclencheur referme.** Sur la même
+   * image, `composition_switches` ne rend rien : à effectif variable il n'y a
+   * pas de déplacement commun à mesurer, et sa condition « au moins deux
+   * personnes appariées » écarte la fenêtre. C'est le cas mesuré sur
+   * `2026-02-08-eve-matteo-pr`, où les sept coupes d'un clip changeaient
+   * l'effectif (2→1, 1→3, 4→1) et où le plan durait 325,8 s.
+   */
+  it('voit ce que composition_switches ne peut pas voir', () => {
+    const closeToWide = [
+      box(0.0, 0.2, 0.6, 0.1),
+      box(0.5, 0.1, 0.15, 0.1),
+      box(0.5, 0.4, 0.15, 0.1),
+      box(0.5, 0.7, 0.15, 0.1),
+    ]
+    const switches = evaluate(
+      `print(json.dumps(detect.composition_switches(${JSON.stringify(closeToWide)}, 2.0, 0.3, 0.03, 8, 0.08)))`,
+    )
+    expect(switches).toEqual([])
+    expect(ruptures(closeToWide, 2.0, 0.5, 0.4)).toEqual([[0.0, 0.5]])
+  })
+
+  it('tronque vers le bas avant de comparer, jamais n\'arrondit', () => {
+    // 0,39996 arrondirait à 0,4000 et passerait ; tronqué il vaut 0,3999 et
+    // ne passe pas. Même règle que le déplacement de composition_switches.
+    const justUnder = [box(0.0, 0.1, 0.2, 0.0), box(0.5, 0.1, 0.2, 0.39996)]
+    expect(ruptures(justUnder, 2.0, 0.5, 0.4)).toEqual([])
+    expect(ruptures(justUnder, 2.0, 0.5, 0.3999)).toEqual([[0.0, 0.5]])
+  })
+})
+
+describe('detect.py — _without', () => {
+  const without = (
+    candidates: [number, number][],
+    already: [number, number][],
+  ): [number, number][] =>
+    evaluate(
+      // Des tuples, comme les deux déclencheurs en produisent : `json.dumps`
+      // rend des listes, qu'un `set` refuse.
+      [
+        `candidates = [tuple(w) for w in ${JSON.stringify(candidates)}]`,
+        `already = [tuple(w) for w in ${JSON.stringify(already)}]`,
+        'print(json.dumps(detect._without(candidates, already)))',
+      ].join('\n'),
+    ) as [number, number][]
+
+  /**
+   * Les deux déclencheurs se recouvrent pour de bon — 24 fenêtres sur 57 sur
+   * `2026-02-08-eve-matteo-pr`, 17 sur 60 sur `2025-06-15-cqlp`. Sans ce
+   * retrait, une fenêtre commune serait raffinée deux fois et comptée deux fois
+   * dans le journal, dont le balayage lit les nombres.
+   */
+  it('retire les fenêtres que l\'autre déclencheur a déjà proposées', () => {
+    expect(
+      without(
+        [
+          [0.0, 0.5],
+          [1.0, 1.5],
+          [2.0, 2.5],
+        ],
+        [[1.0, 1.5]],
+      ),
+    ).toEqual([
+      [0.0, 0.5],
+      [2.0, 2.5],
+    ])
+  })
+
+  it('ne retire rien quand rien ne se recouvre, et garde l\'ordre', () => {
+    expect(
+      without(
+        [
+          [2.0, 2.5],
+          [0.0, 0.5],
+        ],
+        [[9.0, 9.5]],
+      ),
+    ).toEqual([
+      [2.0, 2.5],
+      [0.0, 0.5],
+    ])
+  })
+})
+
 describe('detect.py — refine_switch', () => {
   const refine = (
     t1: number,
     t2: number,
     events: [number, number][],
     fps: number,
+    minScore = 0.0,
   ): [number, boolean] =>
     evaluate(
-      `print(json.dumps(list(detect.refine_switch(${t1}, ${t2}, ${JSON.stringify(events)}, ${fps}))))`,
+      `print(json.dumps(list(detect.refine_switch(${t1}, ${t2}, ${JSON.stringify(events)}, ${fps}, ${minScore}))))`,
     ) as [number, boolean]
 
   it('trouve le score maximal dans (t1, t2 + 1/(2·fps)]', () => {
@@ -758,6 +963,31 @@ describe('detect.py — refine_switch', () => {
       [10.76, 0.99], // juste après la borne, exclu
     ]
     expect(refine(10.0, 10.5, events, 2.0)).toEqual([10.75, true])
+  })
+
+  /**
+   * **Le cas mesuré du piège 7, désormais refermé.** Sur
+   * `2026-03-08-caro-mdlm` à t ≈ 652,5 s, le score confirmant vaut 0,131 :
+   * la traîne décroissante d'un évènement à 0,9612 situé 33 ms plus tôt —
+   * donc hors de la fenêtre —, sur une boîte fantôme que YOLO produit juste
+   * après une vraie coupe. Sans plancher, cette traîne confirmait.
+   */
+  it('rejette une fenêtre dont le meilleur score n\'atteint pas le plancher', () => {
+    const trail: [number, number][] = [
+      [651.967, 0.9612], // avant t1 : hors fenêtre, c'est la vraie coupe
+      [652.3, 0.131], // dans la fenêtre : sa traîne, et rien d'autre
+    ]
+    expect(refine(652.0, 652.5, trail, 2.0, 0.15)).toEqual([652.375, false])
+    // Sans plancher, la traîne confirme — le comportement d'avant, inchangé.
+    expect(refine(652.0, 652.5, trail, 2.0)).toEqual([652.3, true])
+  })
+
+  it('retient le maximum de la fenêtre, pas le premier qui passe le plancher', () => {
+    const both: [number, number][] = [
+      [10.1, 0.12],
+      [10.3, 0.3],
+    ]
+    expect(refine(10.0, 10.5, both, 2.0, 0.15)).toEqual([10.3, true])
   })
 
   it('replie sur le milieu de l’intervalle de contenu, sans évènement dans la fenêtre', () => {

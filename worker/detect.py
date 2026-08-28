@@ -749,69 +749,119 @@ def composition_switches(
 
 
 def refine_switch(
-    t1: float, t2: float, events: list[tuple[float, float]], fps: float
+    t1: float,
+    t2: float,
+    events: list[tuple[float, float]],
+    fps: float,
+    min_score: float = 0.0,
 ) -> tuple[float, bool]:
-    """L'image exacte d'une bascule détectée entre ``t1`` et ``t2`` — et si le
-    raffinement a réussi, pour que l'appelant compte le taux de rejet.
+    """L'image exacte d'une bascule détectée entre ``t1`` et ``t2``.
 
-    **Les deux passes ne partagent pas la même horloge.** ``-vf fps={fps}``
-    affecte chaque image d'entrée à l'emplacement de sortie le plus proche,
-    et ``boîtes_du_lot`` étiquette ensuite chaque image par ``indice / fps`` :
-    le contenu de l'image étiquetée ``t`` vient donc en réalité d'un instant
-    légèrement postérieur, jusqu'à ``1 / (2 · fps)`` plus tard dans le pire
-    cas — mesuré à +0,233 s sur un proxy à 30 im/s. Une fenêtre naïve
-    ``(t1, t2]`` en tenant pas compte de ce décalage ratait 22 bascules sur 58 ;
-    la fenêtre étendue ci-dessous en retrouve 98 à 100 %.
-
-    **Le décalage est absorbé ici, dans la fenêtre, pas corrigé à la source.**
-    Corriger l'étiquette ``t`` de chaque boîte imposerait une version 3 du
-    schéma de l'analyse et une ré-analyse GPU des quatre projets du corpus —
-    un autre chantier. Ce n'est pas un ajustement empirique posé pour faire
-    coller un cas : c'est la mesure du décalage entre les deux horloges,
-    documentée pour ce qu'elle est.
-
-    **À défaut d'évènement dans la fenêtre, le second signal ne confirme
-    rien : la bascule est rejetée, pas posée au milieu.** Le milieu de
-    l'intervalle de contenu — choix minimax — est encore rendu ci-dessous,
-    mais l'appelant (``main`` et ``run_replay``) le jette dès que ``refined``
-    vaut ``False`` : le principe de ce détecteur est d'exiger **deux** signaux
-    indépendants, et poser une frontière sur un seul en accepterait un,
-    précisément quand le second dit que rien de visible ne change. Deux faux
-    positifs l'ont prouvé à l'image sur ``2025-06-15-cqlp`` (t ≈ 1 111,9 et
-    1 182,4 s) : décor, cadre et panneau de chat identiques avant et après,
-    seules deux personnes qui bougent de concert — la translation que
-    ``composition_switches`` croyait voir n'existait que dans les boîtes,
-    jamais dans l'image. Voir « Distinguer l'absence d'information de son
-    ambiguïté » dans ``CLAUDE.md`` : un défaut prudent est juste quand
-    l'information manque, faux quand elle départage deux hypothèses
-    concurrentes — ici, bascule réelle ou mouvement de comédiens.
-
-    **Un défaut résiduel, mesuré et borné, pas corrigé.** La fenêtre retient
-    le score **maximal** qu'elle y trouve, sans jamais vérifier qu'il est
-    *grand* — seulement qu'il dépasse le plancher de collecte. Un score
-    faible peut donc être la traîne décroissante d'une coupe voisine plutôt
-    que la preuve d'une coupe propre à cette fenêtre. Mesuré sur
-    ``2026-03-08-caro-mdlm`` à t ≈ 652,5 s : le score confirmant vaut
-    **0,131**, traîne d'un évènement à **0,9612** situé 33 ms plus tôt, sur
-    une troisième boîte fantôme que YOLO produit juste après une vraie coupe
-    et qui disparaît dès l'image suivante.
-
-    **Non corrigé, et ce n'est pas un oubli : ce cas tombe sous ``min_shot``,
-    donc ``_spaced_boundaries`` l'absorbe dans la coupe voisine — par
-    coïncidence de proximité, pas par conception.** Rien dans cette fonction
-    ni dans ``_spaced_boundaries`` ne garantit qu'un score faible tombera
-    toujours près d'une frontière déjà retenue ; un seuil sur la *magnitude*
-    du score confirmant réglerait la question proprement, mais l'écrire
-    exigerait de le mesurer — donc de rouvrir l'étalonnage validé sur les
-    quatre émissions du corpus pour un seul cas connu, sans impact sur le
-    rendu livré. Piste suivante, pas dette silencieuse.
+    @param min_score magnitude minimale du score confirmant. À 0,0 — le défaut
+        — toute fenêtre non vide confirme, le comportement d'avant.
+    @returns ``(instant, confirmé)``. La fenêtre est ``(t1, t2 + 1/(2·fps)]``,
+        la demi-image absorbant le décalage entre l'horloge des boîtes et celle
+        des scores. Non confirmée, la bascule est **rejetée** par les deux
+        appelants, jamais posée au milieu. Les mesures qui fondent la fenêtre,
+        le rejet et le plancher : `docs/ratios-par-clip.md`.
     """
     upper_bound = t2 + 1.0 / (2.0 * fps)
     window = [(t, s) for t, s in events if t1 < t <= upper_bound]
     if window:
-        best_t, _ = max(window, key=lambda pair: pair[1])
-        return best_t, True
+        best_t, best_score = max(window, key=lambda pair: pair[1])
+        if best_score >= min_score:
+            return best_t, True
     return (t1 + upper_bound) / 2, False
+
+
+# Les défauts du déclencheur de rupture, lus par `argparse` **et** par
+# `refus_du_seuil_de_scène` : les sept seuils voisins les écrivent deux fois
+# chacun, sans rien qui lie les deux copies.
+DEFAULT_RUPTURE_THRESHOLD = 0.40
+DEFAULT_RUPTURE_MIN_SCORE = 0.15
+DEFAULT_RUPTURE_BOX_SCORE = 0.5
+
+
+def composition_ruptures(
+    boxes: list[dict], fps: float, min_box_score: float, threshold: float
+) -> list[tuple[float, float]]:
+    """Les fenêtres ``(t1, t2)`` où l'échelle des corps ou leur assise change
+    d'un coup — ce qu'une translation ne fait jamais.
+
+    **Second déclencheur du même détecteur**, pour les coupes que
+    ``composition_switches`` ne peut pas voir : à effectif variable, il n'y a
+    aucun déplacement commun à mesurer et sa condition « deux personnes
+    appariées » écarte la fenêtre. Rend des fenêtres, que ``refine_switch``
+    confirme sur le score de scène : le principe des deux signaux indépendants
+    ne change pas, seul le premier s'élargit.
+    """
+    # **Des médianes, jamais l'effectif.** YOLO ajoute et retire des boîtes
+    # fantômes d'une image à l'autre (voir `refine_switch`) : un changement de
+    # compte se déclencherait sur ce battement, une médiane ne bouge pas.
+    by_time: dict[float, list[dict]] = {}
+    for entry in boxes:
+        if entry["score"] >= min_box_score:
+            by_time.setdefault(entry["t"], []).append(entry)
+    profile = {
+        t: (_median([b["x1"] - b["x0"] for b in kept]), _median([b["y0"] for b in kept]))
+        for t, kept in by_time.items()
+    }
+    times = sorted(profile)
+
+    step = 1.0 / fps
+    candidates: list[tuple[float, float]] = []
+    for t1, t2 in zip(times, times[1:]):
+        # Jamais par-dessus un trou : une image sans corps retenu n'est pas une
+        # image sans rupture, elle est une image sans information.
+        if abs((t2 - t1) - step) > 1e-3:
+            continue
+        width_1, top_1 = profile[t1]
+        width_2, top_2 = profile[t2]
+        widest = max(width_1, width_2)
+        scale = abs(width_2 - width_1) / widest if widest > 0 else 0.0
+        # Tronqué et non arrondi, comme le déplacement de `composition_switches`
+        # et pour la même raison : la comparaison qui suit est inclusive.
+        if arrondi_vers_le_bas(max(scale, abs(top_2 - top_1)), 4) < threshold:
+            continue
+        candidates.append((t1, t2))
+    return candidates
+
+
+def _without(
+    candidates: list[tuple[float, float]], already: list[tuple[float, float]]
+) -> list[tuple[float, float]]:
+    """Les fenêtres que l'autre déclencheur n'a pas déjà proposées.
+
+    Les deux se recouvrent pour de bon — 24 fenêtres sur 57 sur
+    `2026-02-08-eve-matteo-pr`, 17 sur 60 sur `2025-06-15-cqlp`. Sans ce
+    retrait, une fenêtre commune serait raffinée deux fois et comptée deux fois
+    dans le journal, dont le balayage lit les nombres. Les frontières, elles, ne
+    changent pas : `_spaced_boundaries` écarte déjà un instant répété.
+    """
+    seen = set(already)
+    return [window for window in candidates if window not in seen]
+
+
+def confirmed_switches(
+    candidates: list[tuple[float, float]],
+    events: list[tuple[float, float]],
+    fps: float,
+    min_score: float = 0.0,
+) -> tuple[list[float], int]:
+    """Les instants que le score de scène confirme, et le nombre de rejets.
+
+    Partagée par les deux déclencheurs et par les deux appelants (``main`` et
+    ``run_replay``), qui écrivaient la même boucle chacun de leur côté.
+    """
+    times: list[float] = []
+    rejected = 0
+    for t1, t2 in candidates:
+        refined_t, refined = refine_switch(t1, t2, events, fps, min_score)
+        if refined:
+            times.append(refined_t)
+        else:
+            rejected += 1
+    return times, rejected
 
 
 # ---------------------------------------------------------------------------
@@ -827,6 +877,9 @@ def refus_du_seuil_de_scène(
     switch_tolerance: float = 0.03,
     switch_share: int = 8,
     switch_point_score: float = 0.3,
+    rupture_threshold: float = DEFAULT_RUPTURE_THRESHOLD,
+    rupture_min_score: float = DEFAULT_RUPTURE_MIN_SCORE,
+    rupture_box_score: float = DEFAULT_RUPTURE_BOX_SCORE,
 ) -> str | None:
     """Ce qui cloche dans les seuils du détecteur, ou ``None`` si rien.
 
@@ -981,6 +1034,36 @@ def refus_du_seuil_de_scène(
             "condition de rétention reste une comparaison d'entiers. À 0 elle serait toujours "
             "vraie, au-dessus de 10 jamais."
         )
+    if not math.isfinite(rupture_threshold) or not 0 < rupture_threshold <= 1:
+        return (
+            f"--rupture-threshold vaut {rupture_threshold}, hors de ]0, 1]. C'est la plus "
+            "grande de deux fractions — une variation d'échelle, un déplacement d'assise — "
+            "toutes deux tirées de coordonnées de boîte, que le schéma de l'analyse borne à "
+            "[0, 1]. **Borné en haut, contrairement à --switch-shift qui ne l'est pas** : "
+            "celui-là compare des ancrages de pose, qui sortent légitimement du cadre (voir "
+            "person_anchor), celui-ci ne le peut pas. À zéro chaque paire d'images devient une "
+            "fenêtre et le score de scène décide seul ; à 1 le déclencheur se tait, ce qui est "
+            "le témoin négatif d'un balayage."
+        )
+    if not math.isfinite(rupture_min_score) or not 0 <= rupture_min_score <= 1:
+        return (
+            f"--rupture-min-score vaut {rupture_min_score}, hors de [0, 1] où vit un score de "
+            "scène. C'est la magnitude minimale du score qui confirme une rupture : à 0 une "
+            "traîne au plancher de collecte suffit à confirmer, ce qui est le défaut décrit "
+            "dans refine_switch ; au-dessus de 1 aucune rupture n'est jamais confirmée. "
+            "**Zéro est accepté** : c'est le comportement d'avant ce déclencheur, et la ligne "
+            "témoin d'un balayage."
+        )
+    # **Pas de refus croisé avec --scene-threshold**, quoiqu'un plancher
+    # au-dessus du seuil ne rende que des frontières redondantes : c'est inutile,
+    # pas cassé, et le refus bloquait un abaissement légitime du seuil de scène.
+    if not math.isfinite(rupture_box_score) or not 0 < rupture_box_score <= 1:
+        return (
+            f"--rupture-box-score vaut {rupture_box_score}, hors du domaine d'une confiance de "
+            "boîte, qui vit dans ]0, 1]. C'est ce qui tient les boîtes fantômes de YOLO hors "
+            "des médianes : à zéro elles y entrent toutes et le déclencheur se met à battre "
+            "avec elles ; au-dessus de 1 aucune image n'a de profil et il ne propose rien."
+        )
     return None
 
 
@@ -1052,6 +1135,9 @@ def run_replay(a: argparse.Namespace) -> int:
         a.switch_tolerance,
         a.switch_share,
         a.switch_point_score,
+        a.rupture_threshold,
+        a.rupture_min_score,
+        a.rupture_box_score,
     )
     if validation_error is not None:
         journal(validation_error)
@@ -1078,17 +1164,19 @@ def run_replay(a: argparse.Namespace) -> int:
     switch_candidates = composition_switches(
         boxes, fps, a.switch_point_score, a.switch_tolerance, a.switch_share, a.switch_shift
     )
-    switch_boundary_times: list[float] = []
-    rejected_count = 0
-    for t1, t2 in switch_candidates:
-        refined_t, refined = refine_switch(t1, t2, events, fps)
-        if refined:
-            switch_boundary_times.append(refined_t)
-        else:
-            rejected_count += 1
+    switch_boundary_times, rejected_count = confirmed_switches(switch_candidates, events, fps)
+    rupture_candidates = _without(
+        composition_ruptures(boxes, fps, a.rupture_box_score, a.rupture_threshold),
+        switch_candidates,
+    )
+    rupture_boundary_times, rupture_rejected = confirmed_switches(
+        rupture_candidates, events, fps, a.rupture_min_score
+    )
 
     boundaries = _spaced_boundaries(
-        [*scene_boundary_times, *switch_boundary_times], duration, a.min_shot
+        [*scene_boundary_times, *switch_boundary_times, *rupture_boundary_times],
+        duration,
+        a.min_shot,
     )
     analysis["shots"] = shots_from_boundaries(boundaries, duration)
 
@@ -1097,7 +1185,9 @@ def run_replay(a: argparse.Namespace) -> int:
         f"Rejeu : {len(analysis['shots'])} plans, {len(boundaries)} frontières "
         f"({len(scene_boundary_times)} scène sur {len(events)} candidates, "
         f"{len(switch_boundary_times)} bascules retenues sur {len(switch_candidates)} candidates, "
-        f"{rejected_count} rejetées faute de score de scène ({100 * rejected_rate:.0f} %))."
+        f"{rejected_count} rejetées faute de score de scène ({100 * rejected_rate:.0f} %), "
+        f"{len(rupture_boundary_times)} ruptures retenues sur {len(rupture_candidates)} "
+        f"candidates, {rupture_rejected} rejetées)."
     )
 
     output_dir = os.path.dirname(a.out)
@@ -1191,6 +1281,27 @@ def main() -> int:
         default=0.3,
         help="confiance minimale d'un point de pose pour entrer dans l'ancrage d'une personne",
     )
+    # Les trois seuils du **second** déclencheur, celui des ruptures de
+    # composition. Arrêtés par balayage `--replay` sur le corpus, même méthode
+    # que les quatre ci-dessus — voir docs/ratios-par-clip.md.
+    p.add_argument(
+        "--rupture-threshold",
+        type=float,
+        default=DEFAULT_RUPTURE_THRESHOLD,
+        help="variation d'échelle ou d'assise minimale, en fraction, pour déclarer une rupture",
+    )
+    p.add_argument(
+        "--rupture-min-score",
+        type=float,
+        default=DEFAULT_RUPTURE_MIN_SCORE,
+        help="score de scène minimal pour qu'une rupture soit confirmée",
+    )
+    p.add_argument(
+        "--rupture-box-score",
+        type=float,
+        default=DEFAULT_RUPTURE_BOX_SCORE,
+        help="confiance minimale d'une boîte pour entrer dans le profil d'une image",
+    )
     # **L'étalonnage sans GPU ni ffmpeg.** Les boîtes sont déjà dans un
     # `analysis.json` existant ; il ne manque que les scores de scène, une
     # passe ffmpeg qui ne touche pas au GPU (voir `scores_de_scène`) et se
@@ -1236,6 +1347,9 @@ def main() -> int:
         a.switch_tolerance,
         a.switch_share,
         a.switch_point_score,
+        a.rupture_threshold,
+        a.rupture_min_score,
+        a.rupture_box_score,
     )
     if refus is not None:
         journal(refus)
@@ -1381,17 +1495,21 @@ def main() -> int:
     switch_candidates = composition_switches(
         boîtes, a.fps, a.switch_point_score, a.switch_tolerance, a.switch_share, a.switch_shift
     )
-    switch_boundary_times: list[float] = []
-    rejected_count = 0
-    for t1, t2 in switch_candidates:
-        refined_t, refined = refine_switch(t1, t2, évènements, a.fps)
-        if refined:
-            switch_boundary_times.append(refined_t)
-        else:
-            rejected_count += 1
+    switch_boundary_times, rejected_count = confirmed_switches(
+        switch_candidates, évènements, a.fps
+    )
+    rupture_candidates = _without(
+        composition_ruptures(boîtes, a.fps, a.rupture_box_score, a.rupture_threshold),
+        switch_candidates,
+    )
+    rupture_boundary_times, rupture_rejected = confirmed_switches(
+        rupture_candidates, évènements, a.fps, a.rupture_min_score
+    )
 
     boundaries = _spaced_boundaries(
-        [*scene_boundary_times, *switch_boundary_times], a.duration, a.min_shot
+        [*scene_boundary_times, *switch_boundary_times, *rupture_boundary_times],
+        a.duration,
+        a.min_shot,
     )
     découpe = shots_from_boundaries(boundaries, a.duration)
 
@@ -1400,7 +1518,9 @@ def main() -> int:
         f"      {len(découpe)} plans, {len(boundaries)} frontières ({len(scene_boundary_times)} "
         f"scène sur {len(évènements)} candidates ≥ {a.scene_floor}, {len(switch_boundary_times)} "
         f"bascules retenues sur {len(switch_candidates)} candidates, {rejected_count} rejetées "
-        f"faute de score de scène ({100 * rejected_rate:.0f} %)), en "
+        f"faute de score de scène ({100 * rejected_rate:.0f} %), "
+        f"{len(rupture_boundary_times)} ruptures retenues sur {len(rupture_candidates)} "
+        f"candidates, {rupture_rejected} rejetées), en "
         f"{time.monotonic() - t0:.0f} s"
     )
 

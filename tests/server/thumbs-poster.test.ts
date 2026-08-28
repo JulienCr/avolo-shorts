@@ -48,6 +48,7 @@ function baseClip(): Clip {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: 'Le canapé',
     description: "C'était pas moi.",
     status: 'exported',

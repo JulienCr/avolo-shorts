@@ -699,6 +699,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
           dessous. */}
       <PanelExport
         clip={clip}
+        descriptionFooter={settings.data?.publication?.descriptionFooter ?? ''}
         outputs={outputs}
         framing={framing}
         duration={duration}

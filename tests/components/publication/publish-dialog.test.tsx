@@ -260,6 +260,30 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
   })
 })
 
+describe('PublishDialog — aperçu de la description finale (récapitulatif)', () => {
+  it('montre la description composée, pied de page compris', () => {
+    render(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[eligible({ composedDescription: 'Une scène.\n\n———\nLa Scène Avolo.' })]}
+        availability={onlyInstagram}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    expect(screen.getByText('Description envoyée')).toBeTruthy()
+    expect(document.querySelector('pre')?.textContent).toBe('Une scène.\n\n———\nLa Scène Avolo.')
+  })
+
+  it("n'affiche rien quand l'appelant n'a pas fourni la description composée", () => {
+    render(
+      <PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={onlyInstagram} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    expect(screen.queryByText('Description envoyée')).toBeNull()
+  })
+})
+
 describe('PublishDialog — remise à zéro entre deux ouvertures', () => {
   it('revient à la sélection par défaut en se rouvrant, pas à celle laissée avant de fermer', () => {
     // Instagram est coché par défaut (disponible, jamais publié) ; le

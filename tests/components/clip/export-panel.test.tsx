@@ -34,6 +34,7 @@ function clip(fields: Partial<Clip> = {}): Clip {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: 'La chute',
     description: 'Une impro qui part en vrille #impro',
     status: 'kept',
@@ -91,6 +92,22 @@ const buttonExporter = () => screen.getByRole('button', { name: /exporter/i })
 function openDetail() {
   fireEvent.click(screen.getByRole('button', { name: /détail/i }))
 }
+
+describe('le pied de page commun', () => {
+  it('compose la description affichée quand le clip l’active', () => {
+    mount({ clip: clip({ footer: true }), descriptionFooter: 'Suivez-nous sur Twitch.' })
+    openDetail()
+    const field = screen.getByLabelText('Description de publication') as HTMLTextAreaElement
+    expect(field.value).toBe('Une impro qui part en vrille #impro\n\nSuivez-nous sur Twitch.')
+  })
+
+  it('laisse la description brute quand l’interrupteur du clip est coupé', () => {
+    mount({ clip: clip({ footer: false }), descriptionFooter: 'Suivez-nous sur Twitch.' })
+    openDetail()
+    const field = screen.getByLabelText('Description de publication') as HTMLTextAreaElement
+    expect(field.value).toBe('Une impro qui part en vrille #impro')
+  })
+})
 
 describe('avant l’export', () => {
   it('n’annonce que la variante quand le ratio natif n’est pas 9:16 (natif désactivé)', () => {

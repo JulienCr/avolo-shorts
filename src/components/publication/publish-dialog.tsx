@@ -71,6 +71,13 @@ export type PublishClipTarget = {
    * d'empreinte côté client.
    */
   records?: Partial<Record<Platform, PublicationRecord>>
+  /**
+   * La description finale, telle que `composeDescription` (`@/core/publication`)
+   * la rend pour ce clip — pied de page compris. Absente, l'aperçu du
+   * récapitulatif ne s'affiche pas pour ce clip plutôt que de montrer un
+   * texte partiel.
+   */
+  composedDescription?: string
 }
 
 type Step = 'platforms' | 'confirm'
@@ -373,7 +380,7 @@ export function PublishDialog({
             alreadyPublished={alreadyPublished}
           />
         ) : (
-          <ConfirmStep targets={targets} />
+          <ConfirmStep targets={targets} eligible={eligible} />
         )}
 
         <DialogFooter>
@@ -590,8 +597,10 @@ function StatusBadge({ status }: { status: PublicationStatus }) {
  */
 function ConfirmStep({
   targets,
+  eligible,
 }: {
   targets: readonly { clipId: string; platform: Platform }[]
+  eligible: readonly PublishClipTarget[]
 }) {
   if (targets.length === 0) {
     return (
@@ -612,10 +621,18 @@ function ConfirmStep({
   // la boîte était ouverte. Compter sur `selected` ici annoncerait un envoi qui
   // n'a pas lieu. (relevé par Copilot)
   const chosenPlatforms = PLATFORMS.filter((p) => targets.some((t) => t.platform === p))
-  const targetedClipsCount = new Set(targets.map((t) => t.clipId)).size
+  const targetedClipIds = new Set(targets.map((t) => t.clipId))
+  const targetedClipsCount = targetedClipIds.size
+
+  // `composedDescription` est optionnel (issue #239-like : un appelant qui ne
+  // l'a pas encore calculé ne doit pas afficher un aperçu partiel), donc filtré
+  // plutôt que supposé présent pour chaque cible.
+  const previewed = eligible.filter(
+    (clip) => targetedClipIds.has(clip.clipId) && clip.composedDescription !== undefined,
+  )
 
   return (
-    <div className="flex flex-col gap-2 text-sm">
+    <div className="flex flex-col gap-3 text-sm">
       <p>
         {targetedClipsCount === 1 ? 'Ce clip part vers' : `Ces ${targetedClipsCount} clips partent vers`}{' '}
         <span className="font-medium">
@@ -624,6 +641,19 @@ function ConfirmStep({
         {' — '}
         {targets.length === 1 ? '1 publication au total.' : `${targets.length} publications au total.`}
       </p>
+      {previewed.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-medium text-muted-foreground">Description envoyée</p>
+          {previewed.map((clip) => (
+            <pre
+              key={clip.clipId}
+              className="whitespace-pre-wrap rounded-lg border bg-muted/30 px-3 py-2 font-sans text-xs"
+            >
+              {clip.composedDescription}
+            </pre>
+          ))}
+        </div>
+      )}
       <p className="text-muted-foreground">
         C’est un geste public et potentiellement irréversible. Confirmer déclenche l’envoi.
       </p>

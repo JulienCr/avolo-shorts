@@ -15,7 +15,7 @@ import { GET as listSources } from '@/app/api/sources/route'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
-import { FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
+import { DEFAULT_DESCRIPTION_FOOTER, FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
 import type {
   CandidateClip,
   ClipDetail,
@@ -171,6 +171,7 @@ function baseClip(): Clip {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: 'Le canapé',
     description: "C'était pas moi.",
     status: 'candidate',
@@ -1754,6 +1755,7 @@ describe('/api/settings', () => {
     youtube: 'auto',
     scheduleHours: '19:00',
     autoPublish: true,
+    descriptionFooter: DEFAULT_DESCRIPTION_FOOTER,
   }
 
   const write = (body: unknown): Promise<Response> =>

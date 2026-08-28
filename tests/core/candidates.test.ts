@@ -83,6 +83,7 @@ describe('mergeCandidates', () => {
       cropX: 0.42,
       captions: true,
       branding: false,
+      footer: false,
       title: 'La vanne du chapeau',
       description: 'ça part en vrille',
       status: 'candidate',

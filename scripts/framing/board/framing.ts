@@ -28,6 +28,7 @@ function syntheticClip(projectId: string, end: number): Clip {
     cropX: 0.5,
     captions: false,
     branding: false,
+    footer: false,
     title: '',
     description: '',
     status: 'candidate',

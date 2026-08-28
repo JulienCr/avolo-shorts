@@ -50,6 +50,7 @@ function detail(id = 'c2', segments = [{ start: 100, end: 120 }]): ClipDetail {
       cropX: 0.5,
       captions: true,
       branding: true,
+      footer: true,
       title: 'La chute',
       description: 'Une impro',
       status: 'kept',

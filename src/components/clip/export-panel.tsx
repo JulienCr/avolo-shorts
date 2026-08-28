@@ -5,7 +5,7 @@ import { useState } from 'react'
 
 import { unmeasuredShots, shotRatios, anyShotSplit } from '@/components/clip/framing'
 import type { Clip, Ratio } from '@/core/edl'
-import { clipExportEligibility } from '@/core/publication'
+import { clipExportEligibility, composeDescription } from '@/core/publication'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -89,9 +89,12 @@ export function PanelExport({
   recordsError,
   publishError,
   onPublish,
+  descriptionFooter = '',
 }: {
   /** Le clip **du serveur** : c'est lui qui porte le titre, la description et les marques. */
   clip: Clip
+  /** `publication.descriptionFooter` — composé avec la description du clip par `composeDescription`. */
+  descriptionFooter?: string
   outputs: ClipOutputs
   /**
    * Le cadrage que le serveur publie.
@@ -227,11 +230,15 @@ export function PanelExport({
 
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   const publicationEligibility = clipExportEligibility(state === 'delivered')
+  // La même fonction que les connecteurs (`@/core/publication`) : ce qui
+  // s'affiche ici est ce qui part réellement, pied de page compris.
+  const composedDescription = composeDescription(clip, { footer: descriptionFooter })
   const publishTarget: PublishClipTarget = {
     clipId: clip.id,
     title: clip.title,
     eligibility: publicationEligibility,
     records: publicationRecords,
+    composedDescription,
   }
 
   return (
@@ -284,10 +291,10 @@ export function PanelExport({
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <h3 className="text-sm font-medium">Textes de publication</h3>
           <FieldCopyable tag="Titre" value={clip.title.trim()} />
-          <FieldCopyable tag="Description" value={clip.description.trim()} lines={6} />
+          <FieldCopyable tag="Description" value={composedDescription} lines={6} />
           <FieldCopyable
             tag="Mots-dièse"
-            value={wordsHash(`${clip.title.trim()}\n${clip.description.trim()}`).join(' ')}
+            value={wordsHash(`${clip.title.trim()}\n${composedDescription}`).join(' ')}
           />
         </div>
       </CollapsiblePanel>
@@ -373,7 +380,10 @@ export function PanelExport({
             }
           />
 
-          <ButtonCopy text={publicationText(clip)} label="Copier pour publication" />
+          <ButtonCopy
+            text={publicationText(clip, { footer: descriptionFooter })}
+            label="Copier pour publication"
+          />
 
           {exporter.isPending && (
             <span className="text-[0.75rem] text-muted-foreground" aria-live="polite">

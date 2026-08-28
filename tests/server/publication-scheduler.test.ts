@@ -88,6 +88,7 @@ function baseClip(overrides: Partial<Clip> = {}): Clip {
     cropX: 0.5,
     captions: false,
     branding: false,
+    footer: false,
     title: 'La chute',
     description: 'Une impro qui part en vrille',
     status: 'kept',

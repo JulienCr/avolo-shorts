@@ -5,6 +5,7 @@ import {
   canTargetPlatform,
   clipEligibilityFromStatus,
   clipExportEligibility,
+  composeDescription,
   defaultPlatformAvailability,
   isPublicationStale,
   PLATFORMS,
@@ -147,11 +148,13 @@ describe('platformFile', () => {
   })
 })
 
+const NO_FOOTER = { footer: '' }
+
 describe('platformTexts', () => {
-  const clip = { title: 'La chute', description: 'Une impro qui part en vrille #impro #avolo' }
+  const clip = { title: 'La chute', description: 'Une impro qui part en vrille #impro #avolo', footer: true }
 
   it('sépare titre et description pour YouTube', () => {
-    expect(platformTexts(clip, 'youtube')).toEqual({
+    expect(platformTexts(clip, 'youtube', NO_FOOTER)).toEqual({
       title: 'La chute',
       description: 'Une impro qui part en vrille #impro #avolo',
     })
@@ -160,15 +163,15 @@ describe('platformTexts', () => {
   it.each(['instagram', 'facebook', 'tiktok'] as const)(
     'rend une légende unique pour %s, sans titre séparé',
     (platform) => {
-      const result = platformTexts(clip, platform)
+      const result = platformTexts(clip, platform, NO_FOOTER)
       expect(result.title).toBe('')
       expect(result.description).toBe('La chute\n\nUne impro qui part en vrille #impro #avolo')
     },
   )
 
   it('tronque le titre YouTube à 100 caractères, sur une frontière de mot', () => {
-    const long = { title: 'Un mot '.repeat(20).trim(), description: '' } // 139 caractères
-    const result = platformTexts(long, 'youtube')
+    const long = { title: 'Un mot '.repeat(20).trim(), description: '', footer: true } // 139 caractères
+    const result = platformTexts(long, 'youtube', NO_FOOTER)
     expect(result.title.length).toBeLessThanOrEqual(100)
     // Ni coupé en plein mot, ni suivi d'un espace traînant.
     expect(result.title.endsWith(' ')).toBe(false)
@@ -177,11 +180,50 @@ describe('platformTexts', () => {
   })
 
   it('ne tronque pas un titre YouTube déjà court', () => {
-    expect(platformTexts(clip, 'youtube').title).toBe('La chute')
+    expect(platformTexts(clip, 'youtube', NO_FOOTER).title).toBe('La chute')
   })
 
   it('un titre et une description vides rendent une légende vide pour les trois autres', () => {
-    expect(platformTexts({ title: '', description: '' }, 'instagram')).toEqual({ title: '', description: '' })
+    expect(platformTexts({ title: '', description: '', footer: true }, 'instagram', NO_FOOTER)).toEqual({
+      title: '',
+      description: '',
+    })
+  })
+
+  it('ajoute le pied de page commun à la description, footer actif', () => {
+    const result = platformTexts(clip, 'instagram', { footer: 'Suivez-nous sur Twitch.' })
+    expect(result.description).toBe(
+      'La chute\n\nUne impro qui part en vrille #impro #avolo\n\nSuivez-nous sur Twitch.',
+    )
+  })
+
+  it("n'ajoute rien quand l'interrupteur du clip est coupé, même si le réglage porte un pied de page", () => {
+    const result = platformTexts({ ...clip, footer: false }, 'instagram', { footer: 'Suivez-nous sur Twitch.' })
+    expect(result.description).toBe('La chute\n\nUne impro qui part en vrille #impro #avolo')
+  })
+
+  it("un réglage vide ne change rien, même si l'interrupteur du clip est actif", () => {
+    expect(platformTexts(clip, 'instagram', { footer: '' })).toEqual(
+      platformTexts(clip, 'instagram', { footer: '   ' }),
+    )
+  })
+})
+
+describe('composeDescription', () => {
+  it('platformTexts et publicationText en dérivent tous les deux, mot pour mot', () => {
+    const clip = { title: 'La chute', description: 'Une impro', footer: true }
+    const footerOptions = { footer: 'Suivez La Scène Avolo.' }
+    const composed = composeDescription(clip, footerOptions)
+    expect(platformTexts(clip, 'instagram', footerOptions).description).toBe(`La chute\n\n${composed}`)
+    expect(publicationText(clip, footerOptions)).toContain(`Description :\n${composed}`)
+  })
+
+  it('rend le pied de page seul quand la description est vide', () => {
+    expect(composeDescription({ description: '', footer: true }, { footer: 'Pied de page' })).toBe('Pied de page')
+  })
+
+  it('rend la description seule quand le pied de page est vide', () => {
+    expect(composeDescription({ description: 'Une scène', footer: true }, { footer: '' })).toBe('Une scène')
   })
 })
 
@@ -247,14 +289,14 @@ describe('wordsHash (core)', () => {
 
 describe('publicationText (core)', () => {
   it('dit titre, description et mots-dièse, dans cet ordre', () => {
-    const text = publicationText({ title: 'La chute', description: 'Une vrille #avolo' })
+    const text = publicationText({ title: 'La chute', description: 'Une vrille #avolo', footer: true }, NO_FOOTER)
     expect(text).toContain('Titre : La chute')
     expect(text).toContain('Description :\nUne vrille #avolo')
     expect(text).toContain('Mots-dièse : #avolo')
   })
 
   it('dit "(sans titre)" et "(sans description)" sur des champs vides', () => {
-    const text = publicationText({ title: '', description: '' })
+    const text = publicationText({ title: '', description: '', footer: true }, NO_FOOTER)
     expect(text).toContain('(sans titre)')
     expect(text).toContain('(sans description)')
     expect(text).toContain('(aucun)')

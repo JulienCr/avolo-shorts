@@ -9,7 +9,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { PublicationSection } from '@/components/settings/publication-section'
-import { DEFAULT_SCHEDULE_HOURS, type PublicationSettings } from '@/lib/api'
+import { DEFAULT_DESCRIPTION_FOOTER, DEFAULT_SCHEDULE_HOURS, type PublicationSettings } from '@/lib/api'
 import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
 
 // La `Checkbox` de Base UI dispatche son propre `PointerEvent`, que `jsdom` n'a pas.
@@ -26,6 +26,7 @@ const VALUES: PublicationSettings = {
   youtube: 'auto',
   scheduleHours: DEFAULT_SCHEDULE_HOURS,
   autoPublish: true,
+  descriptionFooter: DEFAULT_DESCRIPTION_FOOTER,
 }
 
 const toggle = () => screen.getByRole('checkbox', { name: /Publication automatique à l’échéance/ })
@@ -48,4 +49,26 @@ it('envoie `autoPublish` seul quand la case bascule', () => {
 it('se laisse désactiver le temps d’une écriture en vol', () => {
   render(<PublicationSection values={VALUES} onChange={() => {}} disabled />)
   expect(toggle().getAttribute('data-disabled')).toBe('')
+})
+
+const footerField = () => screen.getByLabelText('Pied de page des descriptions') as HTMLTextAreaElement
+
+it('affiche le pied de page en base', () => {
+  render(<PublicationSection values={VALUES} onChange={() => {}} />)
+  expect(footerField().value).toBe(DEFAULT_DESCRIPTION_FOOTER)
+})
+
+it('écrit le pied de page au flou, quand il a changé', () => {
+  const onChange = vi.fn()
+  render(<PublicationSection values={VALUES} onChange={onChange} />)
+  fireEvent.change(footerField(), { target: { value: 'Un autre pied de page.' } })
+  fireEvent.blur(footerField())
+  expect(onChange).toHaveBeenCalledExactlyOnceWith({ descriptionFooter: 'Un autre pied de page.' })
+})
+
+it('n’écrit rien au flou quand le texte n’a pas changé', () => {
+  const onChange = vi.fn()
+  render(<PublicationSection values={VALUES} onChange={onChange} />)
+  fireEvent.blur(footerField())
+  expect(onChange).not.toHaveBeenCalled()
 })

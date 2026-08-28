@@ -26,9 +26,8 @@ export const GET = route(
       headers: {
         'Content-Type': 'image/jpeg',
         'Content-Length': String(data.byteLength),
-        // Courte, et non « immuable » : la planche couvre `clipBounds`, que
-        // l'écran de clip déplace. `PATCH` efface le fichier quand une borne
-        // bouge, mais il ne peut rien contre une copie déjà dans le cache du
+        // Courte, non « immuable » : `clipBounds` déplace la planche, et
+        // `PATCH` efface le fichier mais pas une copie déjà en cache
         // navigateur.
         'Cache-Control': 'public, max-age=60',
       },

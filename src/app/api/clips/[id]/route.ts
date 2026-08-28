@@ -342,10 +342,9 @@ export const PATCH = route(
       }
     }
 
-    // La planche couvre tout le clip, du premier au dernier segment : une
-    // borne de fin déplacée seule laisse la vignette juste mais la planche
-    // fausse, d'où une seconde condition plutôt qu'un test partagé avec celle
-    // ci-dessus.
+    // La planche couvre tout le clip, pas juste le premier segment : une fin
+    // déplacée seule la fausse sans toucher la vignette, d'où une seconde
+    // condition plutôt qu'un test partagé.
     const boundsMoved =
       written.segments[0]?.start !== clip.segments[0]?.start ||
       written.segments.at(-1)?.end !== clip.segments.at(-1)?.end

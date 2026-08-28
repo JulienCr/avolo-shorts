@@ -16,6 +16,7 @@ vi.mock('@/server/ffmpeg', async (importOriginal) => {
   }
 })
 
+const { runFfmpeg } = await import('@/server/ffmpeg')
 const { filmstrip, filmstripPath } = await import('@/server/thumbs')
 const { GET } = await import('@/app/api/clips/[id]/filmstrip/route')
 
@@ -108,6 +109,11 @@ describe('filmstrip', () => {
     const first = await filmstrip(baseClip())
     expect(first).not.toBeNull()
     expect(fs.existsSync(first as string)).toBe(true)
+    expect(runFfmpeg).toHaveBeenCalledTimes(1)
+
+    const second = await filmstrip(baseClip())
+    expect(second).toBe(first)
+    expect(runFfmpeg).toHaveBeenCalledTimes(1)
   })
 })
 

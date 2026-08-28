@@ -217,26 +217,12 @@ export function shortlistFromScores(
 /**
  * L'identifiant d'un clip : **le projet et les bornes, jamais un compteur**.
  *
- * C'est ce qui rend réelle la garantie « un clip écarté ne revient pas »
- * (`src/core/candidates.ts`). Un `clip_01` renuméroté à chaque passe la rend
- * inopérante dans les deux sens : la proposition qu'on vient de refuser revient
- * sous un nouvel identifiant, et une proposition sans rapport hérite du refus
- * prononcé sur le `clip_01` de la passe précédente. Le préfixe du projet donne
- * du même geste l'unicité pour toute la base que `clips.id` exige
- * (`src/server/db.ts`).
+ * Un `clip_01` renuméroté casse « un clip écarté ne revient pas »
+ * (`src/core/candidates.ts`) dans les deux sens — le refusé revient sous un
+ * autre numéro, un sans-rapport hérite du refus.
  *
- * Les bornes sont écrites en **millisecondes entières**, qui est exactement la
- * précision que `snapToWords` produit : l'identifiant est donc une fonction
- * fidèle des bornes, sans arrondi qui ferait collapser deux propositions
- * distinctes ou diverger deux passes sur les mêmes bornes. Le rembourrage à neuf
- * chiffres couvre 277 heures et fait tomber l'ordre lexicographique des
- * identifiants sur l'ordre chronologique, qui est le tri par défaut de
- * `getClips`.
- *
- * L'identifiant hérite des caractères du projet — les noms de replays portent
- * accents et espaces, et c'est voulu (`projectIdFromSource`). Les routes qui le
- * portent dans un chemin (`GET`/`PATCH /api/clips/:id`) l'encodent donc, comme
- * elles encodent déjà l'identifiant de projet.
+ * @param start Secondes ; écrites en millisecondes entières sur neuf chiffres,
+ *   d'où un ordre lexicographique qui suit le tri par défaut de `getClips`.
  */
 function clipId(projectId: string, start: number, end: number): string {
   const ms = (s: number) => String(Math.round(s * 1000)).padStart(9, '0')

@@ -51,9 +51,10 @@
 
 /**
  * **Les identifiants sont encodés.** Ceux des projets viennent du nom du
- * fichier d'origine, accents et espaces compris (spec §12), et ceux des clips
- * en héritent : `2026-01-11-méchante_000123456-000234567`. Sans encodage, la
- * moindre espace casserait l'URL.
+ * fichier d'origine, espaces compris (spec §12) — les accents en sont dépliés
+ * depuis `projectIdFromSource`, mais les projets plus anciens en portent —, et
+ * ceux des clips en héritent : `2026-01-11-mechante_000123456-000234567`. Sans
+ * encodage, la moindre espace casserait l'URL.
  */
 
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'

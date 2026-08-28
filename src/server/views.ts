@@ -1,7 +1,9 @@
 import fs from 'node:fs'
+import path from 'node:path'
 
 import type { Clip, Segment } from '@/core/edl'
 import { titleProject } from '@/core/pipeline'
+import { withoutExtension } from '@/core/library'
 import { isGuard } from '@/core/phase'
 import type { CandidateClip, ProjectListItem, ProjectSummary } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
@@ -21,11 +23,19 @@ import { lireTranscript, type TranscriptLu } from '@/server/steps/candidates'
  * expose pas, et `summaryProject` est le seul endroit d'où un projet sort.
  */
 
-/** Le projet, vu du client. Quatre champs, et pas un de plus. */
+/**
+ * Le projet, vu du client. Quatre champs, et pas un de plus.
+ *
+ * **Le titre dérive du nom de fichier, pas de l'identifiant.** Les deux étaient
+ * la même chaîne tant que l'identifiant recopiait le nom ; il en déplie
+ * désormais les accents (`projectIdFromSource`), et c'est le fichier qui fait
+ * foi — c'est lui que quelqu'un a nommé. `buildLibrary` dérive déjà de là, donc
+ * la carte de la bibliothèque et l'écran de projet disent la même chose.
+ */
 export function summaryProject(project: Project): ProjectSummary {
   return {
     id: project.id,
-    title: titleProject(project.id),
+    title: titleProject(withoutExtension(path.basename(project.sourcePath))),
     // `durationSec` est nul tant que l'ingestion n'a pas sondé la source : c'est
     // l'état d'un projet créé il y a trois secondes, pas une anomalie. Zéro
     // s'affiche en `0:00` là où `null` casserait le formatage.
@@ -96,7 +106,8 @@ export function listElement(project: Project): ProjectListItem {
  * la note de `api.ts`, et elle vaut aussi bien ici : le proxy arrive douze
  * minutes après la création du projet.
  *
- * L'identifiant est encodé : les noms de replays portent accents et espaces.
+ * L'identifiant est encodé : il porte les espaces du nom de replay, et les
+ * accents des projets créés avant que `projectIdFromSource` ne les déplie.
  */
 export function urlProxy(projectId: string): string | null {
   if (!fs.existsSync(proxyPath(projectId))) return null

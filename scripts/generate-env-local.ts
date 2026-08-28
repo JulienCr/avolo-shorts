@@ -183,11 +183,15 @@ export function writeResolvedEnvLocal(path: string, resolved: readonly [string, 
     content = formatEnvLocal(resolved)
   } catch (cause) {
     // La suppression est best-effort : si elle échoue à son tour (permissions,
-    // TOCTOU), le message diagnostique de quoteValue prime sur l'erreur fs.
+    // TOCTOU), le message diagnostique de quoteValue prime, mais l'échec de
+    // suppression s'y ajoute plutôt que de disparaître (relevé par Copilot).
     try {
       removeStaleEnvLocal(path)
-    } catch {
-      // ignoré, voir commentaire ci-dessus
+    } catch (removeCause) {
+      const removeMessage = removeCause instanceof Error ? removeCause.message : String(removeCause)
+      if (cause instanceof Error) {
+        cause.message += `\n${path} n'a pas pu être supprimé (${removeMessage}) : le secret révoqué peut y être resté.`
+      }
     }
     throw cause
   }

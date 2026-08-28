@@ -8,6 +8,7 @@ import {
   effectiveRatio,
   shotRatios,
   anyShotSplit,
+  dubbingShotCount,
   activeSplit,
   activeDubbing,
   useCurrentShot,
@@ -355,6 +356,7 @@ export function RatioPicker({
   const effective = effectiveRatio(shot, ratio)
   const split = activeSplit(shot, framing, ratio)
   const anySplit = anyShotSplit(framing)
+  const anyDubbing = dubbingShotCount(framing) > 0
   const origin = originMessage(framing)
   const varied = ratio === 'auto' ? shotRatios(framing) : []
   const varies = varied.length > 1
@@ -425,7 +427,15 @@ export function RatioPicker({
         <span className="font-mono">{nativeRatio}</span>
         {' · '}
         <strong className="font-medium">Variante 9:16</strong>{' '}
-        {variantDue ? (anySplit ? 'sur fond flouté, en split sur certains plans' : 'sur fond flouté') : 'aucune'}
+        {variantDue
+          ? [
+              'sur fond flouté',
+              anySplit && 'en split sur certains plans',
+              anyDubbing && 'en doublage sur certains plans',
+            ]
+              .filter(Boolean)
+              .join(', ')
+          : 'aucune'}
       </p>
 
       <details className="group/comportement basis-full">
@@ -453,6 +463,13 @@ export function RatioPicker({
                 <>
                   {' '}
                   — un plan à deux personnes se pose en deux cellules empilées, sans fond
+                </>
+              )}
+              {anyDubbing && (
+                <>
+                  {' '}
+                  — un plan de doublage se recompose en trois pavés : le film, les comédiens et la
+                  bande synchro
                 </>
               )}{' '}
               : elle suit le calcul et ne se règle pas ici.

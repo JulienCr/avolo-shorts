@@ -121,7 +121,7 @@ function paintDubbing(
   video: HTMLVideoElement,
   { film, pip, strip }: DubbingCells,
   width: number,
-  hauteur: number,
+  height: number,
 ): void {
   const { videoWidth, videoHeight } = video
   const filmR = splitCellRect(film, videoWidth, videoHeight)
@@ -131,18 +131,18 @@ function paintDubbing(
   const { filmH, pipH, stripH, top } = dubbingLayout(
     { film: filmR, pip: pipR, strip: stripR },
     width,
-    hauteur,
+    height,
   )
 
   ctx.save()
-  // `blur(6px)` en CSS vaut sigma 3 (sigma = rayon / 2). Le canevas est au
-  // quart du rendu (`PETIT_SIDE` 270 contre 1080), donc 3 x 4 = 12 =
-  // `BACKGROUND_SIGMA` : même flou que le graphe, pas une valeur à corriger.
-  ctx.filter = 'blur(6px)'
-  const bgScale = Math.max(width / videoWidth, hauteur / videoHeight)
+  // `blur(<length>)` prend l'écart-type lui-même, pas un rayon (Filter Effects
+  // §blur) : le canevas est au quart du rendu, donc 3 x 4 = 12 =
+  // `BACKGROUND_SIGMA`. À 6 px l'aperçu floutait deux fois trop.
+  ctx.filter = 'blur(3px)'
+  const bgScale = Math.max(width / videoWidth, height / videoHeight)
   const bgW = videoWidth * bgScale
   const bgH = videoHeight * bgScale
-  ctx.drawImage(video, 0, 0, videoWidth, videoHeight, (width - bgW) / 2, (hauteur - bgH) / 2, bgW, bgH)
+  ctx.drawImage(video, 0, 0, videoWidth, videoHeight, (width - bgW) / 2, (height - bgH) / 2, bgW, bgH)
   ctx.restore()
 
   ctx.drawImage(video, filmR.x, filmR.y, filmR.w, filmR.h, 0, top, width, filmH)

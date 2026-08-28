@@ -137,21 +137,21 @@ describe('paintOutput', () => {
     const v = video(1920, 1080)
     const cells = dubbingCellsFor(DUBBING_ANCHORS[0], DUBBING_ANCHORS[0].pip.y0)
     const width = 200
-    const hauteur = 300
+    const height = 300
     const filmR = splitCellRect(cells.film, 1920, 1080)
     const pipR = splitCellRect(cells.pip, 1920, 1080)
     const stripR = splitCellRect(cells.strip, 1920, 1080)
     const { filmH, pipH, stripH, top } = dubbingLayout(
       { film: filmR, pip: pipR, strip: stripR },
       width,
-      hauteur,
+      height,
     )
 
     paintOutput(ctx as unknown as CanvasRenderingContext2D, v, {
       ratio: '9:16',
       cropX: 0.5,
       width,
-      hauteur,
+      hauteur: height,
       dubbing: cells,
     })
 
@@ -169,10 +169,8 @@ describe('paintOutput', () => {
     // c'est exactement la régression du double rendu.
     expect(filmR.y + filmR.h).toBeLessThanOrEqual(stripR.y)
 
-    // Le masque coupe les coins : un arc, jamais le rectangle du pavé. Le coin
-    // haut-gauche du pavé dessiné (0, top + filmH) doit tomber hors de
-    // l'ellipse — sinon le masque couvrirait tout le rectangle, sans rogner
-    // aucun coin.
+    // Le masque coupe les coins : un arc, jamais le rectangle. Le coin
+    // haut-gauche du pavé doit tomber hors de l'ellipse, sinon rien n'est rogné.
     const mask = dubbingDiscMask(pipR, width, 1920, 1080)
     expect(ctx.ellipse).toHaveBeenCalledWith(
       mask.cx,
@@ -320,7 +318,7 @@ describe('PreviewOutput', () => {
   /**
    * Le doublage (amendement 3 du contrat, PR3) n'existe lui aussi que sur la variante
    * 9:16 : la légende doit le dire, et le canevas occupe 100 % de la hauteur
-   * du téléphone — la composition remplit tout le canevas, sans fond floué
+   * du téléphone — la composition remplit tout le canevas, sans fond flouté
    * en plus de celui qu'elle porte déjà.
    */
   it('montre « doublage » et 100 % sur un plan de doublage', () => {
@@ -359,21 +357,12 @@ describe('PreviewOutput', () => {
 
   /**
    * **Le calque du hook est frère du canvas, jamais peint dedans**
-   * (`hook-overlay.tsx`) : il couvre toujours la boîte 9:16 entière, et un
-   * changement de ratio — qui redimensionne le canvas — ne doit rien lui
-   * faire. C'est la garantie décisive : peindre le hook dans le canvas
-   * l'aurait enfermé dans la bande centrale et fait sauter de place à chaque
-   * changement de ratio.
+   * (`hook-overlay.tsx`) : peint dedans, il serait enfermé dans la bande
+   * centrale et sauterait à chaque changement de ratio.
    *
-   * **L'assertion porte sur la boîte porteuse, pas sur la classe du
-   * calque.** `HookOverlay` rend toujours la même `className` statique quel
-   * que soit l'endroit où il est monté — comparer deux rendus de cette
-   * classe ne prouverait rien d'autre que son invariance interne, et
-   * laisserait passer une régression qui l'imbriquerait dans la boîte que le
-   * canvas dimensionne. Ce qui doit rester fixe, c'est `aspectRatio` sur la
-   * boîte elle-même — posé une fois sur `9:16`, indépendamment de la prop
-   * `ratio` — puisque c'est elle qui donne au calque toute sa boîte, jamais
-   * la part que le canvas occupe. (relevé en review interne)
+   * **L'assertion porte sur la boîte porteuse, jamais sur la classe du
+   * calque** : `HookOverlay` rend la même `className` où qu'il soit monté, donc
+   * la comparer ne prouve rien. C'est `aspectRatio` qui doit rester à `9:16`.
    */
   it('le calque du hook ne bouge pas quand le ratio du clip change : la boîte porteuse reste au format 9:16', () => {
     context()

@@ -98,11 +98,13 @@ projets du corpus.
 | Une mesure se vérifie **à l'image** | se fier à la distribution |
 | Le pavé comédiens d'un doublage prend **toute la largeur du disque**, l'arc masque | inscrire un rectangle dedans |
 
-Les quatre dernières ont chacune coûté un défaut réel. Incruster avant la mise à
+Les cinq dernières ont chacune coûté un défaut réel. Incruster avant la mise à
 l'échelle réduit le texte à 31,6 % de sa taille sur un plan 16:9 posé dans un
 canevas vertical. Dériver la verticale du natif rétrécit deux fois un plan serré.
 Flouter après incrustation met les sous-titres dans le fond — c'est l'anomalie
-#22, et c'est le `split` du filtergraph qui la referme.
+#22, et c'est le `split` du filtergraph qui la referme. Et inscrire le pavé
+comédiens dans le disque au lieu de l'y masquer a sauvé une tête en détruisant
+l'autre — la démonstration est dans « Le doublage improvisé » ci-dessus.
 
 ## Ce qui a été essayé, mesuré, et écarté
 

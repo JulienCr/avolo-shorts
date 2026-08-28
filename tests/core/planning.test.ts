@@ -78,8 +78,30 @@ describe('aggregatePublicationStatus', () => {
     ).toBe('planned')
   })
 
-  it('un échec suffit, même mélangé à un succès', () => {
-    expect(aggregatePublicationStatus({ instagram: 'published', tiktok: 'failed' })).toBe('failed')
+  it('un échec mélangé à un succès est un échec partiel, pas « échec » seul', () => {
+    expect(aggregatePublicationStatus({ instagram: 'published', tiktok: 'failed' })).toBe('partial_failure')
+  })
+
+  it('deux réussites et deux échecs restent un échec partiel', () => {
+    expect(
+      aggregatePublicationStatus({
+        instagram: 'published',
+        facebook: 'submitted',
+        tiktok: 'failed',
+        youtube: 'failed',
+      }),
+    ).toBe('partial_failure')
+  })
+
+  it('les quatre en échec rendent échec, sans partiel', () => {
+    expect(
+      aggregatePublicationStatus({
+        instagram: 'failed',
+        facebook: 'failed',
+        tiktok: 'failed',
+        youtube: 'failed',
+      }),
+    ).toBe('failed')
   })
 
   it('tout publié rend publié', () => {
@@ -107,5 +129,9 @@ describe('aggregatePublicationStatus', () => {
 
   it('in_progress signifie qu’un envoi tourne réellement, rien de moins', () => {
     expect(aggregatePublicationStatus({ instagram: 'published', tiktok: 'in_progress' })).toBe('in_progress')
+  })
+
+  it('un envoi en cours l’emporte sur un échec déjà écrit ailleurs', () => {
+    expect(aggregatePublicationStatus({ instagram: 'failed', tiktok: 'in_progress' })).toBe('in_progress')
   })
 })

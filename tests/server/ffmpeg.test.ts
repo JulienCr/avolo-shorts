@@ -456,6 +456,41 @@ describe('forwardAbort, le groupe de processus', () => {
   })
 
   /**
+   * **Le cas que le garde-fou anti-recyclage a failli casser.** `detect.py`
+   * n'a pas de gestionnaire pour `SIGTERM` et meurt dessus immédiatement ; son
+   * ffmpeg, lui, l'intercepte le temps de finir sa sortie. `close` du worker
+   * arrive donc *avant* que le descendant ne parte — le SIGKILL différé doit
+   * survivre à cette fermeture pour l'atteindre quand même (échoue avant le
+   * correctif : `close` coupait la minuterie, et `exitCode` déjà posé sur le
+   * meneur bloquait aussi l'envoi).
+   */
+  it("tue un enfant qui ignore SIGTERM même si le meneur meurt d'abord", async () => {
+    const proc = spawn(
+      process.execPath,
+      [
+        '-e',
+        "const { spawn } = require('child_process');" +
+          "const child = spawn('sh', ['-c', \"trap '' TERM; echo ready; sleep 30\"]," +
+          "  { stdio: ['ignore', 'pipe', 'ignore'] });" +
+          // N'annonce le PID qu'une fois le `trap` posé : sinon la course entre
+          // le fork du fils et l'abort du test rendrait le résultat aléatoire.
+          "child.stdout.once('data', () => console.log(child.pid));" +
+          'setTimeout(() => {}, 30000)',
+      ],
+      { detached: true, stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+    const childPid = await firstPid(proc)
+    const controller = new AbortController()
+    const detach = forwardAbort(proc, controller.signal, 100, { killGroup: true })
+    controller.abort()
+    await new Promise<void>((resolve) => proc.once('close', () => resolve()))
+    // Le meneur est mort, le descendant tient encore bon face à son SIGTERM.
+    expect(() => process.kill(childPid, 0)).not.toThrow()
+    detach()
+    await untilGone(childPid)
+  })
+
+  /**
    * Le pendant, et il épingle le critère 2 : un appelant qui n'opte pas — la
    * forme des trois autres appels de `forwardAbort` — ne change rien à son
    * comportement. Même worker détaché, même enfant : sans l'option, il survit.

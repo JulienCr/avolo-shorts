@@ -280,8 +280,9 @@ export type OptionsForwardAbort = {
   /**
    * Vise le groupe de processus (`-pid`) plutôt que le seul PID de `proc`. N'a
    * de sens que si `proc` a été lancé avec `detached: true`, ce qui en fait le
-   * meneur d'un groupe qui n'appartient qu'à lui — sinon `-pid` viserait le
-   * groupe du serveur.
+   * meneur d'un groupe qui n'appartient qu'à lui — sinon `-pid` cible un PGID
+   * égal au PID du fils, qui n'existe pas : le signal échoue en silence sur
+   * `ESRCH` au lieu d'atteindre quoi que ce soit (relevé par Copilot).
    */
   killGroup?: boolean
 }
@@ -294,19 +295,24 @@ export function forwardAbort(
 ): () => void {
   const killGroup = options.killGroup === true
 
+  // Passe à `true` une fois qu'un `ESRCH` confirme qu'aucun processus ne porte
+  // plus ce PGID. C'est le seul signal fiable de recyclage possible du PID :
+  // `proc.exitCode`/`signalCode` ne parlent que du meneur, alors qu'un ffmpeg
+  // du même groupe peut lui survivre — le viser encore n'a rien de faux tant
+  // que le groupe existe (relevé par Codex et Copilot).
+  let groupGone = false
+
   let killTimer: NodeJS.Timeout | undefined
   const send = (sig: NodeJS.Signals): void => {
+    if (killGroup && groupGone) return
     try {
-      // Un PID mort peut être recyclé par le noyau : `-pid` viserait alors le
-      // groupe de quelqu'un d'autre. `exitCode`/`signalCode` disent que Node a
-      // déjà vu la fin du processus.
       if (killGroup && proc.pid !== undefined) {
-        if (proc.exitCode === null && proc.signalCode === null) process.kill(-proc.pid, sig)
+        process.kill(-proc.pid, sig)
       } else {
         proc.kill(sig)
       }
-    } catch {
-      // Le processus est déjà parti : c'est le résultat qu'on visait.
+    } catch (cause) {
+      if (killGroup && (cause as NodeJS.ErrnoException)?.code === 'ESRCH') groupGone = true
     }
   }
 
@@ -334,7 +340,11 @@ export function forwardAbort(
   else signal.addEventListener('abort', onAbort, { once: true })
 
   return () => {
-    clearTimeout(killTimer)
+    // Le groupe peut survivre au meneur : `detect.py` peut mourir avant son
+    // ffmpeg. On ne coupe le SIGKILL différé qu'à la fin de l'appelant simple,
+    // où la mort du fils clôt tout ce qu'il y avait à tuer — pas ici, où le
+    // `close` du worker ne dit rien de ses descendants.
+    if (!killGroup) clearTimeout(killTimer)
     signal.removeEventListener('abort', onAbort)
     cleanup()
   }

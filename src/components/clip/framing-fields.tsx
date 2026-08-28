@@ -69,6 +69,8 @@ export function FramingFields({
   )
 
   const dubbingCount = dubbingShotCount(framing)
+  // La présence de la clé équivaut à `false` : `src/server/db.ts` la type en
+  // `z.literal(false)` et `FramingStyleOverride.dubbingLayout` en `false`.
   const dubbingDisabledForClip = hasOverrideOf(clip, 'dubbingLayout')
 
   return (

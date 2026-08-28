@@ -15,9 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FramingFields } from '@/components/clip/framing-fields'
 import { FRAMING_SETTINGS_DEFAULTS, type Clip, type FramingSettings, type PublishedFraming } from '@/lib/api'
 import { dubbingCells, framing, shot } from '../../fixtures/framing'
-import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
 
-installPointerEventPolyfill()
 
 function clip(fields: Partial<Clip> = {}): Clip {
   return {

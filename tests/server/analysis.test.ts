@@ -740,6 +740,7 @@ describe('runAnalysis', () => {
  */
 describe('runAnalysis, le groupe de processus du worker', () => {
   let root: string
+  const envStart = { ...process.env }
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-analysis-groupe-'))
@@ -749,6 +750,12 @@ describe('runAnalysis, le groupe de processus du worker', () => {
 
   afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true })
+    // Mutation, jamais réassignation (relevé par Aristarque) : voir la même
+    // garde dans tests/scripts/dev-common.test.ts.
+    for (const name of Object.keys(process.env)) {
+      if (!(name in envStart)) delete process.env[name]
+    }
+    Object.assign(process.env, envStart)
   })
 
   /** Sonde un PID par un signal 0, jusqu'à ce qu'il réponde ESRCH ou expire. */

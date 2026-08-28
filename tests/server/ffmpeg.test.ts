@@ -499,12 +499,56 @@ describe('forwardAbort, le groupe de processus', () => {
     const proc = spawnWorkerWithChild()
     const childPid = await firstPid(proc)
     const controller = new AbortController()
-    forwardAbort(proc, controller.signal)
+    const detach = forwardAbort(proc, controller.signal)
     controller.abort()
     await new Promise((r) => setTimeout(r, 300))
     expect(() => process.kill(childPid, 0)).not.toThrow()
+    // Sans ça, la minuterie de SIGKILL (10 s) survit au test (relevé par Aristarque).
+    detach()
     // Nettoyage : cet enfant ne meurt jamais tout seul dans ce test.
     process.kill(childPid, 'SIGKILL')
+  })
+
+  /**
+   * **Le chemin `Ctrl-C`, jusqu'ici non exercé** (relevé par Copilot). Un
+   * vrai « serveur » tourne dans son propre process (`tsx`, pour importer le
+   * vrai `forwardAbort`), sans jamais appeler `abort()` : seul son
+   * `process.once('exit', …)` doit sauver le groupe du worker quand le
+   * serveur meurt d'un `SIGINT` externe, comme un `Ctrl-C` de terminal.
+   */
+  it("le hook 'exit' du serveur tue le groupe du worker sur un SIGINT externe", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-ctrlc-'))
+    const ffmpegModule = path.join(__dirname, '..', '..', 'src', 'server', 'ffmpeg.ts')
+    const serverScript = path.join(root, 'server.ts')
+    fs.writeFileSync(
+      serverScript,
+      [
+        "import { spawn } from 'node:child_process'",
+        `import { forwardAbort } from ${JSON.stringify(ffmpegModule)}`,
+        "const worker = spawn(process.execPath, ['-e'," +
+          '"const { spawn } = require(\'child_process\');' +
+          'const child = spawn(\'sleep\', [\'30\']);' +
+          'console.log(child.pid);' +
+          'setTimeout(() => {}, 30000)"' +
+          "], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] })",
+        // Aucun `signal` : seul le hook `exit` (posé par `killGroup: true`) doit agir.
+        'forwardAbort(worker, undefined, undefined, { killGroup: true })',
+        'worker.stdout!.once(\'data\', (chunk) => process.stdout.write(chunk))',
+        'setTimeout(() => {}, 30000)',
+      ].join('\n'),
+    )
+
+    const tsx = path.join(process.cwd(), 'node_modules', '.bin', 'tsx')
+    const server = spawn(tsx, [serverScript], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] })
+    const childPid = await firstPid(server)
+    const serverPid = server.pid
+    if (serverPid === undefined) throw new Error('le serveur de test n’a pas de PID')
+
+    const closed = new Promise<void>((resolve) => server.once('close', () => resolve()))
+    process.kill(-serverPid, 'SIGINT')
+    await closed
+    await untilGone(childPid)
+    fs.rmSync(root, { recursive: true, force: true })
   })
 })
 

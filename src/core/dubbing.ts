@@ -67,24 +67,15 @@ export const DUBBING_PIP_BAND_HEIGHT = 0.476
 
 /**
  * Les trois pavés déduits d'une ancre et du regard le plus haut mesuré sur la
- * séquence (amendement A7). Le bandeau comédiens est **placé**, pas recadré à
- * une fraction fixe : son bord haut vaut `eyeLevel - hauteur/3`, glissé —
- * jamais réduit — pour rester dans le disque, puis sa demi-largeur est bornée
- * par le pire des deux bords horizontaux pour qu'aucun coin ne sorte du
- * disque. `anchor.pip` reste la mesure exacte du disque (voir son
- * commentaire) : mélanger la mesure et le placement rendrait l'une
- * impossible à corriger sans perturber l'autre.
+ * séquence (amendement A7, corrigé par l'amendement 3 du contrat). Le bandeau
+ * comédiens est **placé**, pas recadré à une fraction fixe : son bord haut
+ * vaut `eyeLevel - hauteur/3`, glissé — jamais réduit — pour rester dans le
+ * disque. Il prend **toute la largeur du disque**, jamais une corde inscrite :
+ * `args.ts` masque ses coins par l'arc du cercle, ce que le viewer voyait déjà
+ * dans le flux d'origine.
  */
 export function dubbingCellsFor(anchor: DubbingAnchor, eyeLevel: number): DubbingCells {
   const { pip } = anchor
-  const cx = (pip.x0 + pip.x1) / 2
-  const cy = (pip.y0 + pip.y1) / 2
-  // Le disque est un vrai cercle en pixels, pas en fractions : la source
-  // n'est pas carrée (1920x1080), donc les demi-axes x et y de `pip` diffèrent
-  // en fraction. On les garde distincts (ellipse en repère fraction, cercle en
-  // pixels) plutôt que de confondre les deux, ce qui collerait du film hors
-  // du disque sur l'un des deux axes.
-  const rx = (pip.x1 - pip.x0) / 2
   const ry = (pip.y1 - pip.y0) / 2
 
   const height = DUBBING_PIP_BAND_HEIGHT * ry * 2
@@ -99,12 +90,9 @@ export function dubbingCellsFor(anchor: DubbingAnchor, eyeLevel: number): Dubbin
     bottom = pip.y1
   }
 
-  const d = Math.max(Math.abs(top - cy), Math.abs(bottom - cy))
-  const hw = ry === 0 ? 0 : rx * Math.sqrt(Math.max(0, 1 - (d / ry) ** 2))
-
   return {
     film: { x0: 0, y0: 0, x1: DUBBING_FILM_WIDTH, y1: 1 },
-    pip: { x0: cx - hw, x1: cx + hw, y0: top, y1: bottom },
+    pip: { x0: pip.x0, x1: pip.x1, y0: top, y1: bottom },
     strip: anchor.strip,
   }
 }

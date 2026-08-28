@@ -29,26 +29,32 @@ const NOT_FAST = 0.05
 /**
  * Pourquoi le curseur de cadrage ne déplace rien, ou `null` quand il déplace.
  *
- * Trois causes cumulables, dans l'ordre où elles priment : le plan est
- * splitté (deux cellules, pas de crop unique) ; le cadrage est calculé (la
- * dérogation par plan qui rendrait le curseur utile n'existe pas encore,
- * §9.4) ; ou le cadre couvre toute la source (16:9, rien à déplacer).
- * `CropOverlay` et `RatioPicker` l'appellent tous deux, pour ne jamais rendre
- * deux textes différents pour la même cause.
+ * Quatre causes cumulables, dans l'ordre où elles priment : le plan est
+ * splitté (deux cellules, pas de crop unique) ; le plan pose une composition
+ * de doublage improvisé (le pavé comédiens vient de la composition, pas d'un
+ * crop) ; le cadrage est calculé (la dérogation par plan qui rendrait le
+ * curseur utile n'existe pas encore, §9.4) ; ou le cadre couvre toute la
+ * source (16:9, rien à déplacer). `CropOverlay` et `RatioPicker` l'appellent
+ * tous deux, pour ne jamais rendre deux textes différents pour la même cause.
  *
- * **Pas de cause « montage doublage » ici** : le rendu ignore encore
- * `shot.dubbing` (§9 du parcours, pas encore raccordé) et continue de
- * produire sa sortie depuis ce même crop. Le figer donnerait un texte qui
- * contredit ce que l'export fait réellement — à réintroduire quand le
- * raccord du renderer livre, pas avant (revue Copilot, PR #254).
+ * **La cause « doublage » est vraie depuis que `render.ts` compose ce pavé**
+ * (PR3) : avant, cette même phrase décrivait une composition que l'export ne
+ * produisait pas encore, et Copilot l'avait fait retirer sur cette base
+ * (PR #254). `split` et `dubbing` ne se recouvrent jamais sur un même plan
+ * (`src/core/framing.ts` : « un plan de doublage ne split jamais »), donc leur
+ * ordre l'un par rapport à l'autre n'a pas d'effet observable.
  */
 export function frozenCropReason(
   framing: PublishedFraming,
   effective: Ratio,
   split = false,
+  dubbing = false,
 ): string | null {
   if (split) {
     return 'Ce plan pose deux personnes en deux cellules empilées (split-screen) : il n’y a pas un seul crop à déplacer.'
+  }
+  if (dubbing) {
+    return 'Ce plan est une séquence de doublage improvisé : le pavé comédiens vient de la composition, il n’y a pas un seul crop à déplacer.'
   }
   const computed = isComputedFraming(framing)
   const fullWidth = cropWidthFraction(effective) >= 1
@@ -143,7 +149,7 @@ export function CropOverlay({
   // La même énumération que celle qu'affiche `RatioPicker`, appelée plutôt que
   // recopiée : deux conditions parallèles finissent par diverger, et le jour où
   // elles divergent le rectangle décrit un texte qui n'est plus rendu.
-  const reason = frozenCropReason(framing, effective, split)
+  const reason = frozenCropReason(framing, effective, split, shot?.dubbing !== undefined)
 
   function pointerFraction(clientX: number): number | null {
     const rect = frame.current?.getBoundingClientRect()
@@ -341,7 +347,7 @@ export function RatioPicker({
   const nativeRatio = ratio === 'auto' ? framing.ratio : ratio
   // La variante n'existe que si le natif n'est pas déjà vertical (spec §11).
   const variantDue = nativeRatio !== '9:16'
-  const cropReason = frozenCropReason(framing, effective, split)
+  const cropReason = frozenCropReason(framing, effective, split, shot?.dubbing !== undefined)
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

@@ -16,6 +16,8 @@ import {
   renderClip,
   VERSION_FINGERPRINT,
 } from '@/server/steps/render'
+import type { ResolvedFraming } from '@/server/clip-framing'
+import type { DubbingCells } from '@/core/dubbing'
 
 /**
  * L'empreinte de rendu (issue #48) : ce qui garde la valeur qu'avaient au rendu
@@ -41,6 +43,9 @@ let duringLEncoding: (() => void | Promise<void>) | null = null
 /** Les encodages demandés, dans l'ordre, par chemin de destination. */
 let encodings: string[] = []
 
+/** L'argv réellement construit pour chaque destination — voir `produceArtifact` ci-dessous. */
+let capturedArgs: Record<string, string[]> = {}
+
 vi.mock('@/server/ffmpeg', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/server/ffmpeg')>()
   return {
@@ -50,11 +55,13 @@ vi.mock('@/server/ffmpeg', async (importOriginal) => {
      * destination existe au retour, et pas avant.
      *
      * `o.args(...)` est appelé pour de vrai — c'est gratuit, et cela garde sous
-     * test le fait que la construction des arguments n'explose pas.
+     * test le fait que la construction des arguments n'explose pas. Son
+     * résultat est gardé (`capturedArgs`) pour comparer l'argv du natif entre
+     * deux rendus, sans lancer ffmpeg.
      */
     produceArtifact: async (o: OptionsArtifact): Promise<Artifact> => {
       encodings.push(o.dst)
-      o.args(`${o.dst}.partiel`)
+      capturedArgs[o.dst] = o.args(`${o.dst}.partiel`)
       if (duringLEncoding !== null) {
         const hook = duringLEncoding
         duringLEncoding = null
@@ -66,6 +73,36 @@ vi.mock('@/server/ffmpeg', async (importOriginal) => {
     },
   }
 })
+
+/**
+ * Le cadrage résolu qu'un test impose au rendu, sans écrire d'`analysis.json`
+ * ni piloter le détecteur de doublage — `null` fait retomber sur le vrai
+ * `clipFraming` (repli manuel), comme tous les autres tests de ce fichier.
+ */
+let framingOverride: ResolvedFraming | null = null
+
+vi.mock('@/server/clip-framing', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/server/clip-framing')>()
+  return {
+    ...original,
+    clipFraming: (c: Clip, globals?: Parameters<typeof original.clipFraming>[1]) =>
+      framingOverride ?? original.clipFraming(c, globals),
+  }
+})
+
+/**
+ * `RENDER_NATIVE` vaut `false` en production (`src/core/render-flags.ts`) et
+ * le reste pour tous les tests de ce fichier, sauf celui qui a besoin des
+ * DEUX sorties à la fois pour prouver que `nativePieces` ignore `dubbing` —
+ * un getter, pas une valeur figée à l'import, pour que ce seul test puisse la
+ * faire basculer sans affecter les autres.
+ */
+let renderNativeOverride = false
+vi.mock('@/core/render-flags', () => ({
+  get RENDER_NATIVE() {
+    return renderNativeOverride
+  },
+}))
 
 vi.mock('@/server/ffprobe', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/server/ffprobe')>()
@@ -125,8 +162,11 @@ beforeEach(() => {
   process.env.FFMPEG_ENCODER = 'x264'
 
   encodings = []
+  capturedArgs = {}
   duringLEncoding = null
   editingRespond = true
+  framingOverride = null
+  renderNativeOverride = false
 
   upsertProject(getDb(), {
     id: ID,
@@ -1217,5 +1257,73 @@ describe('le texte des sous-titres (#87)', () => {
 
     expect(result.skipped).toBe(false)
     expect(lireFingerprint(paths.fingerprint)?.captionsContent).toBeTypeOf('string')
+  })
+})
+
+/**
+ * **Le point le plus facile à casser du contrat de PR3** : le doublage ne
+ * touche que la variante 9:16, jamais le natif. `framingOverride` impose un
+ * cadrage résolu directement (pas d'`analysis.json` ni de détecteur à
+ * piloter) pour poser un pavé de doublage sur l'unique plan du clip, avec et
+ * sans, et comparer l'argv **réellement construit** pour le natif — pas son
+ * seul résultat sur disque, qui serait identique même si le filtre avait
+ * changé.
+ */
+describe('la composition du doublage', () => {
+  const CELLS: DubbingCells = {
+    film: { x0: 0, y0: 0, x1: 1, y1: 1 },
+    pip: { x0: 0.773, y0: 0.022, x1: 0.988, y1: 0.222 },
+    strip: { x0: 0, y0: 0.9, x1: 1, y1: 1 },
+  }
+
+  function withOneShot(dubbing?: DubbingCells): ResolvedFraming {
+    return {
+      ratio: '1:1',
+      origin: 'no-analysis',
+      rejectedOverrides: [],
+      shots: [
+        {
+          shot: { start: 0, end: 1000 },
+          key: 0,
+          ratio: '1:1',
+          cropX: 0.5,
+          cropXNative: 0.5,
+          source: 'manual',
+          dubbing,
+        },
+      ],
+    }
+  }
+
+  it('ne bouge pas d’un octet l’argv du natif, avec ou sans pavé de doublage sur le plan', async () => {
+    renderNativeOverride = true
+    putClip(getDb(), clip())
+    const paths = pathsRender(ID, CLIP, '1:1')
+    if (paths.mp4 === null || paths.variant9x16 === null) {
+      throw new Error('ce clip devrait produire les deux sorties')
+    }
+
+    framingOverride = withOneShot(undefined)
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    const nativeWithout = capturedArgs[paths.mp4]
+    const variantWithout = capturedArgs[paths.variant9x16]
+    expect(nativeWithout).toBeDefined()
+    expect(variantWithout.join(' ')).not.toContain('geq=')
+
+    fs.rmSync(paths.fingerprint, { force: true })
+    encodings = []
+    capturedArgs = {}
+    framingOverride = withOneShot(CELLS)
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
+    const nativeWith = capturedArgs[paths.mp4]
+    const variantWith = capturedArgs[paths.variant9x16]
+
+    expect(result.skipped).toBe(false)
+    // Le natif : le même argv, au caractère près.
+    expect(nativeWith).toEqual(nativeWithout)
+    // La variante, elle, a bien changé — sinon la comparaison ci-dessus ne
+    // prouverait rien : les deux rendus seraient simplement identiques.
+    expect(variantWith).not.toEqual(variantWithout)
+    expect(variantWith.join(' ')).toContain('geq=')
   })
 })

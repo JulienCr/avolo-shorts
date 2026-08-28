@@ -18,6 +18,7 @@ import {
   sourceThumbArgs,
   thumbArgs,
   type FramedSegment,
+  type Rectangle,
 } from '@/core/ffmpeg/args'
 
 const count = (argv: string[], token: string) => argv.filter((x) => x === token).length
@@ -239,8 +240,20 @@ function entry(
   crop = FRAME_9_X_16,
   ratio: Ratio = '9:16',
   split?: FramedSegment['split'],
+  dubbing?: FramedSegment['dubbing'],
 ): FramedSegment {
-  return { start, end, crop, ratio, split }
+  return { start, end, crop, ratio, split, dubbing }
+}
+
+/**
+ * Les trois pavés d'une composition de doublage, en pixels d'une source
+ * 1920x1080 — les mêmes chiffres que l'exemple du contrat (amendement 3),
+ * pour que les hauteurs sur le canevas (562/523/45) s'y retrouvent telles quelles.
+ */
+const DUBBING_CELLS: { film: Rectangle; pip: Rectangle; strip: Rectangle } = {
+  film: { w: 1920, h: 1000, x: 0, y: 0 },
+  pip: { w: 413, h: 200, x: 1484, y: 100 },
+  strip: { w: 1920, h: 80, x: 0, y: 1000 },
 }
 
 /** Les deux cellules d'un plan splitté, en pixels d'une source 1920x1080. */
@@ -1371,6 +1384,86 @@ describe('blurredVariantArgs', () => {
       // `vstack` de deux cellules 1080x960 remplit exactement le canevas
       // vertical : pas de `scale=1080:1920` séparé après l'empilement.
       expect(a.join(' ')).not.toContain('scale=1080:1920')
+    })
+  })
+
+  // **Une entrée de doublage compose trois pavés inégaux par overlay sur un
+  // fond flouté** — jamais un `vstack`, réservé au split-écran de deux
+  // cellules égales (amendement 3 du contrat).
+  describe('une entrée de doublage (amendement 3)', () => {
+    it('assemble le graphe complet : trois pavés, un masque alpha, jamais de vstack', () => {
+      const g = graph(
+        blurredVariantArgs({
+          ...base,
+          segments: [entry(0, 10, FRAME_1_X_1, '1:1', undefined, DUBBING_CELLS)],
+        }),
+      )
+      expect(g).toBe(
+        '[0:v]fps=30,split=4[dbg0][dfilm0][dpip0][dstrip0];' +
+          '[dbg0]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[dbgb0];' +
+          '[dfilm0]crop=1920:1000:0:0,scale=1080:562:flags=lanczos,setsar=1[dfilmc0];' +
+          '[dpip0]crop=413:200:1484:100,scale=1080:523:flags=lanczos,format=yuva420p[dpiprgb0];' +
+          "[dpiprgb0]geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lte((X-542.667)*(X-542.667)/" +
+          "(541.245*541.245)+(Y-349.941)*(Y-349.941)/(541.402*541.402),1),255,0)'[dpipc0];" +
+          '[dstrip0]crop=1920:80:0:1000,scale=1080:45:flags=lanczos,setsar=1[dstripc0];' +
+          '[dbgb0][dfilmc0]overlay=x=0:y=395[dstep10];' +
+          '[dstep10][dpipc0]overlay=x=0:y=957[dstep20];' +
+          '[dstep20][dstripc0]overlay=x=0:y=1480,setsar=1[v];' +
+          `[0:a]${LOUDNORM},${RESAMPLE},${AUDIO_TIMELINE}[a]`,
+      )
+    })
+
+    it('ne pose jamais de vstack, et sort un canevas exactement 1080x1920', () => {
+      const g = graph(
+        blurredVariantArgs({
+          ...base,
+          segments: [entry(0, 10, FRAME_1_X_1, '1:1', undefined, DUBBING_CELLS)],
+        }),
+      )
+      expect(g).not.toContain('vstack')
+      expect(g).toContain('scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920')
+    })
+
+    it('crope les trois pavés — film, comédiens, bande —, jamais une corde inscrite', () => {
+      const g = graph(
+        blurredVariantArgs({
+          ...base,
+          segments: [entry(0, 10, FRAME_1_X_1, '1:1', undefined, DUBBING_CELLS)],
+        }),
+      )
+      // Un quatrième `crop=` vient du fond flouté (`crop=1080:1920`), qui
+      // n'est pas un pavé source : quatre au total, pas trois.
+      expect((g.match(/crop=/g) ?? []).length).toBe(4)
+      expect(g).toContain('crop=1920:1000:0:0')
+      expect(g).toContain('crop=413:200:1484:100')
+      expect(g).toContain('crop=1920:80:0:1000')
+    })
+
+    it('masque le pavé comédiens par l’arc du disque, en `geq` sur `yuva420p`', () => {
+      const g = graph(
+        blurredVariantArgs({
+          ...base,
+          segments: [entry(0, 10, FRAME_1_X_1, '1:1', undefined, DUBBING_CELLS)],
+        }),
+      )
+      expect(g).toContain('format=yuva420p')
+      expect(g).toContain("geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a=")
+      expect(g.match(/geq=/g)).toHaveLength(1)
+    })
+
+    // La hauteur d'un pavé sur le canevas suit la position du bandeau
+    // (amendement 3) : deux bandes de hauteurs différentes, même largeur de
+    // disque, ne doivent PAS sortir à la même hauteur sur le canevas — sinon
+    // une corde a été réintroduite quelque part.
+    it("fait varier la hauteur du pavé comédiens avec la hauteur de la bande, jamais avec sa position", () => {
+      const shallow = { ...DUBBING_CELLS, pip: { w: 413, h: 100, x: 1484, y: 100 } }
+      const g = graph(
+        blurredVariantArgs({
+          ...base,
+          segments: [entry(0, 10, FRAME_1_X_1, '1:1', undefined, shallow)],
+        }),
+      )
+      expect(g).toContain('scale=1080:261:flags=lanczos,format=yuva420p')
     })
   })
 })

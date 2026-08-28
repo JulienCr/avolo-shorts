@@ -39,6 +39,7 @@ import {
 } from '@/server/steps/render'
 import { clipFraming, forgetAnalyses } from '@/server/clip-framing'
 import type { Cell } from '@/core/framing'
+import type { DubbingCells } from '@/core/dubbing'
 
 /**
  * Ce que le rendu a de testable sans GPU, sans ffmpeg et sans vidéo : le choix
@@ -688,6 +689,24 @@ describe("l'empreinte de rendu", () => {
       )
     })
 
+    // Le schéma déclare `dubbing` `.optional()` (comme `split`) : une empreinte
+    // qui le porte doit relire à l'identique, sans que son absence sur les
+    // empreintes d'avant ne les fasse dire « illisibles ».
+    it('relit une empreinte qui porte un pavé de doublage', () => {
+      const CELLS: DubbingCells = {
+        film: { x0: 0, y0: 0, x1: 1, y1: 1 },
+        pip: { x0: 0.77, y0: 0.02, x1: 0.99, y1: 0.2 },
+        strip: { x0: 0, y0: 0.9, x1: 1, y1: 1 },
+      }
+      const cad = framing({
+        shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5, dubbing: CELLS }],
+      })
+      const written = fingerprintWith(clip(), [], true, cad)
+      fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
+      fs.writeFileSync(fingerprintPath(), JSON.stringify(written))
+      expect(lireFingerprint(fingerprintPath())).toEqual(written)
+    })
+
     it("rend null sur un JSON tronqué — un processus tué en pleine écriture", () => {
       fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
       fs.writeFileSync(fingerprintPath(), '{"version": 1, "segm')
@@ -1067,6 +1086,29 @@ describe('renderIsStale', () => {
     expect(renderIsStale(shape(clip(), withSplit), shape(clip(), withSplit))).toBe(false)
     expect(renderIsStale(shape(clip(), framing()), shape(clip(), withSplit))).toBe(true)
     expect(renderIsStale(shape(clip(), withSplit), shape(clip(), withOtherSplit))).toBe(true)
+  })
+
+  // Même défaut que le split, sur le doublage : trois pavés comparés en
+  // profondeur, jamais par référence.
+  it('voit un rendu périmé quand seules les cellules du doublage diffèrent', () => {
+    const CELLS: DubbingCells = {
+      film: { x0: 0, y0: 0, x1: 1, y1: 1 },
+      pip: { x0: 0.77, y0: 0.02, x1: 0.99, y1: 0.2 },
+      strip: { x0: 0, y0: 0.9, x1: 1, y1: 1 },
+    }
+    const OTHER_CELLS: DubbingCells = { ...CELLS, pip: { ...CELLS.pip, y1: 0.3 } }
+    const withDubbing = framing({
+      shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5, dubbing: CELLS }],
+    })
+    const withOtherDubbing = framing({
+      shots: [
+        { start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5, dubbing: OTHER_CELLS },
+      ],
+    })
+
+    expect(renderIsStale(shape(clip(), withDubbing), shape(clip(), withDubbing))).toBe(false)
+    expect(renderIsStale(shape(clip(), framing()), shape(clip(), withDubbing))).toBe(true)
+    expect(renderIsStale(shape(clip(), withDubbing), shape(clip(), withOtherDubbing))).toBe(true)
   })
 
   it('voit un segment déplacé, à nombre de segments égal', () => {

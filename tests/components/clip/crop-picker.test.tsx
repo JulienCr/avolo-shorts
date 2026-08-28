@@ -255,6 +255,15 @@ describe('frozenCropReason', () => {
     // plan à deux cellules n'a rien qu'un curseur horizontal puisse désigner.
     expect(frozenCropReason(manualFraming('1:1'), '1:1', true)).toContain('cellules empilées')
   })
+
+  // PR3 rend cette phrase vraie : `render.ts` compose désormais le pavé
+  // comédiens depuis `shot.dubbing`, ce qui n'était pas le cas quand PR4 avait
+  // fait retirer cette même cause (revue Copilot, PR #254).
+  it('dit qu’un plan de doublage n’a pas un seul crop à déplacer', () => {
+    expect(frozenCropReason(manualFraming('1:1'), '1:1', false, true)).toContain(
+      'doublage improvisé',
+    )
+  })
 })
 
 describe('CropOverlay', () => {

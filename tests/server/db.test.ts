@@ -39,7 +39,7 @@ import {
 import { mergeCandidates } from '@/core/candidates'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
 import type { Clip } from '@/core/edl'
-import { FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
+import { DEFAULT_DESCRIPTION_FOOTER, FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
 
 /**
  * La base porte les projets et les clips. Les artefacts du pipeline — proxy,
@@ -67,6 +67,7 @@ const clip = (id: string, remaining: Partial<Clip> = {}): Clip => ({
   cropX: 0.5,
   captions: true,
   branding: false,
+  footer: false,
   title: 'La vanne du chapeau',
   description: '',
   status: 'candidate',
@@ -401,6 +402,7 @@ describe('la famille `ai`', () => {
       cropX: 0,
       captions: true,
       branding: true,
+      footer: true,
       title: 't',
       description: 'd',
       status: 'kept',
@@ -1044,6 +1046,7 @@ describe('appliquerRéglages', () => {
         youtube: 'auto',
         scheduleHours: '19:00',
         autoPublish: true,
+        descriptionFooter: DEFAULT_DESCRIPTION_FOOTER,
       },
       framing: { ...FRAMING_SETTINGS_DEFAULTS },
     })
@@ -2284,5 +2287,25 @@ describe('publication.autoPublish', () => {
   it('s’écrit et se relit par `applySettings`', () => {
     applySettings(db, { publication: { autoPublish: false } })
     expect(effectiveSettings(db).publication.autoPublish).toBe(false)
+  })
+})
+
+describe('publication.descriptionFooter', () => {
+  it('vaut le pied de page par défaut, validé avec le propriétaire du dépôt', () => {
+    expect(effectiveSettings(db).publication.descriptionFooter).toBe(DEFAULT_DESCRIPTION_FOOTER)
+  })
+
+  it('accepte une chaîne vide — pas de pied de page est une valeur légitime', () => {
+    applySettings(db, { publication: { descriptionFooter: '' } })
+    expect(effectiveSettings(db).publication.descriptionFooter).toBe('')
+  })
+
+  it('s’écrit et se relit par `applySettings`', () => {
+    applySettings(db, { publication: { descriptionFooter: 'Un pied de page.' } })
+    expect(effectiveSettings(db).publication.descriptionFooter).toBe('Un pied de page.')
+  })
+
+  it('refuse un texte de plus de 2048 caractères', () => {
+    expect(() => applySettings(db, { publication: { descriptionFooter: 'x'.repeat(2049) } })).toThrow()
   })
 })

@@ -61,6 +61,7 @@ function clip(
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: `Le clip ${id}`,
     description: '',
     status: 'kept',

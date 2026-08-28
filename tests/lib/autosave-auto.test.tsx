@@ -33,6 +33,7 @@ function clip(overrides: Partial<Clip> = {}): Clip {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: 'Un titre',
     description: '',
     status: 'candidate',

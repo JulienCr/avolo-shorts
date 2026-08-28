@@ -260,6 +260,73 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
   })
 })
 
+describe('PublishDialog — aperçu de la description finale (récapitulatif)', () => {
+  it('montre la description composée, pied de page compris', () => {
+    render(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[eligible({ composedDescription: 'Une scène.\n\n———\nLa Scène Avolo.' })]}
+        availability={onlyInstagram}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    expect(screen.getByText('Description envoyée')).toBeTruthy()
+    // Instagram reçoit une légende unique, titre en préfixe (`platformTexts`) —
+    // l'aperçu doit montrer ce que la plateforme reçoit réellement, pas
+    // `composeDescription` seule (relevé par Copilot et Codex).
+    expect(document.querySelector('pre')?.textContent).toBe('La chute\n\nUne scène.\n\n———\nLa Scène Avolo.')
+  })
+
+  it('distingue la légende et la description YouTube quand les deux sont ciblées', () => {
+    render(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[eligible({ composedDescription: 'Une scène.\n\n———\nLa Scène Avolo.' })]}
+        availability={allAvailable}
+      />,
+    )
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Facebook' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'TikTok' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    const previews = Array.from(document.querySelectorAll('pre')).map((node) => node.textContent)
+    expect(previews).toContain('La chute\n\nUne scène.\n\n———\nLa Scène Avolo.')
+    expect(previews).toContain('Une scène.\n\n———\nLa Scène Avolo.')
+  })
+
+  it('distingue les clips au titre quand plusieurs sont prévisualisés', () => {
+    const onlyYoutube: Record<Platform, PlatformAvailability> = {
+      instagram: { available: false, reason: 'not_configured' },
+      facebook: { available: false, reason: 'not_configured' },
+      tiktok: { available: false, reason: 'not_configured' },
+      youtube: { available: true },
+    }
+    render(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[
+          eligible({ clipId: 'c1', title: 'Premier clip', composedDescription: 'Une scène.' }),
+          eligible({ clipId: 'c2', title: 'Deuxième clip', composedDescription: 'Une autre scène.' }),
+        ]}
+        availability={onlyYoutube}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    expect(screen.getByText('Premier clip')).toBeTruthy()
+    expect(screen.getByText('Deuxième clip')).toBeTruthy()
+  })
+
+  it("n'affiche rien quand l'appelant n'a pas fourni la description composée", () => {
+    render(
+      <PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={onlyInstagram} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    expect(screen.queryByText('Description envoyée')).toBeNull()
+  })
+})
+
 describe('PublishDialog — remise à zéro entre deux ouvertures', () => {
   it('revient à la sélection par défaut en se rouvrant, pas à celle laissée avant de fermer', () => {
     // Instagram est coché par défaut (disponible, jamais publié) ; le

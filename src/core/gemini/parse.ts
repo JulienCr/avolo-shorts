@@ -342,6 +342,7 @@ export function parseDetailResponse(
         cropX: 0.5,
         captions: true,
         branding: true,
+        footer: true,
         title: lu.data.video_title_for_youtube_short ?? '',
         // Une seule description ici, là où le prompt en demande deux. Elles ont
         // la même nature — une accroche puis des mots-dièse — et `Clip` n'a

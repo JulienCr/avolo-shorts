@@ -32,6 +32,7 @@ function clip(fields: Partial<Clip> = {}): Clip {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: 'La chute',
     description: 'Une impro',
     status: 'kept',

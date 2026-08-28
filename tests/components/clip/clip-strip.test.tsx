@@ -25,6 +25,7 @@ function candidate(id: string, overrides: Partial<CandidateClip> = {}): Candidat
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: `Le clip ${id}`,
     description: '',
     status: 'kept',

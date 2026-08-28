@@ -59,6 +59,8 @@ const EDIT = z.strictObject({
   description: z.string().optional(),
   captions: z.boolean().optional(),
   branding: z.boolean().optional(),
+  // Le pied de page commun s'ajoute-t-il à ce clip ? Même précédent que `branding`.
+  footer: z.boolean().optional(),
   status: z.enum(['candidate', 'kept', 'discarded']).optional(),
   // Le hook (retour d'usage §7). `hookText` n'est pas normalisé ici : la
   // normalisation (`normalizeHookText`, `@/core/hook`) s'applique à ce que le
@@ -296,8 +298,9 @@ export const PATCH = route(
       // appelants s'y tiennent. Ce qui reste ici est la seule chose qui relève
       // du `PATCH` : ne pas fabriquer un `.txt` pour un clip que rien n'a rendu,
       // et ne pas réécrire pour rien.
+      const footerOptions = { footer: effectiveSettings(db).publication.descriptionFooter }
       if (
-        publicationText(written) !== publicationText(clip) &&
+        publicationText(written, footerOptions) !== publicationText(clip, footerOptions) &&
         fs.existsSync(paths.texts)
       ) {
         publicationWriteText(db, id, written, paths.texts)

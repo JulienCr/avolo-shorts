@@ -1,7 +1,7 @@
 'use client'
 
 import { RotateCcw } from 'lucide-react'
-import { useId } from 'react'
+import { useId, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -13,8 +13,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { PLATFORM_LABELS, PLATFORMS, type Platform } from '@/core/publication'
 import {
+  DEFAULT_DESCRIPTION_FOOTER,
   DEFAULT_PUBLICATION_PREFERENCE,
   PUBLICATION_ADAPTER_CHOICES,
   type PublicationPreference,
@@ -84,7 +86,79 @@ export function PublicationSection({
           />
         ))}
       </div>
+
+      <DescriptionFooterField
+        value={values.descriptionFooter}
+        disabled={disabled}
+        onChange={onChange}
+      />
     </section>
+  )
+}
+
+/**
+ * Le pied de page commun (BACKLOG « pied de page commun ») : composé avec la
+ * description de chaque clip qui le demande (`composeDescription`,
+ * `@/core/publication`), une seule fonction pour l'aperçu, le planning et les
+ * connecteurs.
+ */
+function DescriptionFooterField({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string
+  disabled: boolean
+  onChange: (patch: Partial<PublicationSettings>) => void | Promise<unknown>
+}) {
+  const id = useId()
+  const helpId = `${id}-help`
+  const [draft, setDraft] = useState(value)
+  const [seen, setSeen] = useState(value)
+  if (seen !== value) {
+    setSeen(value)
+    setDraft(value)
+  }
+
+  function commit() {
+    if (draft === value) return
+    void Promise.resolve(onChange({ descriptionFooter: draft })).catch(() => setDraft(value))
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 rounded-xl border px-4 py-3">
+      <Label htmlFor={id} className="text-sm font-medium">
+        Pied de page des descriptions
+      </Label>
+      <Textarea
+        id={id}
+        disabled={disabled}
+        aria-describedby={helpId}
+        value={draft}
+        rows={4}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        className="font-mono text-sm"
+      />
+      {value !== DEFAULT_DESCRIPTION_FOOTER && (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={disabled}
+          onClick={() =>
+            void Promise.resolve(onChange({ descriptionFooter: DEFAULT_DESCRIPTION_FOOTER })).catch(() => {})
+          }
+          className="self-start text-xs"
+        >
+          <RotateCcw aria-hidden />
+          Revenir au pied de page par défaut
+        </Button>
+      )}
+      <p id={helpId} className="text-xs text-muted-foreground">
+        Ajouté à la description de chaque clip qui l’active (case « Pied de page » de l’écran de
+        clip). Vide : aucun pied de page n’est ajouté, même pour un clip qui le demande.
+      </p>
+    </div>
   )
 }
 

@@ -27,6 +27,7 @@ function clip(fields: Partial<Clip> = {}): Clip {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: 'La chute',
     description: 'Une impro',
     status: 'kept',
@@ -205,5 +206,22 @@ describe('FieldsTexts', () => {
     fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'En train d’écrire' } })
     rerender(<FieldsTexts clip={clip({ title: 'Le titre du serveur' })} onWrite={vi.fn()} />)
     expect((screen.getByLabelText('Titre') as HTMLInputElement).value).toBe('En train d’écrire')
+  })
+
+  it('reflète l’interrupteur du pied de page', () => {
+    const footerCheckbox = () =>
+      screen.getByRole('checkbox', { name: /Pied de page/ }) as HTMLInputElement
+    const { rerender } = render(<FieldsTexts clip={clip({ footer: true })} onWrite={vi.fn()} />)
+    expect(footerCheckbox().checked).toBe(true)
+
+    rerender(<FieldsTexts clip={clip({ footer: false })} onWrite={vi.fn()} />)
+    expect(footerCheckbox().checked).toBe(false)
+  })
+
+  it('écrit `footer` seul quand la case bascule', () => {
+    const onWrite = vi.fn()
+    render(<FieldsTexts clip={clip({ footer: true })} onWrite={onWrite} />)
+    fireEvent.click(screen.getByRole('checkbox', { name: /Pied de page/ }))
+    expect(onWrite).toHaveBeenCalledExactlyOnceWith({ footer: false })
   })
 })

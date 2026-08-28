@@ -14,6 +14,7 @@ import {
   usePublicationRecordsByClip,
   usePublisher,
   useProject,
+  useSettings,
 } from '@/lib/queries'
 import type { Platform } from '@/core/publication'
 import { ShowView } from '@/components/show/show-view'
@@ -65,6 +66,9 @@ export function ProjectScreen({ id }: { id: string }) {
     pendingClipIds: publicationRecordsPending,
     failedClipIds: publicationRecordsFailed,
   } = usePublicationRecordsByClip(exportedClipIds)
+  // Même source que l'écran de clip (`clip-screen.tsx`) : `undefined` tant que
+  // non chargé, jamais `''` par défaut (relevé par Copilot).
+  const descriptionFooter = useSettings().data?.publication?.descriptionFooter
 
   const [publishError, setPublishError] = useState<string | null>(null)
 
@@ -359,6 +363,7 @@ export function ProjectScreen({ id }: { id: string }) {
                 publicationRecords={publicationRecords}
                 publicationRecordsPending={publicationRecordsPending}
                 publicationRecordsFailed={publicationRecordsFailed}
+                descriptionFooter={descriptionFooter}
                 publishError={publishError}
                 onPublish={publishSelection}
                 header={

@@ -12,6 +12,7 @@ import {
   platformEligibility,
   platformFile,
   platformTexts,
+  type DescriptionFooterOptions,
   type Platform,
   type PlatformTexts,
   type PublicationRecord,
@@ -107,7 +108,8 @@ export function renderFingerprintForClip(db: Database.Database, clip: Clip): str
 export function currentFingerprintForClip(db: Database.Database, clip: Clip, platform: Platform): string | null {
   const renderFingerprint = renderFingerprintForClip(db, clip)
   if (renderFingerprint === null) return null
-  return publicationFingerprint(renderFingerprint, platformTexts(clip, platform))
+  const footerOptions: DescriptionFooterOptions = { footer: effectiveSettings(db).publication.descriptionFooter }
+  return publicationFingerprint(renderFingerprint, platformTexts(clip, platform, footerOptions))
 }
 
 /**
@@ -313,7 +315,9 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
     if (!exportEligibility.eligible) throw requestInvalid(exportEligibility.reason)
   }
 
-  const framing = clipFraming(clip, effectiveSettings(db).framing)
+  const settings = effectiveSettings(db)
+  const footerOptions: DescriptionFooterOptions = { footer: settings.publication.descriptionFooter }
+  const framing = clipFraming(clip, settings.framing)
   if (!ignoreStaleRender && !deliveryToDay(clip, framing)) {
     throw requestInvalid('Le rendu de ce clip est périmé ou absent : exporter avant de publier.')
   }
@@ -418,9 +422,10 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
     // sauf mélange YouTube/non-YouTube sous un même connecteur (issue #153).
     const settled = Promise.all(
       [...groups].map(([adapter, group]) => {
-        const texts = platformTexts(clip, representativePlatform(group))
+        const texts = platformTexts(clip, representativePlatform(group), footerOptions)
         const job: PublicationJob = { clipId: clip.id, videoPath, fingerprint: renderFingerprint, force, ...texts }
-        const fingerprintFor = (platform: Platform): string => publicationFingerprint(renderFingerprint, platformTexts(clip, platform))
+        const fingerprintFor = (platform: Platform): string =>
+          publicationFingerprint(renderFingerprint, platformTexts(clip, platform, footerOptions))
         return runDetached(db, adapter, clip, group, job, fingerprintFor, sleep)
       }),
     ).then(() => undefined)

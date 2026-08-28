@@ -33,6 +33,7 @@ function baseClip(fields: Partial<Clip> = {}): Clip {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: 'Le pingouin au tribunal',
     description: 'Un procès improbable',
     status: 'kept',

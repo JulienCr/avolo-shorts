@@ -452,6 +452,10 @@ export function useExporter() {
     onSuccess(_result, { clipId }) {
       void client.invalidateQueries({ queryKey: keys.clip(clipId) })
       void client.invalidateQueries({ queryKey: keys.tousCandidats })
+      // **Et le vivier**, que l'export fait bouger des deux côtés : le clip y
+      // entre et il sort de `pending`. Sans ça le bouton de rattrapage
+      // recompterait des clips qu'il vient lui-même de rendre.
+      void client.invalidateQueries({ queryKey: keys.planningPool })
     },
   })
 }
@@ -952,7 +956,8 @@ export function usePublisher() {
 }
 
 /**
- * Le vivier du planning — clips exportés, à jour, pas encore programmés.
+ * Le vivier du planning — clips exportés, à jour, pas encore programmés — et
+ * `pending`, ceux qui n'y sont pas faute de vidéo à jour.
  *
  * **Pas de sondage** : rien ici ne change sans un geste de l'utilisateur,
  * contrairement à `usePublications` qui suit un envoi détaché.

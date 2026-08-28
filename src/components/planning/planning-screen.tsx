@@ -49,7 +49,7 @@ export function PlanningScreen() {
   // **Réconciliée avec le vivier, jamais lue seule** — même règle que
   // `ReviewFeed` (`feed.tsx:173-181`) : la sélection ne doit pas annoncer un
   // compte qu'elle ne peut plus honorer.
-  const poolClips = pool.data ?? []
+  const poolClips = pool.data?.clips ?? []
   const selectedClips = poolClips.filter((c) => selected.has(c.clipId))
   // **Réconciliée avec le vivier, jamais lue seule dans l'URL** — même règle
   // que la sélection : un `?preview=` nommant un clip absent du vivier
@@ -113,6 +113,7 @@ export function PlanningScreen() {
           <h2 className="text-sm font-medium text-muted-foreground">Vivier</h2>
           <PoolGrid
             clips={poolClips}
+            pending={pool.data?.pending ?? []}
             loading={pool.isPending}
             selected={selected}
             onToggle={toggle}

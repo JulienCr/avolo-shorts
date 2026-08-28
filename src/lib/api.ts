@@ -25,7 +25,7 @@
  * GET   /api/publication/availability        -> Record<Platform, PlatformAvailability>
  * POST  /api/clips/:id/publish { platforms, force? } -> { publications: PublicationRow[] }
  * GET   /api/clips/:id/publications         -> { publications: PublicationView[] }
- * GET   /api/planning/pool                  -> { clips: PlanningPoolClip[] }
+ * GET   /api/planning/pool                  -> PlanningPool
  * GET   /api/planning/schedule?from=<ms>&to=<ms>      -> { entries: ScheduledEntry[] }
  * POST  /api/planning/schedule { clipIds, scheduledAt } -> { entries: ScheduledEntry[] }
  * POST  /api/planning/unschedule { clipIds } -> { removed: number }
@@ -1412,6 +1412,32 @@ export type PlanningPoolClip = {
 }
 
 /**
+ * Un clip qui devrait être au vivier et n'y est pas, faute de vidéo à jour.
+ *
+ * Les mêmes gardes que `PlanningPoolClip` s'y appliquent — ni échéance
+ * `planned`, ni plateformes toutes arrêtées : ce qui ne pourrait pas entrer au
+ * vivier une fois rendu n'a rien à faire dans la liste de ce qui lui manque.
+ */
+export type PlanningPendingClip = {
+  clipId: string
+  projectId: string
+  title: string
+  /**
+   * L'état du **rendu**, jamais l'histoire du clip : `stale`, un rendu qui ne
+   * décrit plus le montage ; `missing`, aucun rendu sur le disque. `kept` ne
+   * prouve pas qu'un clip n'a jamais été monté — `discardRenderStale` y fait
+   * redescendre un clip exporté qu'on rouvre (relevé par Copilot et Codex).
+   */
+  reason: 'missing' | 'stale'
+}
+
+/** Ce que rend `GET /api/planning/pool` : le vivier, et ce qui lui manque. */
+export type PlanningPool = {
+  clips: PlanningPoolClip[]
+  pending: PlanningPendingClip[]
+}
+
+/**
  * Ce que le planning affiche pour une plateforme d'une échéance : au-delà du
  * statut, ce qui vient nourrir le détail d'un échec sans dupliquer le
  * courriel d'abandon (`src/server/publication/scheduler.ts`), qui lit les
@@ -1438,9 +1464,9 @@ export type ScheduledEntry = {
   stale: boolean
 }
 
-/** Les clips exportés, à jour, pas encore programmés — `GET /api/planning/pool`. */
-export function listPlanningPool(): Promise<PlanningPoolClip[]> {
-  return lire<{ clips: PlanningPoolClip[] }>('/api/planning/pool').then((r) => r.clips)
+/** Le vivier et ce qui lui manque — `GET /api/planning/pool`. */
+export function listPlanningPool(): Promise<PlanningPool> {
+  return lire<PlanningPool>('/api/planning/pool')
 }
 
 /** Le calendrier entre deux bornes (ms, `to` exclu) — `GET /api/planning/schedule`. */

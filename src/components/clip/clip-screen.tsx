@@ -3,6 +3,7 @@
 import { ChevronDown, ChevronLeft, ChevronRight, Keyboard, RotateCw, Redo2, Undo2 } from 'lucide-react'
 import { useIsMutating } from '@tanstack/react-query'
 import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 
 import { AppBar } from '@/components/navigation/app-bar'
@@ -11,38 +12,45 @@ import { PreviewOutput } from '@/components/clip/output-preview'
 import { FieldsTexts } from '@/components/clip/text-fields'
 import { ClipPlayer, ClipTransport, togglePlayback, placePlayback } from '@/components/clip/clip-player'
 import { ClipStrip } from '@/components/clip/clip-strip'
+import { type ClipView, readClipView, writeClipView } from '@/components/clip/clip-view'
 import { CropOverlay, RatioPicker } from '@/components/clip/crop-picker'
+import { ClipPrimaryAction, deriveDeliveryState } from '@/components/clip/export-panel'
+import { ExportsView } from '@/components/clip/exports-view'
 import { FramingFields } from '@/components/clip/framing-fields'
 import { usePlayback } from '@/components/clip/playback'
-import { PanelExport } from '@/components/clip/export-panel'
 import { DialogueShortcuts, useShortcuts } from '@/components/clip/shortcuts'
 import { Timeline } from '@/components/clip/timeline'
 import { TranscriptDrawer } from '@/components/clip/transcript-drawer'
+import { outputNames } from '@/components/clip/texts'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
-  isComputedFraming,
-  effectiveRatio,
-  activeSplit,
-  activeDubbing,
-  useCurrentShot,
-} from '@/components/clip/framing'
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { PublishDialog, type PublishClipTarget } from '@/components/publication/publish-dialog'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
 import { clipDuration } from '@/core/edl'
 import { resolveHook } from '@/core/hook'
 import { isGuard } from '@/core/phase'
+import { clipExportEligibility, composeDescription } from '@/core/publication'
 import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
 import { HOOK_DEFAULTS } from '@/lib/api'
 import { LABELS_STATUS } from '@/lib/clip-status'
-import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
-import { clipBounds, indexTranscript, lineInitial } from '@/lib/editing'
+import { indexTranscript, lineInitial } from '@/lib/editing'
 import { differences, useAutosave } from '@/lib/autosave'
-import { formatDuration, formatTimecode } from '@/lib/format'
 import { clipNext, linkClip } from '@/lib/navigation'
 import {
+  useExporter,
   usePatchClip,
   useCandidates,
   usePublications,
@@ -55,27 +63,38 @@ import { cn } from '@/lib/utils'
 import { useEditor, useCanCancel, useCanRestore, useSegments } from '@/store/editor'
 
 /**
- * La hauteur commune des deux aperçus.
- *
- * **Le nombre importe moins que l'unicité de sa source.** Les deux vues doivent
- * avoir exactement la même hauteur visuelle : la donner ici, une fois, et
- * laisser chacune en déduire sa largeur est ce qui empêche la prochaine
- * retouche de réintroduire un `max-w-40` d'un côté et une largeur libre de
- * l'autre.
- *
- * **Elle vient du volet, pas d'une constante — depuis l'établi (spec du 23
- * août, §3.3).** `h-72` reste le repli en dessous du seuil `workbench` (fenêtre
- * trop étroite ou trop basse, §7) : l'écran défile alors comme avant ce lot, et
- * une hauteur fixe y vaut ce qu'elle valait. Au-dessus du seuil, `flex-1` fait
- * des deux aperçus des **frères qui s'étirent sur la même rangée** — une
- * garantie plus forte qu'une constante partagée, parce qu'aucune retouche
- * future ne peut donner une largeur à l'un et une hauteur à l'autre sans
- * casser la rangée elle-même, visiblement. **Aucun `max-width` n'entre dans ce
- * calcul** : c'est la condition de recette du lot (mesuré : un `max-width` à
- * côté d'un `aspect-ratio` fait recalculer la hauteur depuis la largeur
- * clampée, et la boîte 16:9 retombait à 202 px là où on lui en demandait 272).
+ * Ce que montre le viseur : l'aperçu vivant, ou le fichier livré, au même
+ * endroit. « Export » est absent plutôt que grisé tant que rien n'est livré
+ * (§3.4, 23 août) — même règle que « Publier ».
  */
-const PREVIEW_FRAME = cn('h-72 w-auto', 'workbench:h-auto workbench:min-h-0 workbench:flex-1')
+export function OutputSwitch({
+  delivered,
+  mode,
+  onMode,
+}: {
+  delivered: boolean
+  mode: 'preview' | 'export'
+  onMode: (mode: 'preview' | 'export') => void
+}) {
+  return (
+    <ToggleGroup
+      value={[mode]}
+      onValueChange={(chosen: string[]) => {
+        // En sélection unique, recliquer l'élément actif rend une liste vide :
+        // il n'y a rien de sensé à en faire, on garde le mode précédent.
+        const next = chosen[0] as 'preview' | 'export' | undefined
+        if (next) onMode(next)
+      }}
+      variant="outline"
+      size="sm"
+      spacing={0}
+      aria-label="Ce que montre le viseur"
+    >
+      <ToggleGroupItem value="preview">Aperçu</ToggleGroupItem>
+      {delivered && <ToggleGroupItem value="export">Export</ToggleGroupItem>}
+    </ToggleGroup>
+  )
+}
 
 /**
  * L'écran de clip, **hors de la page**.
@@ -85,12 +104,11 @@ const PREVIEW_FRAME = cn('h-72 w-auto', 'workbench:h-auto workbench:min-h-0 work
  * montage vit ici, où il se monte dans un test sans passer par la résolution
  * d'une promesse de paramètres.
  *
- * La surface d'édition est le transcript (spec §13), et **c'est aussi l'organe
- * de navigation temporelle** : cliquer un mot y place la lecture, la lecture y
- * surligne le mot en cours. Ce que cet écran ajoute autour : le lecteur qui
- * saute les passages retirés, l'aperçu de ce que le ratio produira, les deux
- * textes qui se publient, et l'export — qui vit ici, pas ailleurs, parce que
- * c'est par clip qu'on choisit le cadre.
+ * **Deux vues sous les mêmes onglets** (spec du 28 août) : Édition, où la
+ * sortie 9:16 domine à côté de la source qu'on ajuste, et Exports, la
+ * livraison courante. La vue vit dans l'URL (`clip-view.ts`), le geste
+ * terminal unique dans la barre d'app — un seul, quelle que soit la vue,
+ * puisque l'export et la publication marchent sans changer d'onglet.
  */
 export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const { clip, project, lines, proxyUrl, outputs, framing } = detail
@@ -99,6 +117,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const canCancel = useCanCancel()
   const canRestore = useCanRestore()
   const patch = usePatchClip()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const view: ClipView = readClipView(searchParams.toString())
+  const [mode, setMode] = useState<'preview' | 'export'>('preview')
 
   // **La liste des candidats, interrogée ici et pas supposée en cache.** Arriver
   // par une URL partagée, un signet ou un rechargement est un parcours que la
@@ -143,6 +166,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const hookGlobals = settings.data?.hook
   const framingGlobals = settings.data?.framing
   const resolvedHook = resolveHook(hookGlobals ?? HOOK_DEFAULTS, clip)
+  // `undefined` tant que les réglages n'ont pas répondu : distinct d'un pied
+  // de page réellement vide, mais `ExportsView` demande une chaîne définie —
+  // le pire cas est une composition sans pied de page pendant le court
+  // chargement des réglages, jamais un texte incomplet publié.
+  const descriptionFooter = settings.data?.publication?.descriptionFooter ?? ''
 
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const [search, setSearch] = useState(false)
@@ -205,27 +233,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     usePlayback.getState().defineWords(words)
   }, [words])
 
-  const bounds = clipBounds(segments)
   const duration = clipDuration(segments)
-
-  // Tout ce qui décide du rendu. Le panneau d'export s'en sert pour dater son
-  // annonce de résultat : une coupe de même durée, un cadrage déplacé ou les
-  // marques basculées périment les fichiers sans changer la durée.
-  // **Le cadrage résolu y entre, et pas seulement le ratio demandé.** Le cadre
-  // se recalcule sur les segments : une coupe peut le changer sans que
-  // `editeur.ratio` ni `editeur.cropX` ne bougent, et « rendu terminé »
-  // continuerait de décrire des fichiers que le `PATCH` vient d'écarter.
-  const renderFingerprint = JSON.stringify([
-    clip.id,
-    segments,
-    editor.ratio,
-    editor.cropX,
-    framing,
-    clip.branding,
-    clip.captions,
-    clip.title,
-    clip.description,
-  ])
   const selection = editor.selection
 
   // Calculée sur le clip **enregistré**, et la règle est dans `@/lib/editing`.
@@ -258,7 +266,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   // ce raccord, la barre affiche « enregistré » sur une écriture que le serveur
   // vient de refuser, et son rollback a déjà remis la valeur d'avant à l'écran.
   // (relevé par Copilot)
-  const inFailure = autosave === 'failed' || patch.isError || textsInFailure.length > 0
+  const writeInFailure = patch.isError || textsInFailure.length > 0
+  const inFailure = autosave === 'failed' || writeInFailure
   const lastRejection = patch.isError ? patch.variables : undefined
 
   // **Toutes les écritures en vol sur ce clip, et pas seulement la dernière.**
@@ -323,6 +332,62 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const rank = guards.findIndex((c) => c.id === clip.id)
   const previous = rank > 0 ? guards[rank - 1] : null
   const next = clipNext(candidates.data ?? [], clip.id)
+
+  // ---------------------------------------------------------------------
+  // Le geste terminal unique : export et publication, quelle que soit la
+  // vue active. Monté ici plutôt que dans `ExportsView` — sinon le bouton de
+  // la barre d'app ne ferait rien tant que l'onglet Exports n'est pas ouvert.
+  // ---------------------------------------------------------------------
+  const exporter = useExporter()
+  const [confirmation, setConfirmation] = useState(false)
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false)
+  const state = deriveDeliveryState(clip.status, outputs)
+  const native = framing.ratio
+  const names = outputNames(clip.id, native)
+  // **Trois empêchements, et chacun a sa raison.** Rendre un état non
+  // enregistré produirait un fichier qui ne correspond à rien de persistant ;
+  // rendre un clip vide ne produirait rien du tout.
+  const prevention =
+    duration <= 0
+      ? 'Tous les mots ont été retirés : il n’y a rien à rendre.'
+      : autosave === 'pending'
+        ? 'Un enregistrement est en attente. Rendre maintenant produirait un fichier qui ne correspond à rien de persistant.'
+        : autosave === 'failed' || writeInFailure
+          ? 'Le dernier enregistrement a échoué. Le rendu attend qu’il passe.'
+          : writesInFlight > 0
+            ? 'Une modification est en cours d’écriture. Le rendu lirait la version d’avant.'
+            : null
+  const exportDisabled = prevention !== null || exporter.isPending
+  const publicationEligibility = clipExportEligibility(state === 'delivered')
+
+  function launch(force: boolean) {
+    if (exportDisabled) return
+    exporter.mutate({ clipId: clip.id, force })
+  }
+
+  function onExport() {
+    if (exportDisabled) return
+    // « jamais livré » lance directement ; « périmé » confirme toujours
+    // l'écrasement — un geste confirmé n'est jamais le primaire (spec du 23
+    // août, §3.4).
+    if (state === 'stale') setConfirmation(true)
+    else launch(false)
+  }
+
+  function onPublish() {
+    if (exportDisabled || !publicationEligibility.eligible) return
+    setPublishDialogOpen(true)
+  }
+
+  const publishTarget: PublishClipTarget = {
+    clipId: clip.id,
+    title: clip.title,
+    eligibility: publicationEligibility,
+    records: publicationRecords,
+    composedDescription: settings.data === undefined
+      ? undefined
+      : composeDescription(clip, { footer: descriptionFooter }),
+  }
 
   return (
     <>
@@ -409,6 +474,31 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         >
           <Keyboard aria-hidden />
         </Button>
+
+        {/* **Les onglets et le geste terminal, dans la barre — spec du 28
+            août.** La vue devient un endroit plutôt qu'un pli, et son bouton
+            se pose là où sa vue se choisit. Le primaire est le dernier
+            élément interactif de la ligne. */}
+        <Tabs
+          value={view}
+          onValueChange={(v) => {
+            const query = writeClipView(searchParams.toString(), v as ClipView)
+            router.replace(`${pathname}${query}`, { scroll: false })
+          }}
+        >
+          <TabsList variant="line">
+            <TabsTrigger value="edition">Édition</TabsTrigger>
+            <TabsTrigger value="exports">Exports</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {exporter.isError && (
+          <span className="text-[0.75rem] text-destructive" aria-live="assertive">
+            échec de l’export
+          </span>
+        )}
+
+        <ClipPrimaryAction state={state} onExport={onExport} onPublish={onPublish} disabled={exportDisabled} />
       </AppBar>
 
       {/* **La boucle, en haut et d'un seul tenant** : la fresque des clips gardés
@@ -451,274 +541,247 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         </div>
       </div>
 
-      {/* **L'établi, deux volets sous la fresque** (spec du 23 août, §3.3) : à
-          gauche la scène — choisir l'extrait —, à droite la fiche — dire ce
-          qu'il dira. C'est la diagonale du regard : l'œil entre en haut à
-          gauche, en sort en bas à droite, et le rail qui suit `<main>` pose le
-          geste terminal à cette sortie-là. Au-dessus du seuil `workbench`
-          (largeur **et** hauteur, voir `globals.css`), l'écran ne défile plus
-          — `main` devient la rangée fixe des deux volets. En dessous, il
-          redevient la colonne qui défile d'avant ce lot : la largeur seule ne
-          suffit pas à garantir que les aperçus restent lisibles. */}
-      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto workbench:flex-row workbench:overflow-hidden">
-        <section
-          aria-labelledby="zone-image"
-          // **`container-type: inline-size` ici, pas sur la rangée qu'il
-          // borne.** Un conteneur de requête ne se mesure pas lui-même — posé
-          // sur la rangée, `cqw` remontait à l'ancêtre suivant (donc à la
-          // largeur de la fenêtre, pas du volet) et le plafond calculé
-          // valait le double de ce qu'il fallait. Mesuré : 430,7 px au lieu
-          // des 211,5 attendus à 1024 px de large.
-          //
-          // **`shrink-0` en dehors de l'établi, `min-h-0` seulement dedans.**
-          // Sous le seuil, `main` redevient une colonne qui défile
-          // (`overflow-y-auto`) plutôt qu'une rangée fixe : sans `shrink-0`,
-          // le volet pouvait se faire comprimer par l'algorithme flex avant
-          // même que le défilement n'entre en jeu, et son propre contenu
-          // débordait alors *par-dessus* le volet suivant plutôt que de
-          // pousser la page vers le bas. Mesuré, à 1416×800 : le titre du
-          // volet Contenu se peignait au milieu du transport du volet Image.
-          className="flex min-w-0 shrink-0 flex-col gap-3 border-b p-4 workbench:min-h-0 workbench:flex-1 workbench:overflow-hidden workbench:border-r workbench:border-b-0 workbench:[container-type:inline-size]"
-        >
-          <h2 id="zone-image" className="shrink-0 text-sm font-medium">
-            Image
-          </h2>
+      {view === 'edition' ? (
+        /* **Deux volets, la sortie 9:16 dominante** (spec du 28 août, §1) : à
+            gauche l'instrument — la source qu'on ajuste, la fiche qui
+            l'accompagne, la bande de temps —, à droite le produit — la
+            sortie verticale, dimensionnée sur la hauteur du volet plutôt que
+            sur une constante partagée avec la source. Au-dessus du seuil
+            `workbench` (largeur **et** hauteur, voir `globals.css`), l'écran
+            ne défile plus — `main` devient la rangée fixe des deux volets. En
+            dessous, il redevient la colonne qui défile d'avant ce lot. */
+        <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 workbench:flex-row workbench:overflow-hidden">
+          <section
+            aria-labelledby="zone-image"
+            // **`container-type: inline-size` ici, pas sur la rangée qu'il
+            // borne** — même piège que documenté plus loin dans ce fichier
+            // avant ce lot : posé sur la rangée, `cqw` remonte à l'ancêtre
+            // suivant plutôt qu'à la section.
+            className="flex min-w-0 min-h-0 shrink-0 flex-col gap-3 workbench:min-h-0 workbench:min-w-0 workbench:flex-1 workbench:overflow-y-auto workbench:[container-type:inline-size]"
+          >
+            <h2 id="zone-image" className="shrink-0 text-sm font-medium">
+              Image
+            </h2>
 
-          {/* **Deux images, deux outils, et la même hauteur.** À gauche la source
-              avec le rectangle : on cadre en regardant ce qu'on laisse dehors. À
-              droite le canevas de sortie, à l'échelle du téléphone : c'est là
-              qu'un 16:9 se voit occuper le tiers de la hauteur et un 4:5 les sept
-              dixièmes. `PREVIEW_FRAME` est l'unique source des deux — voir sa
-              note en tête de fichier.
+            {/* **La source et la fiche éditoriale, côte à côte.** Le hook
+                brûle dans l'image : son champ doit rester visible en même
+                temps qu'elle. La fiche vise 30 % du volet, bornée entre
+                360 et 620 px — au-delà, elle voudrait dire une ligne plus
+                large que ce qu'un téléphone affiche jamais. */}
+            <div className="flex min-h-0 flex-wrap items-start gap-4 workbench:flex-nowrap workbench:max-h-[58vh]">
+              <figure className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
+                  la source — le rectangle est le cadre pris pour ce plan
+                </figcaption>
+                <ClipPlayer
+                  proxyUrl={proxyUrl}
+                  segments={segments}
+                  onVideo={setVideo}
+                  frame="h-72 w-auto workbench:h-auto workbench:min-h-0 workbench:w-full workbench:[aspect-ratio:16/9]"
+                  overlay={
+                    <CropOverlay
+                      framing={framing}
+                      ratio={editor.ratio}
+                      cropX={editor.cropX}
+                      onCropX={editor.moveCrop}
+                      describedBy={cropReasonId}
+                    />
+                  }
+                />
+              </figure>
 
-              **`max-h` en `cqw`, mesuré, pas deviné.** À 1024 px de large —
-              le plancher `workbench` — une fenêtre haute et étroite (par
-              exemple 1024×1318) donne au volet gauche plus de hauteur que sa
-              largeur ne peut en accueillir côte à côte sans repli à la ligne
-              (`workbench:flex-nowrap`) : les deux boîtes, dérivant leur
-              largeur de la hauteur disponible, débordaient alors du volet —
-              mesuré, `document.documentElement.scrollWidth` dépassait
-              `innerWidth` de 212 px. Le plafond ici n'est **pas** un
-              `max-width` posé à côté d'un `aspect-ratio` sur les boîtes
-              elles-mêmes — c'est la faute que le lot ne doit pas réintroduire
-              — mais un plafond sur la **rangée**, en unités de conteneur
-              (`container-type: inline-size` sur elle, comme `PreviewOutput`
-              le fait déjà pour son propre calque). `2,3403` est la somme des
-              deux rapports fixes que les boîtes portent toujours, 16:9 et
-              9:16 (`RATIOS`), jamais celui du plan en cours. */}
-          <div className="flex flex-1 flex-wrap items-stretch gap-4 workbench:min-h-0 workbench:flex-nowrap workbench:max-h-[calc((100cqw-1rem)/2.3403)]">
-            {/* **La largeur de chaque figure se pose, elle ne se déduit plus —
-                mais seulement dans l'établi.** Mesuré : laissée à
-                `flex-basis: auto` (le défaut), la largeur d'une figure
-                dépendait de la longueur de sa légende — 420 px de figure pour
-                une boîte 16:9 qui n'en demandait que 333 — et le calcul
-                intrinsèque d'une boîte à `aspect-ratio` imbriquée dans un
-                enfant `flex-1` (la hauteur du cadre) se résout à une valeur
-                indéterminée pendant cette même passe : la boîte de sortie
-                débordait alors de sa figure de 30,7 px, rognée par
-                `overflow-hidden` du volet. Les deux rapports sont **fixes**
-                (16:9 pour la source, 9:16 pour le cadre du téléphone — jamais
-                celui du plan en cours, qui ne change que le canevas *dans* ce
-                cadre) : leur donner ces poids en `flex-grow`/`flex-shrink`
-                répartit la rangée d'après eux plutôt que d'après le texte de
-                la légende, qui tronque désormais au lieu de peser sur la
-                mise en page. **`workbench:` seulement** : sous le seuil, les
-                deux boîtes reviennent à leur `h-72` fixe et `flex-wrap`
-                reprend la main — un poids `flex` sans base sur les deux les
-                aurait fait chevaucher et déborder plutôt que passer à la
-                ligne. (relevé par Codex, les deux fois) */}
-            <figure className="flex min-w-0 flex-col gap-1.5 workbench:basis-0 workbench:grow-[calc(16/9)] workbench:shrink-[calc(16/9)]">
-              <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
-                la source — le rectangle est le cadre pris pour ce plan
-              </figcaption>
-              <ClipPlayer
-                proxyUrl={proxyUrl}
+              <div className="flex min-w-0 shrink-0 flex-col gap-3 workbench:w-[clamp(360px,30cqw,620px)]">
+                <FieldsTexts clip={clip} onWrite={write} onFailure={flagFailureText} />
+                <HookFields
+                  clip={clip}
+                  globals={hookGlobals}
+                  onWrite={write}
+                  onFailure={flagFailureText}
+                />
+              </div>
+            </div>
+
+            <div className="shrink-0">
+              <ClipTransport video={video} proxyUrl={proxyUrl} segments={segments} />
+            </div>
+
+            <div className="shrink-0">
+              <Timeline
                 segments={segments}
-                onVideo={setVideo}
-                frame={PREVIEW_FRAME}
-                overlay={
-                  <CropOverlay
-                    framing={framing}
-                    ratio={editor.ratio}
-                    cropX={editor.cropX}
-                    onCropX={editor.moveCrop}
-                    describedBy={cropReasonId}
-                  />
-                }
+                framing={framing}
+                proxyUrl={proxyUrl}
+                sourceDuration={project.durationSec}
+                onScrub={(time) => {
+                  // **La bande est en temps source, la lecture ne l'est pas.** Une
+                  // position tombée dans un passage retiré est légitime à regarder —
+                  // c'est tout l'intérêt d'une bande à coupes visibles — mais la
+                  // lecture, elle, saute les retraits (`playbackAction`). On confie
+                  // donc la position à `placePlayback`, qui la ramène dans le
+                  // montage : l'image montrait ce qu'il y a là, la lecture reprend
+                  // au segment suivant.
+                  placePlayback(video, segments, time)
+                }}
+                onBoundary={editor.setBoundaryAt}
               />
-            </figure>
-            <PreviewOutput
-              hook={hookGlobals !== undefined ? resolvedHook : undefined}
-              video={video}
-              framing={framing}
-              ratio={editor.ratio}
-              cropX={editor.cropX}
-              frame={PREVIEW_FRAME}
-              figureClassName="workbench:basis-0 workbench:grow-[calc(9/16)] workbench:shrink-[calc(9/16)]"
-              captionCards={clip.captions ? captionCards : undefined}
-              captionStyle={DEFAULT_CAPTION_STYLE}
-              segments={segments}
-            />
-          </div>
+            </div>
 
-          <div className="shrink-0">
-            <ClipTransport video={video} proxyUrl={proxyUrl} segments={segments} />
-          </div>
+            <div className="shrink-0">
+              <RatioPicker
+                framing={framing}
+                ratio={editor.ratio}
+                onRatio={editor.chooseRatio}
+                cropReasonId={cropReasonId}
+              />
+            </div>
 
-          <div className="shrink-0">
-            <Timeline
-              segments={segments}
-              framing={framing}
-              proxyUrl={proxyUrl}
-              sourceDuration={project.durationSec}
-              onScrub={(time) => {
-                // **La bande est en temps source, la lecture ne l'est pas.** Une
-                // position tombée dans un passage retiré est légitime à regarder —
-                // c'est tout l'intérêt d'une bande à coupes visibles — mais la
-                // lecture, elle, saute les retraits (`playbackAction`). On confie
-                // donc la position à `placePlayback`, qui la ramène dans le
-                // montage : l'image montrait ce qu'il y a là, la lecture reprend
-                // au segment suivant.
-                placePlayback(video, segments, time)
+            <div className="shrink-0">
+              <FramingFields clip={clip} globals={framingGlobals} framing={framing} onWrite={write} />
+            </div>
+
+            {duration === 0 && (
+              // Le cas prévu côté serveur et qui n'avait pas de rendu propre :
+              // tout a été retiré. **Il se dit hors du tiroir**, sinon il faudrait
+              // ouvrir le montage pour apprendre qu'il n'y a plus de montage.
+              <p className="shrink-0 text-[0.75rem] text-muted-foreground">
+                Il ne reste rien du clip. Ouvrir le montage pour le reconstruire : cliquer un mot
+                barré le fait recommencer là.
+              </p>
+            )}
+
+            {/* **Le transcript reste la surface d'édition, il cesse d'être
+                toujours visible.** Il occupait la moitié de l'écran pour un geste
+                ponctuel, pendant que le geste courant — vérifier, ajuster deux
+                textes, exporter — se faisait sur l'autre moitié. Ce n'est pas une
+                timeline qui le remplace : la bande plus haut ajoute le geste que
+                le texte ne sait pas exprimer, elle ne monte pas les mots. */}
+            <div className="shrink-0">
+              <TranscriptDrawer
+                open={drawerOpen}
+                onOpenChange={setDrawerOpen}
+                clipId={clip.id}
+                lines={linesIndexed}
+                words={words}
+                firstLine={firstLine}
+                duration={duration}
+                search={search}
+                onSearch={setSearch}
+                onPlay={(index) => placePlayback(video, segments, words[index].start)}
+              />
+            </div>
+
+            <div className="shrink-0">
+              <RenderSettings
+                clip={clip}
+                onBranding={(branding) => void write({ branding }).catch(() => {})}
+                onCaptions={(captions) => void write({ captions }).catch(() => {})}
+              />
+            </div>
+          </section>
+
+          <div
+            aria-labelledby="zone-sortie"
+            // **Le volet qui domine.** Sa largeur se déduit de sa hauteur —
+            // `aspect-ratio: 9/16` posé sur la figure elle-même, pas sur cette
+            // enveloppe — plutôt que de la partager avec la source (spec §1,
+            // qui annule la règle « même hauteur » de `PREVIEW_FRAME`).
+            // `items-start` est ce qui laisse la figure se mesurer à sa propre
+            // largeur au lieu d'être étirée à celle de l'enveloppe, qu'aucune
+            // largeur ne fixe plus ici.
+            className="flex shrink-0 flex-col items-start gap-2 workbench:min-h-0"
+          >
+            <h2 id="zone-sortie" className="sr-only">
+              Sortie
+            </h2>
+            {mode === 'preview' ? (
+              <PreviewOutput
+                hook={hookGlobals !== undefined ? resolvedHook : undefined}
+                video={video}
+                framing={framing}
+                ratio={editor.ratio}
+                cropX={editor.cropX}
+                frame="h-72 w-auto workbench:h-auto workbench:min-h-0 workbench:flex-1"
+                figureClassName="workbench:min-h-0 workbench:flex-1"
+                captionCards={clip.captions ? captionCards : undefined}
+                captionStyle={DEFAULT_CAPTION_STYLE}
+                segments={segments}
+              />
+            ) : (
+              <figure className="flex min-h-0 flex-col gap-1.5 workbench:flex-1">
+                <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
+                  fichier livré
+                </figcaption>
+                <video
+                  src={outputs.variant9x16Url ?? outputs.mp4Url ?? undefined}
+                  controls
+                  preload="metadata"
+                  className="h-72 w-auto rounded-lg bg-zinc-950 workbench:h-auto workbench:min-h-0 workbench:flex-1"
+                />
+              </figure>
+            )}
+            <OutputSwitch delivered={state === 'delivered'} mode={mode} onMode={setMode} />
+          </div>
+        </main>
+      ) : (
+        <ExportsView
+          clip={clip}
+          outputs={outputs}
+          framing={framing}
+          descriptionFooter={descriptionFooter}
+          onReexport={() => setConfirmation(true)}
+          reexportDisabled={exportDisabled}
+        />
+      )}
+
+      <Dialog open={confirmation} onOpenChange={setConfirmation}>
+        <DialogContent role="alertdialog">
+          <DialogHeader>
+            <DialogTitle>Refaire les rendus ?</DialogTitle>
+            <DialogDescription>Ces fichiers sont livrés et seront écrasés :</DialogDescription>
+          </DialogHeader>
+          <ul className="font-mono text-[0.75rem]">
+            {[names.mp4, names.variant9x16, names.texts]
+              .filter((name): name is string => name !== null)
+              .map((name) => (
+                <li key={name}>{name}</li>
+              ))}
+          </ul>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmation(false)}>
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setConfirmation(false)
+                launch(true)
               }}
-              onBoundary={editor.setBoundaryAt}
-            />
-          </div>
+            >
+              Écraser et refaire
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-          <div className="shrink-0">
-            <RatioPicker
-              framing={framing}
-              ratio={editor.ratio}
-              onRatio={editor.chooseRatio}
-              cropReasonId={cropReasonId}
-            />
-          </div>
-
-          <div className="shrink-0">
-            <FramingFields clip={clip} globals={framingGlobals} framing={framing} onWrite={write} />
-          </div>
-
-          {/* **Les faits de montage rejoignent la scène** (spec du 23 août,
-              §3.3) : « Montage » cessait d'être une zone, ses trois faits et
-              son déclencheur montent ici, à côté du cadre qu'ils décrivent
-              tous les quatre. Une `h2` de moins sur l'écran entier. */}
-          <dl className="shrink-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[0.75rem]">
-            <dt className="text-muted-foreground">Durée</dt>
-            <dd className="font-mono tabular-nums">{formatDuration(duration)}</dd>
-
-            <dt className="text-muted-foreground">Bornes</dt>
-            {/* Relues dans la liste rendue, jamais la valeur demandée :
-                `moveBoundary` pose la borne sur le segment voisin quand la
-                demande tombe dans un trou. */}
-            <dd className="font-mono tabular-nums">
-              {bounds ? `${formatTimecode(bounds.start)} → ${formatTimecode(bounds.end)}` : '—'}
-            </dd>
-
-            <dt className="text-muted-foreground">Segments</dt>
-            <dd className="font-mono tabular-nums">{segments.length}</dd>
-
-            {/* Lit `shot.cropX`, jamais `cropXNative` : c'est la sortie 9:16,
-                pas le natif dont le crop est ailleurs à l'écran (addendum #178).
-                « variante » se disait à tort quand le natif est déjà 9:16 et
-                qu'aucune variante n'est produite. (relevé par Copilot) */}
-            <dt className="text-muted-foreground">Cadre (9:16)</dt>
-            {/* Ce que le rendu découpera sur le plan qu'on regarde : le cadre
-                saute aux frontières, donc une seule valeur pour tout le clip ne
-                voudrait rien dire. La valeur est ramenée dans l'image, comme le
-                rectangle la dessine — pas la valeur brute du store, qui garde
-                l'intention quand on passe par un ratio où elle ne tient pas. */}
-            <ShotFrameLine framing={framing} ratio={editor.ratio} cropX={editor.cropX} />
-          </dl>
-
-          {duration === 0 && (
-            // Le cas prévu côté serveur et qui n'avait pas de rendu propre :
-            // tout a été retiré. **Il se dit hors du tiroir**, sinon il faudrait
-            // ouvrir le montage pour apprendre qu'il n'y a plus de montage.
-            <p className="shrink-0 text-[0.75rem] text-muted-foreground">
-              Il ne reste rien du clip. Ouvrir le montage pour le reconstruire : cliquer un mot
-              barré le fait recommencer là.
-            </p>
-          )}
-
-          {/* **Le transcript reste la surface d'édition, il cesse d'être
-              toujours visible.** Il occupait la moitié de l'écran pour un geste
-              ponctuel, pendant que le geste courant — vérifier, ajuster deux
-              textes, exporter — se faisait sur l'autre moitié. Ce n'est pas une
-              timeline qui le remplace : la bande plus haut ajoute le geste que
-              le texte ne sait pas exprimer, elle ne monte pas les mots. */}
-          <div className="shrink-0">
-            <TranscriptDrawer
-              open={drawerOpen}
-              onOpenChange={setDrawerOpen}
-              clipId={clip.id}
-              lines={linesIndexed}
-              words={words}
-              firstLine={firstLine}
-              duration={duration}
-              search={search}
-              onSearch={setSearch}
-              onPlay={(index) => placePlayback(video, segments, words[index].start)}
-            />
-          </div>
-
-          <div className="shrink-0">
-            <RenderSettings
-              clip={clip}
-              onBranding={(branding) => void write({ branding }).catch(() => {})}
-              onCaptions={(captions) => void write({ captions }).catch(() => {})}
-            />
-          </div>
-        </section>
-
-        <section
-          aria-labelledby="zone-contenu"
-          // Même raccord que la zone Image : `shrink-0` hors de l'établi,
-          // `min-h-0` seulement dedans (où c'est `workbench:overflow-y-auto`
-          // qui reprend le défilement, local au volet plutôt qu'à la page).
-          className="flex min-w-0 shrink-0 flex-col gap-3 p-4 workbench:min-h-0 workbench:w-[30rem] workbench:overflow-y-auto"
-        >
-          <h2 id="zone-contenu" className="shrink-0 text-sm font-medium">
-            Contenu
-          </h2>
-          {/* Le titre, la description et le hook : des livrables du produit,
-              pas des étiquettes de la page. */}
-          <FieldsTexts clip={clip} onWrite={write} onFailure={flagFailureText} />
-          <HookFields
-            clip={clip}
-            globals={hookGlobals}
-            onWrite={write}
-            onFailure={flagFailureText}
-          />
-        </section>
-      </main>
-
-      {/* **Le rail : quatrième frère flexible, jamais `sticky` ni `fixed`**
-          (spec du 23 août, §3.3). La barre d'application est le seul
-          `sticky` du dépôt (`app-bar.tsx`) et ce lot n'en ajoute pas un
-          second. `PanelExport` porte à la fois le pli « Détail » et le rail
-          lui-même — un seul `shrink-0`, le pli au-dessus, le rail en
-          dessous. */}
-      <PanelExport
-        clip={clip}
-        descriptionFooter={settings.data?.publication?.descriptionFooter}
-        outputs={outputs}
-        framing={framing}
-        duration={duration}
-        autosave={autosave}
-        fingerprint={renderFingerprint}
-        // `enregistrement` ne suit que le montage : le titre, la description
-        // et les marques passent par la même mutation sans y figurer.
-        writeInCurrent={writesInFlight > 0}
-        writeInFailure={patch.isError || textsInFailure.length > 0}
-        publicationAvailability={publicationAvailability.data}
-        publicationAvailabilityError={publicationAvailability.isError}
-        onRetryPublicationAvailability={() => publicationAvailability.refetch()}
-        publicationRecords={publicationRecords}
+      <PublishDialog
+        open={publishDialogOpen}
+        onOpenChange={setPublishDialogOpen}
+        clips={[publishTarget]}
+        availability={publicationAvailability.data}
+        availabilityError={publicationAvailability.isError}
+        onRetryAvailability={() => publicationAvailability.refetch()}
         recordsLoading={publications.isPending}
         recordsError={publications.isError}
-        publishError={publishError}
-        onPublish={launchPublish}
+        onLaunch={launchPublish}
       />
+
+      {/* **Une ligne persistante, jamais un `toast`** (spec publication §6.2) :
+          la boîte se ferme dès la confirmation, avant que le `POST` ne
+          réponde. */}
+      {publishError !== null && (
+        <p className="shrink-0 p-2 text-center text-[0.75rem] text-destructive" role="alert">
+          La publication a échoué : {publishError}
+        </p>
+      )}
 
       <DialogueShortcuts open={help} onOpen={setHelp} />
     </>
@@ -809,44 +872,5 @@ function RenderSettings({
         </label>
       </CollapsiblePanel>
     </Collapsible>
-  )
-}
-
-/**
- * Le cadre du plan sous la lecture, en toutes lettres.
- *
- * **Un composant à part, et c'est la raison qui compte** : il s'abonne à la
- * position de lecture, qui change quatre fois par seconde. Lu dans `ClipScreen`,
- * il ferait rendre le transcript virtualisé et le lecteur à cette cadence. Ici,
- * le sélecteur ne rend qu'un index de plan, donc rien ne bouge entre deux
- * frontières.
- */
-function ShotFrameLine({
-  framing,
-  ratio,
-  cropX,
-}: {
-  framing: ClipDetail['framing']
-  ratio: Clip['ratio']
-  cropX: number
-}) {
-  const shot = useCurrentShot(framing)
-  const effective = effectiveRatio(shot, ratio)
-  const position = isComputedFraming(framing) ? (shot?.cropX ?? 0.5) : cropX
-  const percent = Math.round(clampCropX(position, cropWidthFraction(effective)) * 100)
-  // Un plan splitté n'a pas de position de crop unique : le pourcentage ne
-  // décrirait rien (spec du 25 août, addendum #178). Un plan de doublage non
-  // plus — c'est la composition qui pose les pavés, pas un crop.
-  const split = activeSplit(shot, framing, ratio)
-  const dubbing = activeDubbing(shot, framing, ratio)
-  return (
-    <dd className="font-mono tabular-nums">
-      {split ? 'split' : dubbing ? 'doublage' : `${effective} · ${percent} %`}
-      {shot?.source === 'default' && (
-        <span className="ml-1 font-sans text-amber-500 dark:text-amber-400">
-          rien mesuré sur ce plan
-        </span>
-      )}
-    </dd>
   )
 }

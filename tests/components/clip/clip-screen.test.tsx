@@ -13,13 +13,25 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ClipScreen } from '@/components/clip/clip-screen'
 import { framing, shot, splitCells } from '../../fixtures/framing'
 import { DUBBING_ANCHORS, dubbingCellsFor } from '@/core/dubbing'
 import { defaultPlatformAvailability } from '@/core/publication'
 import type { CandidateClip, ClipDetail } from '@/lib/api'
 import { useEditor } from '@/store/editor'
 import { usePlayback } from '@/components/clip/playback'
+
+// La vue (édition/exports) vit dans l'URL (`clip-view.ts`) : même mock que
+// `planning-screen.test.tsx`, une variable de module pour changer la requête
+// entre deux rendus.
+const replaceMock = vi.fn()
+let query = ''
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: replaceMock, push: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => '/clips/c2',
+  useSearchParams: () => new URLSearchParams(query),
+}))
+
+const { ClipScreen } = await import('@/components/clip/clip-screen')
 
 Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 600 })
 Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 800 })
@@ -160,6 +172,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  replaceMock.mockClear()
+  query = ''
 })
 
 describe('la boucle de montage', () => {
@@ -194,13 +208,35 @@ describe('la boucle de montage', () => {
   })
 })
 
+// **Depuis la refonte du 28 août, le cadre du plan se lit dans la légende
+// de la sortie 9:16** (`output-preview.tsx:353-359`), pas dans un `<dl>` de
+// faits de montage — supprimé avec l'établi à deux volets. La légende porte
+// exactement la même distinction split/doublage/ratio.
+/**
+ * L'aperçu de sortie, dans la zone Sortie — jamais la source, qui est un
+ * `<figure>` distinct. `role="figure"` n'apporte pas de nom accessible
+ * calculé depuis sa légende dans cet environnement de test (`figcaption` non
+ * pris en compte par `dom-accessibility-api` ici) : on distingue les deux
+ * figures sur leur contenu plutôt que sur un nom de rôle.
+ */
+function outputFigure(): HTMLElement {
+  const found = screen
+    .getAllByRole('figure')
+    .find((f) => /variante|fichier natif/.test(f.textContent ?? ''))
+  if (!found) throw new Error('figure de sortie introuvable')
+  return found
+}
+
+// **Depuis la refonte du 28 août, le cadre du plan se lit dans la légende
+// de la sortie 9:16** (`output-preview.tsx:353-359`), pas dans un `<dl>` de
+// faits de montage — supprimé avec l'établi à deux volets. La légende porte
+// exactement la même distinction split/doublage/ratio.
 describe('le cadre du plan sous la lecture, splitté', () => {
   it('dit « split » plutôt qu’un ratio et un pourcentage qui n’y correspondent plus', async () => {
     const d = detail()
     d.framing = framing({ shots: [shot(0, 200, '16:9', 0.5, 'auto', splitCells())] })
     await mount('c2', d)
-    const label = await screen.findByText('Cadre (9:16)')
-    expect(label.nextElementSibling?.textContent).toContain('split')
+    expect(outputFigure().textContent).toContain('cadre split')
   })
 })
 
@@ -210,9 +246,9 @@ describe('le cadre du plan sous la lecture, en doublage', () => {
     const cells = dubbingCellsFor(DUBBING_ANCHORS[0], DUBBING_ANCHORS[0].pip.y0)
     d.framing = framing({ shots: [shot(0, 200, '4:5', 0.5, 'auto', undefined, cells)] })
     await mount('c2', d)
-    const label = await screen.findByText('Cadre (9:16)')
-    expect(label.nextElementSibling?.textContent).toContain('doublage')
-    expect(label.nextElementSibling?.textContent).not.toContain('4:5')
+    const text = outputFigure().textContent ?? ''
+    expect(text).toContain('cadre doublage')
+    expect(text).not.toContain('4:5')
   })
 })
 
@@ -222,9 +258,13 @@ describe('le libellé du cadre, quand le natif est déjà 9:16', () => {
     // n'est produite (`src/server/steps/render.ts`). (relevé par Copilot)
     const d = detail()
     d.framing = framing({ ratio: '9:16', shots: [shot(0, 200, '9:16', 0.5)] })
+    // `editor.ratio` part de `clip.ratio` (`charger`) : pour que le natif
+    // résolu soit bien 9:16, le client doit aussi laisser le cadrage décider.
+    d.clip.ratio = 'auto'
     await mount('c2', d)
-    expect(await screen.findByText('Cadre (9:16)')).toBeTruthy()
-    expect(screen.queryByText('Cadre (variante)')).toBeNull()
+    const text = outputFigure().textContent ?? ''
+    expect(text).toContain('fichier natif 9:16')
+    expect(text).not.toContain('variante')
   })
 })
 
@@ -440,6 +480,64 @@ describe('les raccourcis', () => {
     await mount('c2')
     fireEvent.keyDown(document.body, { key: '?', shiftKey: true })
     expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+})
+
+describe('la barre d’app, depuis la refonte du 28 août', () => {
+  it('pose les onglets et le primaire dans la barre, plus de rail en pied', async () => {
+    await mount('c2')
+
+    const bar = screen.getByRole('banner')
+    expect(within(bar).getByRole('tab', { name: 'Édition' }).getAttribute('aria-selected')).toBe(
+      'true',
+    )
+    expect(within(bar).getByRole('tab', { name: 'Exports' })).toBeTruthy()
+    expect(within(bar).getByRole('button', { name: 'Exporter' })).toBeTruthy()
+
+    expect(screen.queryByRole('button', { name: 'Détail' })).toBeNull()
+  })
+
+  it('n’offre qu’un seul geste terminal', async () => {
+    await mount('c2')
+
+    const primaries = screen
+      .getAllByRole('button')
+      .filter((b) => b.getAttribute('data-slot') === 'button' && b.className.includes('bg-primary'))
+    expect(primaries).toHaveLength(1)
+  })
+
+  it('demande la vue Exports dans l’URL au clic sur l’onglet', async () => {
+    await mount('c2')
+    fireEvent.click(screen.getByRole('tab', { name: 'Exports' }))
+    expect(replaceMock).toHaveBeenCalledWith('/clips/c2?vue=exports', { scroll: false })
+  })
+
+  it('rend la vue Exports quand l’URL la demande déjà', async () => {
+    query = 'vue=exports'
+    await mount('c2')
+    expect(await screen.findByRole('heading', { name: 'Livraison courante' })).toBeTruthy()
+  })
+})
+
+describe('la fiche éditoriale, à côté de la source', () => {
+  it('range Titre, Description et Hook dans la région Image', async () => {
+    await mount('c2')
+
+    const image = screen.getByRole('region', { name: 'Image' })
+    expect(within(image).getByLabelText('Titre')).toBeTruthy()
+    expect(within(image).getByLabelText('Description')).toBeTruthy()
+    expect(within(image).getByLabelText('Hook')).toBeTruthy()
+  })
+
+  it('ne partage plus une classe entre la source et la sortie', async () => {
+    await mount('c2')
+
+    const source = screen
+      .getAllByRole('figure')
+      .find((f) => /la source/i.test(f.textContent ?? ''))
+    if (!source) throw new Error('figure de la source introuvable')
+    const sortie = outputFigure()
+    expect(source.className).not.toBe(sortie.className)
   })
 })
 

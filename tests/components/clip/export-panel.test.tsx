@@ -1,51 +1,33 @@
 // @vitest-environment jsdom
 
 /**
- * Le panneau d'export — la sortie du tunnel.
+ * `export-panel.tsx` — la dérivation de l'état de livraison, le geste
+ * terminal présentationnel et les briques réutilisées par `ExportsView`.
  *
- * Ce qu'il doit dire, et que rien ne disait : combien de fichiers le ratio
- * choisi va produire, que le rendu travaille pendant dix à soixante secondes,
- * qu'un `skipped: true` est un succès, et qu'une variante 9:16 absente sur un
- * clip déjà en 9:16 n'est pas un rendu manquant.
+ * Depuis la refonte du 28 août, ce module ne porte plus de rail : la
+ * mécanique d'export (mutation, confirmation d'écrasement, dialogue de
+ * publication) vit dans `ClipScreen`, testée dans `clip-screen.test.tsx`. Le
+ * contenu de la livraison — noms de fichiers, lecteurs, textes copiables —
+ * vit dans `ExportsView`, testé dans `exports-view.test.tsx`.
  */
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { Clip } from '@/core/edl'
-import type { ClipOutputs, ExportResult } from '@/lib/api'
-import { PanelExport } from '@/components/clip/export-panel'
-import { framing, shot, splitCells } from '../../fixtures/framing'
+import {
+  ButtonCopy,
+  ClipPrimaryAction,
+  deriveDeliveryState,
+  FieldCopyable,
+  OutputsList,
+} from '@/components/clip/export-panel'
+import { outputNames } from '@/components/clip/texts'
+import type { ClipOutputs } from '@/lib/api'
 
 afterEach(() => {
   cleanup()
-  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
-
-function clip(fields: Partial<Clip> = {}): Clip {
-  return {
-    id: 'c1',
-    projectId: 'p1',
-    segments: [{ start: 0, end: 20 }],
-    ratio: '1:1',
-    cropX: 0.5,
-    captions: true,
-    branding: true,
-    footer: true,
-    title: 'La chute',
-    description: 'Une impro qui part en vrille #impro',
-    status: 'kept',
-    pass: 1,
-    hookText: '',
-    hookBadge: '',
-    hookStyle: {},
-    framingStyle: {},
-    ...fields,
-  }
-}
 
 const nothingIsProduced: ClipOutputs = {
   mp4Url: null,
@@ -55,71 +37,72 @@ const nothingIsProduced: ClipOutputs = {
   textsUrl: null,
 }
 
-function response(body: unknown, status = 200): Response {
-  return { ok: status >= 200 && status < 300, status, statusText: '', json: async () => body } as Response
-}
-
-function mount(props: Partial<Parameters<typeof PanelExport>[0]> = {}) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  })
-  const envelope = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
-  )
-  const complete = {
-    clip: clip(),
-    outputs: nothingIsProduced,
-    framing: framing(),
-    duration: 20,
-    autosave: 'saved' as const,
-    fingerprint: 'empreinte-de-depart',
-    writeInCurrent: false,
-    writeInFailure: false,
-    // Réglages déjà chargés, pied de page vide — sinon la plupart des tests
-    // hériteraient de l'état « réglages indisponibles » sans le vouloir.
-    descriptionFooter: '',
-    ...props,
-  }
-  const view = render(<PanelExport {...complete} />, { wrapper: envelope })
-  return { ...complete, rerender: view.rerender, props: complete }
-}
-
-const buttonExporter = () => screen.getByRole('button', { name: /exporter/i })
-
-/**
- * Le rail replie le détail — noms de fichiers, lecteurs livrés, textes à
- * copier séparément — derrière « Détail » (spec du 23 août, §3.3-§3.4). Tout
- * test qui interroge ce contenu l'ouvre d'abord, comme le ferait quelqu'un
- * devant l'écran.
- */
-function openDetail() {
-  fireEvent.click(screen.getByRole('button', { name: /détail/i }))
-}
-
-describe('le pied de page commun', () => {
-  it('compose la description affichée quand le clip l’active', () => {
-    mount({ clip: clip({ footer: true }), descriptionFooter: 'Suivez-nous sur Twitch.' })
-    openDetail()
-    const field = screen.getByLabelText('Description de publication') as HTMLTextAreaElement
-    expect(field.value).toBe('Une impro qui part en vrille #impro\n\nSuivez-nous sur Twitch.')
+describe('deriveDeliveryState', () => {
+  it('n’a jamais été exporté sans rendu ni statut « exported »', () => {
+    expect(deriveDeliveryState('kept', nothingIsProduced)).toBe('never')
   })
 
-  it('laisse la description brute quand l’interrupteur du clip est coupé', () => {
-    mount({ clip: clip({ footer: false }), descriptionFooter: 'Suivez-nous sur Twitch.' })
-    openDetail()
-    const field = screen.getByLabelText('Description de publication') as HTMLTextAreaElement
-    expect(field.value).toBe('Une impro qui part en vrille #impro')
+  it('est périmé quand le statut est « exported » sans rendu disponible', () => {
+    expect(deriveDeliveryState('exported', nothingIsProduced)).toBe('stale')
+  })
+
+  it('est livré dès qu’une vidéo est disponible, quel que soit le statut', () => {
+    expect(
+      deriveDeliveryState('kept', { ...nothingIsProduced, variant9x16Url: '/c1-9x16.mp4' }),
+    ).toBe('delivered')
   })
 })
 
-describe('avant l’export', () => {
-  it('n’annonce que la variante quand le ratio natif n’est pas 9:16 (natif désactivé)', () => {
-    // Le natif est désactivé (`RENDER_NATIVE`) sur tout ratio autre que 9:16 :
-    // la variante 9:16 le remplace, un seul fichier vidéo reste à produire.
-    // Ce détail est replié par défaut (spec du 23 août, §3.3) : on l'ouvre
-    // avant de le lire.
-    mount({ framing: framing() })
-    openDetail()
+describe('ClipPrimaryAction', () => {
+  it('propose « Exporter » sur un clip jamais exporté', () => {
+    render(<ClipPrimaryAction state="never" onExport={vi.fn()} onPublish={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Exporter' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /publier/i })).toBeNull()
+  })
+
+  it('propose « Ré-exporter » sur un rendu périmé', () => {
+    render(<ClipPrimaryAction state="stale" onExport={vi.fn()} onPublish={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Ré-exporter' })).toBeTruthy()
+  })
+
+  it('propose « Publier », et seulement lui, sur un clip livré', () => {
+    render(<ClipPrimaryAction state="delivered" onExport={vi.fn()} onPublish={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /publier/i })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Exporter' })).toBeNull()
+  })
+
+  it('déclenche le bon geste au clic', () => {
+    const onExport = vi.fn()
+    const onPublish = vi.fn()
+    render(<ClipPrimaryAction state="never" onExport={onExport} onPublish={onPublish} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Exporter' }))
+    expect(onExport).toHaveBeenCalledTimes(1)
+    expect(onPublish).not.toHaveBeenCalled()
+  })
+
+  it('reste atteignable au clavier quand désactivé, la valeur portée par aria-disabled', () => {
+    render(<ClipPrimaryAction state="never" onExport={vi.fn()} onPublish={vi.fn()} disabled />)
+    const button = screen.getByRole('button', { name: 'Exporter' })
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(button.hasAttribute('disabled')).toBe(false)
+  })
+
+  it('est le seul bouton de variante primaire, quel que soit l’état', () => {
+    for (const state of ['never', 'stale', 'delivered'] as const) {
+      const { unmount } = render(<ClipPrimaryAction state={state} onExport={vi.fn()} onPublish={vi.fn()} />)
+      const primaries = screen
+        .getAllByRole('button')
+        .filter((b) => b.className.includes('bg-primary'))
+      expect(primaries).toHaveLength(1)
+      unmount()
+    }
+  })
+})
+
+describe('OutputsList', () => {
+  it('n’annonce que la variante quand le natif est désactivé', () => {
+    const names = outputNames('c1', '1:1')
+    render(<OutputsList names={names} native="1:1" outputs={nothingIsProduced} />)
     expect(screen.queryByText('c1.mp4')).toBeNull()
     expect(screen.getByText(/rendu natif est désactivé/i)).toBeTruthy()
     expect(screen.getByText('c1-9x16.mp4')).toBeTruthy()
@@ -127,462 +110,63 @@ describe('avant l’export', () => {
   })
 
   it('n’annonce qu’une vidéo quand le ratio natif est déjà 9:16', () => {
-    mount({ framing: framing({ ratio: '9:16', shots: [shot(0, 20, '9:16', 0.5)] }) })
-    openDetail()
+    const names = outputNames('c1', '9:16')
+    render(<OutputsList names={names} native="9:16" outputs={nothingIsProduced} />)
     expect(screen.getByText('c1.mp4')).toBeTruthy()
     expect(screen.queryByText('c1-9x16.mp4')).toBeNull()
   })
 
-  /**
-   * **Le détail énonce le cadrage** (§3.5) : c'est la dernière surface avant la
-   * livraison, et le seul endroit où l'automatique passerait en fraude si
-   * personne ne l'y disait. Le ratio résolu, le nombre de plans, et les cadres
-   * qu'ils prennent.
-   */
-  it('énonce le cadrage que l’export appliquera', () => {
-    mount({
-      framing: framing({
-                shots: [shot(0, 10, '1:1', 0.4), shot(10, 20, '16:9', 0.5)],
-      }),
-    })
-    openDetail()
-    expect(screen.getByText(/2 plans/)).toBeTruthy()
-    expect(screen.getByText(/1:1, 16:9/)).toBeTruthy()
-  })
-
-  /**
-   * Le split (spec du 25 août) n'existe que sur la variante 9:16 : le natif
-   * n'a pas bougé, et cette ligne décrit déjà la variante — elle doit donc
-   * dire que le split y a cours plutôt que de ne montrer qu'un ratio de crop.
-   */
-  it('signale le split-screen sur au moins un plan', () => {
-    mount({
-      framing: framing({
-        shots: [shot(0, 10, '16:9', 0.5, 'auto', splitCells()), shot(10, 20, '1:1', 0.5)],
-      }),
-    })
-    openDetail()
-    expect(screen.getByText(/split-screen/)).toBeTruthy()
-  })
-
-  /**
-   * Sans variante due (natif déjà 9:16), le split ne se rend jamais : rien à
-   * `src/server/steps/render.ts` ne le produit. L'annoncer décrirait un
-   * fichier qui n'existe pas. (relevé par Aristarque)
-   */
-  it('ne signale pas de split quand le natif est déjà 9:16', () => {
-    mount({
-      framing: framing({
-        ratio: '9:16',
-        shots: [shot(0, 10, '9:16', 0.5, 'auto', splitCells())],
-      }),
-    })
-    openDetail()
-    expect(screen.queryByText(/split-screen/)).toBeNull()
-  })
-
-  /**
-   * **Un plan que personne n'a cadré, ni la machine ni l'humain**, mérite d'être
-   * distinct des deux autres : ce n'est pas une décision, c'est celui qu'il faut
-   * aller regarder avant de livrer.
-   */
-  it('signale les plans sur lesquels rien n’a été mesuré', () => {
-    mount({
-      framing: framing({
-        shots: [shot(0, 10, '1:1', 0.4), shot(10, 20, '1:1', 0.5, 'default')],
-      }),
-    })
-    expect(screen.getByText(/1 plan sans mesure/)).toBeTruthy()
-  })
-
-  it('n’en signale aucun quand tous ont été mesurés', () => {
-    mount({ framing: framing() })
-    expect(screen.queryByText(/sans mesure/)).toBeNull()
-  })
-
-  it('avertit d’un titre vide en disant ce que le fichier portera', () => {
-    // Le rendu écrit « Titre : (sans titre) », pas une ligne vide : annoncer
-    // l'inverse décrit un fichier qui n'existe pas. (relevé par Copilot)
-    mount({ clip: clip({ title: '' }) })
-    // Scopé à l'avertissement : la zone de textes porte le même « (sans titre) »,
-    // et c'est justement ce qu'il annonce.
-    expect(screen.getByText(/sortira avec/i).textContent).toContain('(sans titre)')
-    expect(screen.queryByText(/première ligne vide/i)).toBeNull()
-    expect(buttonExporter().getAttribute('aria-disabled')).toBeNull()
-  })
-})
-
-describe('les raisons de ne pas pouvoir exporter', () => {
-  it('reste atteignable au clavier, la raison écrite à côté', async () => {
-    // `disabled` sort du parcours de tabulation : un utilisateur au clavier ne
-    // découvre jamais le bouton, donc jamais sa raison (spec §4.4).
-    const fetch = vi.fn()
-    vi.stubGlobal('fetch', fetch)
-    mount({ autosave: 'pending' })
-
-    const button = buttonExporter()
-    expect(button.getAttribute('aria-disabled')).toBe('true')
-    expect(button.hasAttribute('disabled')).toBe(false)
-    expect(screen.getByText(/enregistrement/i)).toBeTruthy()
-
-    fireEvent.click(button)
-    expect(fetch).not.toHaveBeenCalled()
-  })
-
-  it('refuse d’exporter pendant qu’une écriture est en vol', () => {
-    // `autosave` ne suit que les segments, le ratio et le cadrage. Une
-    // bascule des marques, un titre, une description partent par la même
-    // mutation sans y figurer : exporter dans la foulée fait lire au rendu la
-    // valeur d'avant, et produit un fichier qui contredit l'écran.
-    // (relevé par Codex)
-    const fetch = vi.fn()
-    vi.stubGlobal('fetch', fetch)
-    mount({ writeInCurrent: true })
-
-    const button = buttonExporter()
-    expect(button.getAttribute('aria-disabled')).toBe('true')
-    fireEvent.click(button)
-    expect(fetch).not.toHaveBeenCalled()
-    expect(screen.getByText(/en cours d’écriture/i)).toBeTruthy()
-  })
-
-  it('refuse d’exporter quand la dernière écriture a échoué', () => {
-    mount({ writeInFailure: true })
-    expect(buttonExporter().getAttribute('aria-disabled')).toBe('true')
-  })
-
-  it('n’ouvre pas non plus la confirmation de ré-export', () => {
-    // Le garde-fou est sur le lancement ; sans le même sur l'ouverture, la boîte
-    // s'ouvre, on confirme, et rien ne part — sans qu'une ligne le dise.
-    mount({
-      autosave: 'pending',
-      outputs: {
-        mp4Url: '/api/clips/c1/renders/c1.mp4',
-        mp4Due: true,
-        variant9x16Url: null,
-        variant9x16Due: true,
-        textsUrl: null,
-      },
-    })
-    fireEvent.click(screen.getByRole('button', { name: /ré-exporter/i }))
-    expect(screen.queryByRole('alertdialog')).toBeNull()
-  })
-
-  it('refuse un clip dont tous les mots ont été retirés', () => {
-    mount({ duration: 0 })
-    expect(buttonExporter().getAttribute('aria-disabled')).toBe('true')
-    expect(screen.getByText(/rien à rendre/i)).toBeTruthy()
-  })
-})
-
-describe('pendant l’export', () => {
-  it('devient un indicateur de travail, et n’offre pas d’annulation', async () => {
-    // La requête dure de dix secondes à une minute. Un bouton muet passe pour
-    // cassé, et un bouton d'annulation qui ne ferait qu'ignorer la réponse
-    // mentirait : le rendu ffmpeg ne s'interrompt pas proprement.
-    let release: (r: Response) => void = () => {}
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() => new Promise<Response>((resolve) => (release = resolve))),
+  it('dit qu’une variante due manque encore', () => {
+    const names = outputNames('c1', '1:1')
+    render(
+      <OutputsList
+        names={names}
+        native="1:1"
+        outputs={{ ...nothingIsProduced, variant9x16Due: true, variant9x16Url: null }}
+      />,
     )
-    mount()
-
-    fireEvent.click(buttonExporter())
-    await waitFor(() => expect(buttonExporter().getAttribute('aria-busy')).toBe('true'))
-    expect(screen.getByText(/dix secondes à une minute/i)).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /annuler/i })).toBeNull()
-
-    release(response({ mp4: 'c1.mp4', variant9x16: 'c1-9x16.mp4', texts: 'c1.txt', skipped: false }))
-    await waitFor(() => expect(buttonExporter().getAttribute('aria-busy')).toBeNull())
-  })
-})
-
-describe('après l’export', () => {
-  it('dit qu’un `skipped` est un succès, pas un échec', async () => {
-    const done: ExportResult = {
-      clip: clip({ status: 'exported' }),
-      mp4: 'c1.mp4',
-      variant9x16: 'c1-9x16.mp4',
-      texts: 'c1.txt',
-      skipped: true,
-    }
-    vi.stubGlobal('fetch', vi.fn(async () => response(done)))
-    mount()
-
-    fireEvent.click(buttonExporter())
-    await waitFor(() => expect(screen.getByText(/rien n’a été refait/i)).toBeTruthy())
-    expect(screen.queryByRole('alert')).toBeNull()
-  })
-
-  it('survit à une réponse sans clip', async () => {
-    // Une passe de repérage qui se termine pendant le rendu réécrit le jeu de
-    // clips : la route sérialise alors un corps sans ce champ. Lire
-    // `clip.status` dessus ferait échouer un export par ailleurs réussi.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        response({ mp4: 'c1.mp4', variant9x16: null, texts: 'c1.txt', skipped: false }),
-      ),
-    )
-    mount({ framing: framing({ ratio: '9:16', shots: [shot(0, 20, '9:16', 0.5)] }) })
-
-    fireEvent.click(buttonExporter())
-    await waitFor(() => expect(screen.getByText(/rendu terminé/i)).toBeTruthy())
-  })
-
-  it('retire l’annonce quand le montage a changé depuis', async () => {
-    // « Rendu terminé » décrit ce qui vient d'avoir lieu. Une coupe plus tard,
-    // les fichiers sur le disque ne décrivent plus ce clip-ci, et laisser
-    // l'annonce affirmerait le contraire.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        response({ mp4: 'c1.mp4', variant9x16: 'c1-9x16.mp4', texts: 'c1.txt', skipped: false }),
-      ),
-    )
-    const { rerender, props } = mount()
-    fireEvent.click(buttonExporter())
-    await waitFor(() => expect(screen.getByText(/rendu terminé/i)).toBeTruthy())
-
-    // Une coupe de **même durée** change le montage sans changer la durée :
-    // l'empreinte porte donc l'état de rendu entier, pas un seul nombre.
-    // (relevé par Copilot)
-    rerender(<PanelExport {...props} fingerprint="une-autre-empreinte" />)
-    expect(screen.queryByText(/rendu terminé/i)).toBeNull()
-  })
-
-  it('montre l’échec avec le code que le serveur a rendu', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'Aucune marque exploitable' }, 422)))
-    mount()
-
-    fireEvent.click(buttonExporter())
-    const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('422')
-    expect(alert.textContent).toContain('Aucune marque exploitable')
-  })
-
-  it('lit les fichiers sur place', () => {
-    mount({
-      outputs: {
-        mp4Url: '/api/clips/c1/renders/c1.mp4',
-        mp4Due: true,
-        variant9x16Url: '/api/clips/c1/renders/c1-9x16.mp4',
-        variant9x16Due: true,
-        textsUrl: '/api/clips/c1/renders/c1.txt',
-      },
-    })
-    openDetail()
-    expect(screen.getByLabelText(/rendu 1:1/i).getAttribute('src')).toBe(
-      '/api/clips/c1/renders/c1.mp4',
-    )
-    expect(screen.getByLabelText(/variante 9:16/i).getAttribute('src')).toBe(
-      '/api/clips/c1/renders/c1-9x16.mp4',
-    )
+    expect(screen.getByText(/pas encore produite/i)).toBeTruthy()
   })
 
   it('ne montre pas de case vide quand la variante n’existera jamais', () => {
-    // `variant9x16Due` sépare deux `null` qui ne veulent pas dire la même chose.
-    // Afficher « rendu manquant » ici le ferait sur le clip le mieux livré.
-    mount({
-      framing: framing({ ratio: '9:16', shots: [shot(0, 20, '9:16', 0.5)] }),
-      outputs: {
-        mp4Url: '/api/clips/c1/renders/c1.mp4',
-        mp4Due: true,
-        variant9x16Url: null,
-        variant9x16Due: false,
-        textsUrl: '/api/clips/c1/renders/c1.txt',
-      },
-    })
-    openDetail()
-    expect(screen.getByText(/ratio natif est déjà 9:16/i)).toBeTruthy()
+    const names = outputNames('c1', '9:16')
+    render(
+      <OutputsList
+        names={names}
+        native="9:16"
+        outputs={{ ...nothingIsProduced, mp4Url: '/c1.mp4', variant9x16Due: false }}
+      />,
+    )
     expect(screen.queryByText(/pas encore produite/i)).toBeNull()
   })
-
-  it('dit qu’une variante due manque encore', () => {
-    mount({
-      outputs: {
-        mp4Url: '/api/clips/c1/renders/c1.mp4',
-        mp4Due: true,
-        variant9x16Url: null,
-        variant9x16Due: true,
-        textsUrl: null,
-      },
-    })
-    openDetail()
-    expect(screen.getByText(/pas encore produite/i)).toBeTruthy()
-  })
 })
 
-describe('le ré-export', () => {
-  it('demande confirmation en nommant les fichiers qu’il écrase', async () => {
-    const fetch = vi.fn(async (url: string, options: RequestInit) => {
-      void url
-      void options
-      return response({ mp4: null, variant9x16: 'c1-9x16.mp4', texts: 'c1.txt', skipped: false })
-    })
-    vi.stubGlobal('fetch', fetch)
-    mount({
-      clip: clip({ status: 'exported' }),
-      outputs: {
-        // Le natif est désactivé sur ce ratio (1:1, le défaut de `framing()`) :
-        // `mp4Url` reste `null` par construction, jamais un fichier à écraser.
-        mp4Url: null,
-        mp4Due: false,
-        variant9x16Url: '/api/clips/c1/renders/c1-9x16.mp4',
-        variant9x16Due: true,
-        textsUrl: '/api/clips/c1/renders/c1.txt',
-      },
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: /ré-exporter/i }))
-    const box = await screen.findByRole('alertdialog')
-    expect(box.textContent).not.toContain('c1.mp4')
-    expect(box.textContent).toContain('c1-9x16.mp4')
-    expect(fetch).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole('button', { name: /écraser/i }))
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
-    expect(JSON.parse(String(fetch.mock.calls[0][1].body))).toEqual({ force: true })
-  })
-})
-
-describe('les textes et les marques', () => {
-  it('copie exactement ce que le `.txt` porte', async () => {
-    // **Un seul bouton dans le rail** (spec du 23 août, §3.2) : les trois
-    // champs pris séparément ont déménagé dans le pli « Détail ».
-    const write = vi.fn(async (text: string) => {
-      void text
-    })
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: write },
-      configurable: true,
-    })
-    mount()
-
-    fireEvent.click(screen.getByRole('button', { name: /copier pour publication/i }))
-    await waitFor(() => expect(write).toHaveBeenCalledTimes(1))
-    expect(write.mock.calls[0][0]).toContain('Titre : La chute')
-    expect(write.mock.calls[0][0]).toContain('Mots-dièse : #impro')
-  })
-
-  it('copie chacun des trois séparément, dans le détail', async () => {
-    // **On ne colle jamais le fichier.** On colle un titre dans un champ, une
-    // description dans un autre, des mots-dièse dans un troisième : un bloc
-    // unique obligeait à sélectionner les trois morceaux à la main, ce qui est
-    // exactement le geste que le bouton supprimait.
-    const write = vi.fn(async (text: string) => {
-      void text
-    })
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: write },
-      configurable: true,
-    })
-    mount()
-    openDetail()
-
-    fireEvent.click(screen.getByRole('button', { name: /copier titre/i }))
-    await waitFor(() => expect(write).toHaveBeenLastCalledWith('La chute'))
-
-    fireEvent.click(screen.getByRole('button', { name: /copier mots-dièse/i }))
-    await waitFor(() => expect(write).toHaveBeenLastCalledWith('#impro'))
-  })
-
-  it('désactive la description et la copie tant que le pied de page n’est pas connu', () => {
-    // `descriptionFooter` absent (réglages en cours de chargement ou en échec) :
-    // ne pas confondre avec un pied de page réellement vide (relevé par Copilot).
-    mount({ clip: clip({ footer: true }), descriptionFooter: undefined })
-    openDetail()
-    expect(
-      screen.getByRole('button', { name: /copier description/i }).hasAttribute('disabled'),
-    ).toBe(true)
-    expect(
-      screen.getByRole('button', { name: /^copier pour publication$/i }).hasAttribute('disabled'),
-    ).toBe(true)
+describe('FieldCopyable', () => {
+  it('désactive le champ et sa copie tant que la valeur n’est pas connue', () => {
+    render(<FieldCopyable tag="Description" value="" disabled />)
+    expect(screen.getByRole('button', { name: /copier description/i }).hasAttribute('disabled')).toBe(true)
+    expect((screen.getByLabelText('Description de publication') as HTMLTextAreaElement).placeholder).toContain(
+      'chargement',
+    )
   })
 
   it('refuse de copier un texte vide', () => {
-    // Copier le vide efface le presse-papiers : le contraire du service rendu,
-    // et cela ne se remarque qu'au moment de coller.
-    mount({ clip: clip({ description: '' }) })
-    openDetail()
-    expect(
-      screen.getByRole('button', { name: /copier description/i }).hasAttribute('disabled'),
-    ).toBe(true)
-  })
-
-  it('repasse à « Copier » dès que les textes changent', async () => {
-    // Sinon le bouton affirme « Copié » sur un texte que le presse-papiers ne
-    // porte pas.
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: vi.fn(async () => {}) },
-      configurable: true,
-    })
-    const { rerender, props } = mount()
-    fireEvent.click(screen.getByRole('button', { name: /^copier pour publication$/i }))
-    await screen.findByRole('button', { name: /copier pour publication — copié/i })
-
-    rerender(<PanelExport {...props} clip={clip({ title: 'Un autre titre' })} />)
-    expect(screen.getByRole('button', { name: /^copier pour publication$/i })).toBeTruthy()
-  })
-
-  // **L'échappatoire des marques a déménagé dans la zone Image**, avec le ratio
-  // et le cadrage : ce qu'elle décide est ce que l'image porte. Son test la suit,
-  // dans `ecran-clip.test.tsx`.
-})
-
-describe('le bouton « Publier »', () => {
-  it('disparaît, sa raison prenant sa place, quand le clip n’a pas de rendu disponible', () => {
-    // **« Publier » disparaît plutôt que de rester grisé** (spec du 23 août,
-    // §3.4) : un clip non exporté explique pourquoi, il ne montre plus un
-    // bouton qu'on ne peut pas presser.
-    mount({ outputs: nothingIsProduced })
-    expect(screen.queryByRole('button', { name: /^publier$/i })).toBeNull()
-    expect(screen.getByText(/Exporter avant de publier/)).toBeTruthy()
-  })
-
-  it('ouvre la modale de publication une fois le clip exporté', () => {
-    mount({
-      outputs: { ...nothingIsProduced, mp4Url: 'https://example.test/c1.mp4' },
-    })
-    const button = screen.getByRole('button', { name: /^publier$/i })
-    expect(button.hasAttribute('aria-disabled')).toBe(false)
-
-    fireEvent.click(button)
-    expect(screen.getByRole('heading', { name: 'Publier « La chute »' })).toBeTruthy()
-  })
-
-  it('se refuse quand seul le .txt est présent, sans vidéo à envoyer', () => {
-    // Le cas relevé par la review : un MP4 supprimé du disque laisse
-    // l'empreinte et le `.txt` en place. Ce n'est pas ce qui décide « Publier »
-    // ni « Ré-exporter » — seule une vidéo rendue le fait — et publier n'a
-    // alors rien à envoyer.
-    mount({
-      outputs: { ...nothingIsProduced, textsUrl: '/api/clips/c1/renders/c1.txt' },
-    })
-    expect(screen.queryByRole('button', { name: /^publier$/i })).toBeNull()
-    expect(screen.getByText(/Exporter avant de publier/)).toBeTruthy()
+    render(<FieldCopyable tag="Description" value="" />)
+    expect(screen.getByRole('button', { name: /copier description/i }).hasAttribute('disabled')).toBe(true)
   })
 })
 
-describe('l’état périmé', () => {
-  it('propose « Ré-exporter » comme seul geste, sans « Publier »', () => {
-    // Le rendu a existé (`status: 'exported'`), mais aucune vidéo n'est plus
-    // sur le disque : le montage a changé depuis, ou le fichier a disparu.
-    mount({ clip: clip({ status: 'exported' }), outputs: nothingIsProduced })
-    expect(screen.queryByRole('button', { name: /^publier$/i })).toBeNull()
-    const button = buttonExporter()
-    expect(button.textContent).toContain('Ré-exporter')
-  })
+describe('ButtonCopy', () => {
+  it('copie le texte et le dit, puis redevient « Copier » si le texte change', async () => {
+    const write = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: write }, configurable: true })
+    const { rerender } = render(<ButtonCopy text="La chute" label="Copier titre" />)
 
-  it('confirme toujours l’écrasement, même seul en primaire', async () => {
-    // « Ré-exporter » n'est jamais le geste direct : un geste confirmé n'est
-    // jamais le primaire (spec du 23 août, §3.4).
-    const fetch = vi.fn()
-    vi.stubGlobal('fetch', fetch)
-    mount({ clip: clip({ status: 'exported' }), outputs: nothingIsProduced })
+    fireEvent.click(screen.getByRole('button', { name: 'Copier titre' }))
+    await waitFor(() => expect(write).toHaveBeenCalledWith('La chute'))
+    await screen.findByRole('button', { name: /copier titre — copié/i })
 
-    fireEvent.click(buttonExporter())
-    expect(await screen.findByRole('alertdialog')).toBeTruthy()
-    expect(fetch).not.toHaveBeenCalled()
+    rerender(<ButtonCopy text="Un autre titre" label="Copier titre" />)
+    expect(screen.getByRole('button', { name: 'Copier titre' })).toBeTruthy()
   })
 })

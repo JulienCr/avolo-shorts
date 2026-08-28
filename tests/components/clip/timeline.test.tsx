@@ -12,6 +12,7 @@
  */
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { Timeline } from '@/components/clip/timeline'
@@ -70,12 +71,20 @@ function mount(overrides: Partial<Parameters<typeof Timeline>[0]> = {}) {
   const onBoundary = vi.fn()
   render(
     <Timeline
+      clipId="c1"
       segments={[{ start: 100, end: 120 }]}
       framing={framing({ shots: [shot(0, 110, '1:1', 0.5), shot(110, 200, '16:9', 0.5)] })}
       proxyUrl="/api/projects/p1/proxy"
       sourceDuration={5940}
       onScrub={onScrub}
       onBoundary={onBoundary}
+      lines={[]}
+      words={[]}
+      firstLine={0}
+      duration={20}
+      search={false}
+      onSearch={vi.fn()}
+      onPlay={vi.fn()}
       {...overrides}
     />,
   )
@@ -116,6 +125,149 @@ describe('la fenêtre', () => {
     mount({ segments: [] })
     expect(document.querySelector('[data-timeline]')).toBeNull()
     expect(screen.getByText(/réapparaîtra dès qu’un passage sera remonté/i)).toBeTruthy()
+  })
+})
+
+describe('le ruban', () => {
+  it('pose le ruban en fond de piste', () => {
+    mount({ clipId: 'c9' })
+    const film = screen.getByTestId('filmstrip')
+    expect(film.style.backgroundImage).toContain('/api/clips/c9/filmstrip')
+  })
+
+  it('ne pose rien sans proxy', () => {
+    // La route rend 404 sans proxy ; un composant ne peut pas le savoir à
+    // l'avance, donc c'est `proxyUrl` qui décide côté client.
+    mount({ proxyUrl: null })
+    expect(screen.queryByTestId('filmstrip')).toBeNull()
+  })
+})
+
+describe('les deux familles de repères', () => {
+  it('dessine une encoche par coupe, avec sa durée', () => {
+    // Un passage retiré, et ça se défait — à l'inverse d'une frontière de plan.
+    mount({
+      segments: [
+        { start: 100, end: 105 },
+        { start: 107.4, end: 120 },
+      ],
+    })
+    const cuts = screen.getAllByTestId('cut')
+    expect(cuts).toHaveLength(1)
+    expect(cuts[0].textContent).toContain('2,4 s')
+  })
+
+  it('ne dessine aucune coupe sur un seul segment', () => {
+    mount()
+    expect(screen.queryAllByTestId('cut')).toHaveLength(0)
+  })
+
+  it('ne nomme pas les frontières de plan', () => {
+    mount({
+      framing: framing({ shots: [shot(0, 110, '1:1', 0.5), shot(110, 200, '16:9', 0.5)] }),
+    })
+    const marks = screen.getAllByTestId('shot-mark')
+    expect(marks).toHaveLength(1)
+    expect(marks[0].textContent).toBe('')
+  })
+
+  it('reste lisible à trois fois la densité d’aujourd’hui', () => {
+    // Le clip de référence porte 7 plans ; la #271 a multiplié les frontières
+    // sur une émission re-analysée. Le repère est un trait de 1 px sans
+    // étiquette : rien n'y grossit avec le nombre de plans.
+    const shots = Array.from({ length: 22 }, (_, i) => shot(i * 10, i * 10 + 10, '1:1', 0.5))
+    mount({ framing: framing({ shots }) })
+    const marks = screen.getAllByTestId('shot-mark')
+    expect(marks).toHaveLength(21)
+    for (const mark of marks) expect(mark.textContent).toBe('')
+  })
+})
+
+describe('Temps | Mots', () => {
+  it('commute entre la piste et les mots', async () => {
+    const user = userEvent.setup()
+    mount()
+    expect(screen.queryByTestId('filmstrip')).not.toBeNull()
+
+    await user.click(screen.getByRole('tab', { name: 'Mots' }))
+    expect(screen.queryByTestId('filmstrip')).toBeNull()
+    expect(screen.getByRole('group', { name: 'Transcript du clip' })).toBeTruthy()
+  })
+
+  it('bascule en mode Mots quand la recherche est demandée', () => {
+    // `Ctrl+F`, côté écran : `search` porte la demande, la bande suit.
+    const { rerender } = render(
+      <Timeline
+        clipId="c1"
+        segments={[{ start: 100, end: 120 }]}
+        framing={framing()}
+        proxyUrl="/api/projects/p1/proxy"
+        sourceDuration={5940}
+        onScrub={vi.fn()}
+        onBoundary={vi.fn()}
+        lines={[]}
+        words={[]}
+        firstLine={0}
+        duration={20}
+        search={false}
+        onSearch={vi.fn()}
+        onPlay={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('filmstrip')).not.toBeNull()
+    rerender(
+      <Timeline
+        clipId="c1"
+        segments={[{ start: 100, end: 120 }]}
+        framing={framing()}
+        proxyUrl="/api/projects/p1/proxy"
+        sourceDuration={5940}
+        onScrub={vi.fn()}
+        onBoundary={vi.fn()}
+        lines={[]}
+        words={[]}
+        firstLine={0}
+        duration={20}
+        search
+        onSearch={vi.fn()}
+        onPlay={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('filmstrip')).toBeNull()
+  })
+})
+
+describe('les champs de bornes', () => {
+  it('affiche la borne retenue, pas celle qui a été demandée', async () => {
+    const user = userEvent.setup()
+    // Le clip va de 100 à 120 ; 108 tombe dans le trou retiré de 105 à 110.
+    // `onBoundary` est un bouchon : sans état à écrire, le champ ne peut que
+    // relire la même borne — la preuve qu'il ne recopie pas la saisie.
+    mount({
+      segments: [
+        { start: 100, end: 105 },
+        { start: 110, end: 120 },
+      ],
+    })
+
+    const start = screen.getByLabelText<HTMLInputElement>('A')
+    expect(start.value).toBe('1:40')
+    await user.clear(start)
+    await user.type(start, '0:01:48{Enter}')
+
+    expect(start.value).toBe('1:40')
+  })
+
+  it('écrit par le même chemin qu’un glissé, une fois validé', async () => {
+    const user = userEvent.setup()
+    const { onBoundary } = mount()
+
+    const end = screen.getByLabelText('B')
+    await user.clear(end)
+    await user.type(end, '1:50{Enter}')
+
+    expect(onBoundary).toHaveBeenCalledTimes(1)
+    expect(onBoundary.mock.calls[0]).toEqual([110, 'end'])
   })
 })
 
@@ -227,22 +379,38 @@ describe('la vignette de scrub', () => {
 
     const { rerender } = render(
       <Timeline
+        clipId="c1"
         segments={[]}
         framing={framing()}
         proxyUrl="/api/projects/p1/proxy"
         sourceDuration={5940}
         onScrub={vi.fn()}
         onBoundary={vi.fn()}
+        lines={[]}
+        words={[]}
+        firstLine={0}
+        duration={20}
+        search={false}
+        onSearch={vi.fn()}
+        onPlay={vi.fn()}
       />,
     )
     rerender(
       <Timeline
+        clipId="c1"
         segments={[{ start: 100, end: 120 }]}
         framing={framing()}
         proxyUrl="/api/projects/p1/proxy"
         sourceDuration={5940}
         onScrub={vi.fn()}
         onBoundary={vi.fn()}
+        lines={[]}
+        words={[]}
+        firstLine={0}
+        duration={20}
+        search={false}
+        onSearch={vi.fn()}
+        onPlay={vi.fn()}
       />,
     )
 

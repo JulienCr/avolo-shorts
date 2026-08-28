@@ -1753,11 +1753,8 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
     fonts: fontsDigest(fontsFolder(options.fontsDir)),
   }
 
-  // La mesure réelle de `renderAss`, construite ici parce que c'est ici que
-  // `look.style` est connu et que `fontsFolder(options.fontsDir)` est déjà
-  // évalué pour `fontsDigest` juste au-dessus. Même repère que `Style:` dans
-  // le fichier ASS : la même famille (`fontName`) et la même taille
-  // (`captionUnits(...).sizeUnits`, en unités `PlayResY`).
+  // Même repère que `Style:` dans le fichier ASS : `fontName` et
+  // `captionUnits(...).sizeUnits`.
   const captionMeasure = createCaptionMeasure(
     fontsFolder(options.fontsDir),
     fontName(look.style.fontName),

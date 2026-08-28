@@ -284,12 +284,6 @@ export function fontName(name: string): string {
  *
  * Sans carton, le document rendu est valide et ne porte aucun événement. C'est à
  * l'appelant de décider s'il vaut la peine d'incruster un fichier vide.
- *
- * **La coupure de ligne se calcule une fois par carton** (`wrapCard`,
- * `./wrap`), à partir du texte complet déjà mis en forme, et s'écrit en `\N`
- * identiques dans tous les événements du carton — jamais rejouée par libass,
- * qui n'en a plus besoin (`WrapStyle: 2`). `measure` est injecté : ce module
- * reste pur, la mesure réelle vit dans `src/server/caption-measure.ts`.
  */
 export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure): string {
   // Partagé avec `CaptionOverlay` — voir `captionUnits`.

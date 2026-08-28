@@ -1,34 +1,13 @@
 /**
- * La mise en lignes d'un carton de sous-titres saute-t-elle d'une image à
- * l'autre pendant une même séquence ?
+ * La mise en lignes d'un carton reste-t-elle stable pendant son affichage,
+ * image par image ?
  *
  *     pnpm tsx scripts/measure-caption-wrap-stability.ts
  *
- * **La question.** Avant cette PR, `renderAss` laisse `WrapStyle: 0` et
- * n'écrit aucun `\N` : libass recalcule le retour à la ligne à chaque image, à
- * partir de la largeur du mot actif — qui varie de 90 % à 108 % pendant les
- * 110 ms de l'effet `pop`. Un carton posé pile à la frontière peut donc
- * afficher une ligne à une image et deux à la suivante, en boucle. La PR fige
- * la coupure une fois par carton (`wrapCard`) et l'écrit en `\N` explicites
- * sous `WrapStyle: 2` : ce script compte les lignes réellement affichées,
- * image par image, pour prouver que le nombre change avant et reste constant
- * après.
- *
- * **Comment le carton frontière est trouvé.** Le texte candidat s'allonge mot
- * par mot jusqu'à ce que la version « legacy » (voir plus bas) affiche un
- * nombre de lignes différent d'une image à l'autre — c'est une mesure, donc
- * une recherche, pas une assertion : personne ne connaît a priori la largeur
- * d'« BONJOUR BONJOUR… » en Anton, en pixels, sous fscx animé.
- *
- * **Le document « legacy » n'est pas une copie figée de l'ancien `renderAss`.**
- * Une copie à la main dérive du code qu'elle prétend représenter sans le
- * signaler (relevé en revue de plan). Il est donc **dérivé mécaniquement** du
- * document produit par le `renderAss` actuel — retirer les `\N`, remettre
- * `WrapStyle: 0`, enlever la ligne `PlayResX` — puis cette dérivation est
- * **vérifiée une fois** contre la sortie réelle du `renderAss` du commit
- * parent (`02eda14`), obtenue en import dynamique depuis un worktree jetable.
- * Si les deux diffèrent, le script s'arrête : ça voudrait dire que cette PR a
- * changé autre chose que la coupure de ligne.
+ * Cherche un carton posé à la frontière du retour à la ligne, brûle son
+ * document ASS via le ffmpeg statique réel, et compte les bandes de texte par
+ * image — pour l'ancien document (dérivé de `renderAss` et vérifié contre le
+ * commit parent) et pour celui de cette branche.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -148,7 +127,12 @@ async function textBandCount(pngPath: string): Promise<number> {
 }
 
 /** Burne `ass` sur fond noir et rend le nombre de bandes de texte à chaque image de `durationSec`. */
-function burnAndCountBands(ass: string, durationSec: number, outDir: string): Promise<number[]> {
+function burnAndCountBands(
+  ass: string,
+  durationSec: number,
+  outDir: string,
+  canvas: { w: number; h: number } = CANVAS,
+): Promise<number[]> {
   fs.mkdirSync(outDir, { recursive: true })
   const assPath = path.join(outDir, 'cue.ass')
   fs.writeFileSync(assPath, ass)
@@ -157,7 +141,7 @@ function burnAndCountBands(ass: string, durationSec: number, outDir: string): Pr
     [
       '-y',
       '-f', 'lavfi',
-      '-i', `color=c=black:s=${CANVAS.w}x${CANVAS.h}:d=${durationSec}:r=${FPS}`,
+      '-i', `color=c=black:s=${canvas.w}x${canvas.h}:d=${durationSec}:r=${FPS}`,
       '-vf', `ass=filename='${assPath}':fontsdir='${FONTS_DIR}'`,
       path.join(outDir, 'frame_%04d.png'),
     ],
@@ -180,10 +164,7 @@ async function main(): Promise<void> {
 
   let winner: { card: Word[]; branchAss: string; legacyDerived: string; legacyBands: number[] } | null = null
 
-  // `repeats` cadre le nombre de mots pleins, `fillerLen` affine la largeur
-  // restante lettre par lettre : plus fin qu'un mot entier, nécessaire pour
-  // viser la frontière que la police réelle place à un endroit que la mesure
-  // interne de `@napi-rs/canvas` ne prédit qu'approximativement.
+  // `fillerLen` affine la largeur lettre par lettre, plus fin qu'un mot entier.
   outer: for (let repeats = 2; repeats <= 8 && winner === null; repeats++) {
     for (let fillerLen = 0; fillerLen <= 16; fillerLen++) {
       const card = candidateCard(repeats, fillerLen)
@@ -239,6 +220,20 @@ async function main(): Promise<void> {
     `\nRésultat : avant varie sur {${[...legacyDistinct].sort().join(',')}} bandes selon l'image ` +
       `(instabilité mesurée), après reste constante à ${[...branchDistinct].join(',')} bande(s) ` +
       `(${branchDistinct.size === 1 ? 'STABLE' : 'ENCORE INSTABLE — à investiguer'}).`,
+  )
+
+  // Le même `.ass` sert le natif et la variante 9:16 (`renderClip`) : un
+  // carré 1080×1080, loin du 16:9, est le canevas le plus susceptible de le démentir.
+  const squareBands = await burnAndCountBands(winner.branchAss, cueDuration, path.join(scratch, 'branch-square'), {
+    w: 1080,
+    h: 1080,
+  })
+  const squareDistinct = new Set(squareBands)
+  const samePartition = branchBands.length === squareBands.length && branchBands.every((b, i) => b === squareBands[i])
+  console.log(`Bandes par image, MÊME DOCUMENT sur un canevas 1:1 (1080×1080) : [${squareBands.join(',')}]`)
+  console.log(
+    `Partition identique au 9:16 (1080×1920) : ${samePartition ? 'OUI' : 'NON'} ` +
+      `(1:1 constante à ${[...squareDistinct].join(',')} bande(s)).`,
   )
 }
 

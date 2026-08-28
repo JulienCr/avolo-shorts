@@ -19,6 +19,8 @@ import type { ClipOutputs, PublishedFraming } from '@/lib/api'
  * que la publication, préparée à vide avant ses connecteurs.
  */
 export function ExportsView({
+  id,
+  'aria-labelledby': ariaLabelledBy,
   clip,
   outputs,
   framing,
@@ -26,6 +28,9 @@ export function ExportsView({
   onReexport,
   reexportDisabled,
 }: {
+  /** Rattache ce panneau à l'onglet qui le montre (`aria-controls`). */
+  id?: string
+  'aria-labelledby'?: string
   /** Le clip **du serveur** : titre, description, marques. */
   clip: Clip
   outputs: ClipOutputs
@@ -64,7 +69,11 @@ export function ExportsView({
   return (
     // `<main>`, pas `<div>` : c'est ce que rend la vue Édition (relevé par
     // Aristarque) — les deux ne coexistent jamais, `ClipScreen` choisit l'une.
-    <main className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 workbench:flex-row">
+    <main
+      id={id}
+      aria-labelledby={ariaLabelledBy}
+      className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 workbench:flex-row"
+    >
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex items-baseline gap-2">
           <h2 className="text-sm font-medium">Livraison courante</h2>

@@ -513,8 +513,12 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
           }}
         >
           <TabsList variant="line">
-            <TabsTrigger value="edition">Édition</TabsTrigger>
-            <TabsTrigger value="exports">Exports</TabsTrigger>
+            <TabsTrigger id="tab-edition" value="edition" aria-controls="panel-edition">
+              Édition
+            </TabsTrigger>
+            <TabsTrigger id="tab-exports" value="exports" aria-controls="panel-exports">
+              Exports
+            </TabsTrigger>
           </TabsList>
         </Tabs>
 
@@ -577,7 +581,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
             `workbench` (largeur **et** hauteur, voir `globals.css`), l'écran
             ne défile plus — `main` devient la rangée fixe des deux volets. En
             dessous, il redevient la colonne qui défile d'avant ce lot. */
-        <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 workbench:flex-row workbench:overflow-hidden">
+        <main
+          id="panel-edition"
+          aria-labelledby="tab-edition"
+          className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 workbench:flex-row workbench:overflow-hidden"
+        >
           <section
             aria-labelledby="zone-image"
             // **`container-type: inline-size` ici, pas sur la rangée** :
@@ -752,6 +760,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         </main>
       ) : (
         <ExportsView
+          id="panel-exports"
+          aria-labelledby="tab-exports"
           clip={clip}
           outputs={outputs}
           framing={framing}

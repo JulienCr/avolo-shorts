@@ -125,16 +125,14 @@ export type PublicationRecord = {
   /** Le lien public, une fois `published`. `null` avant, et pour un échec. */
   remoteUrl: string | null
   /**
-   * L'empreinte de rendu (`renderFingerprint`, `src/server/steps/render.ts`)
-   * telle qu'elle était **au moment de la publication**.
+   * Le condensat du rendu **et** des textes envoyés à cette plateforme
+   * (issue #226), au moment de la publication.
    *
-   * **Écrite par les connecteurs depuis le 23 août 2026**
-   * (`src/server/publication/service.ts`). `isPublicationStale` la compare à
-   * l'empreinte courante pour distinguer « Instagram — publié » de
-   * « Instagram — publié, mais le clip local a été modifié depuis » (retour
-   * d'usage §9) : l'empreinte compare déjà le condensat du document de
-   * sous-titres réellement incrusté, en plus des segments, du ratio, du crop,
-   * du branding et des marques (PR #89).
+   * **Écrit par les connecteurs depuis le 23 août 2026**
+   * (`src/server/publication/service.ts`). `isPublicationStale` le compare
+   * au condensat courant pour distinguer « Instagram — publié » de
+   * « Instagram — publié, mais modifié depuis » (retour d'usage §9).
+   * Diffère de `PublicationJob.fingerprint` (`adapter.ts`), rendu-seul.
    */
   publishedFingerprint: string | null
   /**
@@ -302,6 +300,15 @@ export function platformTexts(clip: Pick<Clip, 'title' | 'description'>, platfor
   }
   const caption = [title, description].filter((part) => part !== '').join('\n\n')
   return { title: '', description: caption }
+}
+
+/**
+ * Sérialisation canonique de `PlatformTexts` (issue #226) : un ordre de
+ * champs fixe, pour que l'empreinte de publication qui la hache ne soit
+ * jamais périmée par un simple réordonnancement du type.
+ */
+export function canonicalPlatformTexts(texts: PlatformTexts): string {
+  return JSON.stringify({ title: texts.title, description: texts.description })
 }
 
 /**

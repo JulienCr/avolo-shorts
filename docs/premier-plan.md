@@ -1,8 +1,8 @@
 # Le filtre du premier plan
 
 Mesuré le 18 août 2026, sur `2025-06-15-cqlp` et `2026-03-08-caro-mdlm`.
-Reproductible par `scripts/mesure-premier-plan.ts` et
-`scripts/vignettes-premier-plan.ts`.
+Reproductible par `scripts/measure-foreground.ts` et
+`scripts/foreground-thumbnails.ts`.
 
 ## Le constat de départ
 
@@ -248,9 +248,9 @@ boîtes différentes — et non démontrée. Le tronc en récupère cinq points 
 ## Reproduire
 
 ```bash
-pnpm tsx scripts/mesure-premier-plan.ts 2025-06-15-cqlp
-pnpm tsx scripts/vignettes-premier-plan.ts 2025-06-15-cqlp --frontiere 8
-pnpm tsx scripts/vignettes-premier-plan.ts 2025-06-15-cqlp --large 6
+pnpm tsx scripts/measure-foreground.ts 2025-06-15-cqlp
+pnpm tsx scripts/foreground-thumbnails.ts 2025-06-15-cqlp --frontiere 8
+pnpm tsx scripts/foreground-thumbnails.ts 2025-06-15-cqlp --large 6
 ```
 
 Le premier imprime les trois lectures comparées ci-dessus. Les deux autres
@@ -275,7 +275,7 @@ en quelques minutes et son résultat se lit directement :
   --proxy projects/<projet>/proxy.mp4 --out /tmp/analyse.json \
   --ffmpeg "$FFMPEG_BIN" --model worker/models/yolo11m-pose.pt \
   --duration <secondes> --proxy-size 960x540 --source-size 1920x1080
-pnpm tsx scripts/mesure-premier-plan.ts --analyse /tmp/analyse.json
+pnpm tsx scripts/measure-foreground.ts --analyse /tmp/analyse.json
 ```
 
 **`--duration` ne borne que les frontières de plans, pas le décodage des

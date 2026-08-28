@@ -23,6 +23,7 @@ export const REGISTRY_REVISION = 1
 export const PROJECTS = {
   cqlp: '2025-06-15-cqlp',
   handicap: '2025-12-14-handicap',
+  'eve-matteo': '2026-02-08-eve-matteo-pr',
   'caro-mdlm': '2026-03-08-caro-mdlm',
   fmr: '2026-04-24-fmr',
   nabla: '2026-05-31-nabla',
@@ -453,5 +454,18 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     origin: 'fleet doublage improvisé, PR1',
     retired: null,
     baseline: { ratio: '16:9', split: true, rejection: null, on: '2026-08-27' },
+  },
+  {
+    id: 'eve-matteo-3625267',
+    show: 'eve-matteo',
+    scope: { over: 'shot' },
+    anchor: { at: 'shot', shot: { start: 3625.267, end: 3631.633 }, instants: [3625.267] },
+    probes:
+      "Une frontière, pas un cadre : une coupe que le score de scène ne franchit pas (0,2818 contre un seuil à 0,40), parce que l'éclairage LED sature les deux caméras de la même façon. Si elle se reperd, ce plan de 6,4 s redevient un plan de 325,8 s et le clip reçoit un split figé par-dessus ses cinq changements de caméra.",
+    label: null,
+    tags: [],
+    origin: 'signalé par Julien le 28 août 2026',
+    retired: null,
+    baseline: { ratio: '16:9', split: false, rejection: 'notTwoPeople', on: '2026-08-28' },
   },
 ]

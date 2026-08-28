@@ -4,9 +4,9 @@
  * écarte avant lui — le détecteur écrit dès 0,25 et le cadrage ne lit qu'à partir
  * de 0,5.
  *
- *     pnpm tsx scripts/vignettes-premier-plan.ts 2025-06-15-cqlp 419 470.5 1924
- *     pnpm tsx scripts/vignettes-premier-plan.ts 2025-06-15-cqlp --large 6
- *     pnpm tsx scripts/vignettes-premier-plan.ts 2025-06-15-cqlp --frontiere 8
+ *     pnpm tsx scripts/foreground-thumbnails.ts 2025-06-15-cqlp 419 470.5 1924
+ *     pnpm tsx scripts/foreground-thumbnails.ts 2025-06-15-cqlp --large 6
+ *     pnpm tsx scripts/foreground-thumbnails.ts 2025-06-15-cqlp --frontiere 8
  *
  * **Ce script existe parce que les chiffres se sont déjà trompés une fois.** Une
  * frontière posée sur la seule hauteur des boîtes paraissait impeccable — 0,8 %
@@ -246,7 +246,7 @@ async function main(): Promise<number> {
   const projectId = positional[0]
   if (projectId === undefined) {
     console.error(
-      'Usage : pnpm tsx scripts/vignettes-premier-plan.ts <projectId> [instants…] ' +
+      'Usage : pnpm tsx scripts/foreground-thumbnails.ts <projectId> [instants…] ' +
         '[--frontiere N] [--large N] [--out <dossier>]',
     )
     return 1

@@ -10,7 +10,7 @@
  * n'a que l'identifiant du clip sous la main. Passer les deux reste possible et
  * prioritaire.
  *
- * `vignettes-premier-plan.ts` dessine les **boîtes** : il répond à « qui le
+ * `foreground-thumbnails.ts` dessine les **boîtes** : il répond à « qui le
  * détecteur voit-il, et lesquels le filtre écarte ». Celui-ci dessine le **crop**
  * : il répond à « qu'est-ce que le spectateur verrait ». Ce sont deux questions
  * différentes, et la seconde est la seule qui tranche la question de la marge.
@@ -106,7 +106,7 @@ function ffmpeg(): string {
 }
 
 /**
- * Le sort d'une boîte, à l'identique de `vignettes-premier-plan.ts`. `tallest`
+ * Le sort d'une boîte, à l'identique de `foreground-thumbnails.ts`. `tallest`
  * est la plus haute boîte survivante de la même image, requise par le plancher
  * de taille — sans elle, une jaquette exclue du cadrage réel restait dessinée
  * en vert. (relevé par Copilot)

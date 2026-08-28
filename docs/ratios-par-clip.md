@@ -1,8 +1,8 @@
 # Le ratio par clip, sur trois émissions
 
 Mesuré le 18 août 2026, sur `2025-06-15-cqlp`, `2026-03-08-caro-mdlm` et
-`2026-22-02-entre-nous`. Reproductible par `scripts/mesure-ratios.ts`,
-`scripts/vignettes-premier-plan.ts` et `scripts/vignettes-cadrage.ts`.
+`2026-22-02-entre-nous`. Reproductible par `scripts/measure-ratios.ts`,
+`scripts/foreground-thumbnails.ts` et `scripts/framing-thumbnails.ts`.
 
 `2026-22-02-entre-nous` **porte bien un mois 22**, et ce n'est pas une faute de
 frappe de cette page : le fichier s'appelle ainsi sur le Drive, l'identifiant de
@@ -51,7 +51,7 @@ incrusté.** Et le résultat va plus loin que ça : `cqlp`, l'émission qu'on cr
 | boîtes de premier plan | 33,8 % | 1,8 % | 0,1 % |
 
 **Trois clips de la base de `cqlp` sont écartés de ce tableau, et il faut dire
-lesquels**, sinon le compte de `scripts/mesure-ratios.ts` — qui en affiche dix —
+lesquels**, sinon le compte de `scripts/measure-ratios.ts` — qui en affiche dix —
 paraît contredire celui-ci :
 
 - deux **vestiges de vérification** (`clip_verif_1to1`, `clip_verif_auto`, voir
@@ -97,7 +97,7 @@ Le seuil du 1:1 est à 0,5625. `cqlp` passe juste dessous en médiane, les deux
 autres sont loin au-dessus — et `caro-mdlm` sature : à p90, l'empan vaut **toute
 la largeur de l'image**.
 
-Par image et sur l'émission entière, filtre actif (`scripts/mesure-premier-plan.ts`),
+Par image et sur l'émission entière, filtre actif (`scripts/measure-foreground.ts`),
 la part qui tient dans chaque ratio confirme l'ordre :
 
 | | `cqlp` | `caro-mdlm` | `entre-nous` |
@@ -170,8 +170,8 @@ décide sur toutes les images du plan et pas sur la plus large.
 Reproduction :
 
 ```bash
-pnpm tsx scripts/mesure-ratios.ts 2026-03-08-caro-mdlm --instants 3
-pnpm tsx scripts/vignettes-premier-plan.ts 2026-03-08-caro-mdlm 1225.5 5476.5 8141.5
+pnpm tsx scripts/measure-ratios.ts 2026-03-08-caro-mdlm --instants 3
+pnpm tsx scripts/foreground-thumbnails.ts 2026-03-08-caro-mdlm 1225.5 5476.5 8141.5
 ```
 
 Les vignettes ne sont pas versionnées : elles montrent des visages identifiables
@@ -213,7 +213,7 @@ qui compte :
    les trois — et perd tout l'air. 0,01 de la source fait 19 px sur une sortie de
    1 080 : c'est mince, ce n'est pas nul.
 3. **Ce que la marge protège tient encore à 0,01, et c'est vérifié à l'image.**
-   Sur les deux clips qui basculent, `scripts/vignettes-cadrage.ts` dessine le
+   Sur les deux clips qui basculent, `scripts/framing-thumbnails.ts` dessine le
    rectangle que le rendu découperait, et compte les images du plan qui en
    sortent. Les trois plans concernés :
 
@@ -237,7 +237,7 @@ commence vers `0,72`. C'est le cas unique documenté en §10, pas une propriét�
 fonds.
 
 ```bash
-pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_003089230-003148633
+pnpm tsx scripts/framing-thumbnails.ts 2025-06-15-cqlp 2025-06-15-cqlp_003089230-003148633
 ```
 
 ## Ce que ça dit de la suite de l'itération 1
@@ -388,7 +388,7 @@ ne montre. Une image vaut une demi-seconde.
 | temps où quelqu'un perd > 1/2 | 0 s → 2,5 s | 0 s → 0 s | 0 s → 7,5 s |
 
 **Les deux lignes de temps sont à relire à la baisse, et le script a été corrigé
-depuis.** Elles ont été relevées quand `mesure-ratios.ts` comptait des
+depuis.** Elles ont été relevées quand `measure-ratios.ts` comptait des
 *personnes-images* et les multipliait par le pas d'échantillonnage : deux
 comédiens amputés sur la même image de 0,5 s donnaient « 1,0 s ». Le script
 agrège désormais par image — la pire perte de chacune — avant de convertir, donc
@@ -448,7 +448,7 @@ plan serré sur les deux comédiens, à 2 954,0 s un plan large depuis une autre
 caméra. La coupe est réelle, elle tombe à **2 953,2 s**, et son score de scène
 vaut **0,366** — sous le seuil de 0,40 du détecteur.
 
-Le compte, par `scripts/mesure-ratios.ts` (section 5) :
+Le compte, par `scripts/measure-ratios.ts` (section 5) :
 
 | | plans bornés par la position | temps de montage concerné |
 |---|---|---|
@@ -476,9 +476,9 @@ pour le faire, parce qu'il nomme les plans à réparer au lieu de compter des pi
 ### Reproduction
 
 ```bash
-pnpm tsx scripts/mesure-ratios.ts 2025-06-15-cqlp 2026-03-08-caro-mdlm 2026-22-02-entre-nous
-pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-002143228 --images 3
-pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-002143228 --trim 0
+pnpm tsx scripts/measure-ratios.ts 2025-06-15-cqlp 2026-03-08-caro-mdlm 2026-22-02-entre-nous
+pnpm tsx scripts/framing-thumbnails.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-002143228 --images 3
+pnpm tsx scripts/framing-thumbnails.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-002143228 --trim 0
 ```
 
 ### Résolu depuis le 19 août 2026 au soir : les bascules de composition
@@ -519,7 +519,7 @@ de `min_shift=0,08`, `cqlp` et `nabla` régressent. Ce n'est pas un échec du
 chantier, c'est la mesure de ce qu'un détecteur à deux signaux peut fermer
 sans rouvrir un autre gisement.
 
-**Avant / après, les quatre émissions** (`scripts/mesure-ratios.ts`, sections
+**Avant / après, les quatre émissions** (`scripts/measure-ratios.ts`, sections
 2 et 5) :
 
 | | temps borné par la position (§5) | temps de montage en 16:9, clips (§2) |
@@ -530,7 +530,7 @@ sans rouvrir un autre gisement.
 | `2026-22-02-entre-nous` | **41 % → 18 %** | **49 % → 39 %** |
 
 Les deux colonnes sont le **temps de montage**, jamais le compte de clips —
-c'est la doctrine de `scripts/mesure-ratios.ts` (« le chiffre qui décide est
+c'est la doctrine de `scripts/measure-ratios.ts` (« le chiffre qui décide est
 le temps de montage par ratio, pas le compte de clips »), et la mélanger
 aurait fait paraître `entre-nous` bouger deux fois sur des bases différentes.
 En **compte de clips**, `entre-nous` ne bouge d'ailleurs pas : 4 clips sur 6
@@ -573,7 +573,8 @@ ne garantit qu'un score faible tombe toujours près d'une frontière existante.
 Non corrigé : le seuil qui réglerait la question proprement exigerait de le
 mesurer, donc de rouvrir l'étalonnage validé sur les quatre émissions pour un
 seul cas connu. Voir la skill `cadrage` (septième piège) et la docstring de
-`refine_switch`.
+`refine_switch`. **Refermé le 28 août 2026** — le déclencheur de rupture rendait
+la coïncidence intenable : voir « Le piège 7 se referme » plus bas.
 
 ### Un biais de comptage : bascule détectée n'est pas frontière ajoutée
 
@@ -646,8 +647,111 @@ ffmpeg -hide_banner -nostdin -loglevel error -i projects/<id>/proxy.mp4 -an -sn 
 python worker/detect.py --replay projects/<id>/analysis.json \
   --scene-scores /tmp/<id>-scene.txt --out /tmp/<id>-essai.json
 
-pnpm tsx scripts/mesure-ratios.ts --analyse <id>=/tmp/<id>-essai.json <id>
+pnpm tsx scripts/measure-ratios.ts --analyse <id>=/tmp/<id>-essai.json <id>
 ```
+
+## Résolu le 28 août 2026 : les coupes qui changent la composition
+
+Signalé par Julien sur `2026-02-08-eve-matteo-pr_003616406-003646133`, sorti
+illisible. Le clip ne souffrait pas de son cadrage : **ses cinq changements de
+caméra n'avaient pas été détectés**. Il tombait entier dans un plan de 325,8 s
+(3 505,033 → 3 830,833 s), qui recevait donc un ratio unique — le 16:9, le plus
+large que cinq minutes réclament — **et un split-screen figé**, calé sur une
+composition à deux corps et appliqué par-dessus des plans à un corps puis à
+quatre. Sur les quatorze clips de l'émission, **cinq** tenaient entièrement dans
+un plan de plus de 60 s.
+
+### Le signal était là, et les deux détecteurs le laissaient passer
+
+Passe ffmpeg sur 3 610–3 652 s : **sept coupes, notées de 0,2389 à 0,2840**,
+quand le premier non-évènement de la fenêtre vaut 0,0336 — un facteur 8 de
+séparation. Chacune tombe exactement sur un changement d'effectif des boîtes.
+
+| t (s) | score | effectif |
+|---|---|---|
+| 3 614,067 | 0,2389 | 1 → 2 |
+| 3 617,467 | 0,2456 | 2 → 1 |
+| 3 625,267 | 0,2818 | 1 → 3 |
+| 3 631,633 | 0,2840 | 4 → 1 |
+| 3 634,433 | 0,2466 | 1 → 2 |
+| 3 645,133 | 0,2602 | 2 → 1 |
+| 3 647,600 | 0,2750 | 1 → 4 |
+
+**Vérifié à l'image** : à 3 625,1 s un gros plan sur une personne en fauteuil,
+à 3 625,4 s un plan large à trois personnes depuis une autre caméra ; le retour
+à 3 631,5 → 3 631,8 s.
+
+**Et l'image donne la cause.** Le plateau est baigné d'un éclairage LED magenta
+saturé, identique d'une caméra à l'autre : deux cadres entièrement différents
+n'ont presque pas d'écart d'histogramme. La §2 de la conception prévient que ce
+n'est pas le mouvement qui fait monter le score de scène mais la lumière ; ici
+la lumière l'**écrase**. C'est donc reproductible, et c'est l'argument de fond
+pour faire porter le signal par les boîtes plutôt que par l'histogramme.
+
+Le seuil de rétention (0,40) jetait les sept. Et `composition_switches` ne
+pouvait pas les rattraper : il exige deux personnes appariées **et** une
+translation commune, or l'effectif et l'échelle changent — sur 1 h 50 il
+n'émettait que 57 candidats.
+
+### Le second déclencheur : la rupture de composition
+
+Entre deux images consécutives de l'analyse, sur les boîtes à `score >= 0,5` —
+le seuil que `framing.ts` applique déjà, et ce qui tient les boîtes fantômes
+hors de la mesure :
+
+```
+rupture = max( |w2 - w1| / max(w1, w2) ,  |y2 - y1| )
+```
+
+`w` la **médiane des largeurs** de l'image, `y` la **médiane des `y0`**. Des
+médianes et jamais l'effectif : YOLO ajoute et retire des boîtes d'une image à
+l'autre, un compte battrait avec elles. `refine_switch` confirme ensuite sur le
+score de scène, comme pour la translation — le principe des deux signaux
+indépendants ne bouge pas, seul le premier s'élargit.
+
+Les sept coupes sont attrapées, **chacune à 0,467 au moins**. La distribution
+est remarquablement stable sur les sept émissions, ce qui autorise un seuil
+global :
+
+| émission | p90 | p95 | p98 |
+|---|---|---|---|
+| `2025-06-15-cqlp` | 0,213 | 0,296 | 0,396 |
+| `2026-01-25-muriel-thomas` | 0,155 | 0,240 | 0,394 |
+| `2026-02-08-eve-matteo-pr` | 0,173 | 0,261 | 0,419 |
+| `2026-03-08-caro-mdlm` | 0,161 | 0,251 | 0,380 |
+| `2026-04-24-fmr` | 0,221 | 0,308 | 0,423 |
+| `2026-05-31-nabla` | 0,154 | 0,255 | 0,394 |
+| `2026-22-02-entre-nous` | 0,181 | 0,294 | 0,421 |
+
+### Le piège 7 se referme, parce qu'il le fallait
+
+Le déclencheur fait passer le détecteur de 57 à ~245 fenêtres candidates. Le
+défaut résiduel décrit plus haut — `refine_switch` confirme sur le score
+**maximal** de sa fenêtre sans jamais vérifier qu'il est grand — cesse alors
+d'être borné par la coïncidence de proximité. `refine_switch` prend donc un
+`min_score`, dont le défaut de 0,0 reproduit exactement le comportement
+antérieur ; seul le nouveau déclencheur le passe non nul.
+
+**Et les deux déclencheurs se recouvrent pour de bon** : 24 fenêtres sur 57 sur
+`eve-matteo-pr`, 17 sur 60 sur `cqlp`. Sans retrait, une fenêtre commune serait
+raffinée deux fois et comptée deux fois — dans le journal dont le balayage lit
+les nombres. Les frontières, elles, ne changeaient pas : `_spaced_boundaries`
+écarte déjà un instant répété.
+
+### Une chose à savoir avant de rejouer quoi que ce soit
+
+**Les `analysis.json` du disque ne sont pas tous produits par le code en
+service.** Celui de `2026-03-08-caro-mdlm` est daté du 19 août 2026 et porte
+1 482 frontières — exactement le résultat « scène seule ». Il est antérieur au
+détecteur de bascules, qui en ajoute 33. Comparer un balayage à ce fichier
+attribuerait donc au changement mesuré l'effet d'un chantier précédent.
+
+**La référence d'un balayage est un rejeu au code courant, déclencheur
+neutralisé** (`--rupture-threshold 1`), jamais le fichier sur disque. Le contrôle
+qui le dit — rejouer aux seuils du jour et retrouver les mêmes plans — se fait
+par émission, avant tout le reste : une capture de scores faite au mauvais
+plancher produit sinon des frontières fausses d'une façon parfaitement
+plausible.
 
 ## Le tronc, mesuré le 19 août 2026 au soir
 
@@ -874,11 +978,11 @@ d'`entre-nous`, part en 16:9 et têtes hors cadre : `head` 47 % / 71, `bust`
 ### Reproduction
 
 ```bash
-pnpm tsx scripts/mesure-ratios.ts 2026-22-02-entre-nous
-pnpm tsx scripts/mesure-ratios.ts 2026-22-02-entre-nous --tronc off
-pnpm tsx scripts/vignettes-cadrage.ts 2026-22-02-entre-nous \
+pnpm tsx scripts/measure-ratios.ts 2026-22-02-entre-nous
+pnpm tsx scripts/measure-ratios.ts 2026-22-02-entre-nous --tronc off
+pnpm tsx scripts/framing-thumbnails.ts 2026-22-02-entre-nous \
   2026-22-02-entre-nous_002940409-003025773 --images 3
-pnpm tsx scripts/vignettes-cadrage.ts 2026-22-02-entre-nous \
+pnpm tsx scripts/framing-thumbnails.ts 2026-22-02-entre-nous \
   2026-22-02-entre-nous_002940409-003025773 --tronc off --images 3
 ```
 

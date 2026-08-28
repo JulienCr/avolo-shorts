@@ -339,18 +339,6 @@ export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure
   // latérales du bloc `[V4+ Styles]`, dans le même repère que `PlayResX`.
   const maxWidth = PLAYRES_X - 2 * MARGIN_SIDE
 
-  // Le mot actif grossit jusqu'à `ACTIVE_WORD_PEAK_SCALE` pendant l'animation
-  // (`wordActive`), mais `wrapCard` ne voit que des mots mesurés à 100 % : une
-  // ligne calée pile sous `maxWidth` déborderait donc pendant le pic, sans que
-  // `WrapStyle: 2` ne laisse plus libass corriger. On mesure ici la largeur
-  // pire cas — le mot le plus large de la ligne porté à son pic — plutôt que
-  // celle, plus optimiste, où tous les mots restent à 100 %.
-  const measureAtPeak: typeof measure = (text) => {
-    const words = text.split(' ')
-    const widest = Math.max(...words.map(measure))
-    return measure(text) + widest * (ACTIVE_WORD_PEAK_SCALE - 1)
-  }
-
   const events: string[] = []
   for (const card of cards) {
     if (card.length === 0) continue
@@ -359,6 +347,12 @@ export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure
     // carton : c'est lui que `measure` doit mesurer, puisque c'est lui que
     // libass trace — pas le mot brut du transcript.
     const displayWords = card.map((w) => (style.uppercase ? escape(w.word).toUpperCase() : escape(w.word)))
+
+    // Marge anti-débordement pour le pic `ACTIVE_WORD_PEAK_SCALE` de `wordActive` :
+    // prise sur `displayWords` tel quel, jamais rescindé sur l'espace — un `Word`
+    // peut en porter un interne (`cards.ts`), et l'entrée entière grossit d'un bloc.
+    const activeWordMargin = Math.max(...displayWords.map(measure)) * (ACTIVE_WORD_PEAK_SCALE - 1)
+    const measureAtPeak: Measure = (text) => measure(text) + activeWordMargin
     const breakAfter = wrapCard(displayWords, measureAtPeak, maxWidth)
 
     for (let i = 0; i < card.length; i++) {

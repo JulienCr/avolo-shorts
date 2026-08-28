@@ -516,6 +516,27 @@ describe('la coupure de ligne stable au sein d’un carton', () => {
     const ass = renderAss([long], DEFAULT_CAPTION_STYLE, alwaysOver)
     expect(textOf(dialogues(ass)[0])).not.toContain('\\N')
   })
+
+  // `splitIntoCards` (`cards.ts`) laisse un `Word` porter un espace interne —
+  // « TWO THREE » ci-dessous est **une** entrée de `card`, pas deux. Une marge
+  // de pic calculée en rescindant le texte sur l'espace sous-estime la largeur
+  // de ce bloc, qui grossit pourtant d'un seul tenant sous `wordActive` : elle
+  // laisserait passer une ligne que la marge correcte, elle, coupe (Copilot).
+  it('prend la marge de pic sur le mot entier, espace interne compris', () => {
+    const card = [
+      { word: 'one', start: 0, end: 0.4 },
+      { word: 'two three', start: 0.5, end: 0.9 },
+    ]
+    // Échelle choisie pour que « ONE TWO THREE » (13) plus la marge du bloc
+    // entier « TWO THREE » (9 × 0,08) dépasse `maxWidth`, alors que la marge
+    // sous-estimée sur « THREE » seul (5 × 0,08) non — la même arithmétique
+    // que documentée sur `activeWordMargin`.
+    const scale = maxWidth / 13.5
+    const byLength: Measure = (text) => text.length * scale
+    const ass = renderAss([card], DEFAULT_CAPTION_STYLE, byLength)
+    const events = dialogues(ass)
+    for (const e of events) expect(textOf(e)).toContain('\\N')
+  })
 })
 
 // Les trois modules s'enchaînent dans cet ordre au rendu (tâche 5). Le contrôle

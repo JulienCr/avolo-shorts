@@ -72,6 +72,30 @@ Dans la même PR #83, un bornage qui ne couvrait qu'une extrémité existait en
 **trois exemplaires**, et les deux derniers ont été trouvés dans du code que les
 correctifs du premier venaient de toucher.
 
+## Un garde recopié hérite de sa forme, pas de sa justification
+
+**Le message de remède d'un garde a été recopié d'un champ à l'autre, et il
+envoyait écrire le secret là où il serait corrompu de la même façon.**
+`quoteValue` (`scripts/generate-env-local.ts`) refusait déjà l'apostrophe, avec
+un remède : « retirer la référence `op://` de `.env` pour cette variable et la
+garder littérale ». La PR #228 a ajouté le même garde pour `$`, avec le même
+message — les deux caractères n'ayant aucune représentation qui satisfasse les
+deux lecteurs de `.env.local`.
+
+Mais les deux défauts n'ont pas la même cause. L'apostrophe casse le
+**guillemetage** de `.env.local` ; `$` est **développé par `dotenv-expand`**, que
+`@next/env` applique aussi à `.env`. Le remède transposé conduisait donc
+exactement à la corruption qu'il prétendait éviter. Trois relecteurs l'ont trouvé
+indépendamment dans la même passe — et il avait été dicté par le contrat
+d'implémentation, pas inventé par l'agent : c'est l'orchestrateur qui avait
+recopié le message en même temps que la forme.
+
+Cette leçon est le miroir de la précédente. Celle du dessus dit de chercher **les
+autres champs qui ont la forme du défaut**. Celle-ci dit qu'un garde qu'on
+recopie apporte sa forme et **pas la raison pour laquelle il était juste** : la
+forme se voit, la justification non. Avant de dupliquer un garde, vérifier que sa
+justification tient sur le nouveau cas.
+
 ## Distinguer l'absence d'information de son ambiguïté
 
 **Un défaut choisi pour l'une devient un choix actif dans l'autre.** « À égalité,

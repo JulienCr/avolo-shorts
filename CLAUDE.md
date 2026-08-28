@@ -85,7 +85,8 @@ coexistent. Le détail est dans [`docs/lessons.md`](docs/lessons.md).
 - **Une valeur notée qu'on compare à un seuil inclusif se tronque vers le bas,
   jamais ne s'arrondit.** Et quand une revue trouve un défaut de forme dans un
   champ, demander « quels autres champs ont cette forme » : le même défaut existe
-  presque toujours ailleurs.
+  presque toujours ailleurs. Le miroir vaut autant : un garde recopié d'un
+  champ voisin apporte sa forme, pas la raison qui le rendait juste.
 - **Un défaut prudent est juste face à une information absente, faux face à une
   information ambiguë.** Deux hypothèses à une voix chacune ne se départagent pas
   par le défaut : ça rend un faux résultat avec l'aplomb d'un vrai. Rejeter,

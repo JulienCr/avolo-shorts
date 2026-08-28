@@ -63,14 +63,19 @@ function fileDigest(file: string): string {
   return crypto.createHash('sha256').update(bytes).digest('hex').slice(0, 16)
 }
 
-function ensureFontRegistered(fontsDir: string): void {
+/**
+ * Exportée pour `src/server/caption-measure.ts`, qui a besoin de la même
+ * police enregistrée pour mesurer ce que libass tracera — deux trackers
+ * indépendants sur le même `GlobalFonts` se marcheraient dessus.
+ */
+export function ensureFontRegistered(fontsDir: string): void {
   const file = path.join(fontsDir, 'Anton-Regular.ttf')
   let digest: string
   try {
     digest = fileDigest(file)
   } catch (error) {
     console.warn(
-      `Police Anton illisible pour le hook (${file}) : ${error instanceof Error ? error.message : 'erreur inconnue'}.`,
+      `Police Anton illisible (${file}) : ${error instanceof Error ? error.message : 'erreur inconnue'}.`,
     )
     return
   }
@@ -82,8 +87,8 @@ function ensureFontRegistered(fontsDir: string): void {
   const registered = GlobalFonts.registerFromPath(file, 'Anton')
   if (registered === null) {
     console.warn(
-      `Police Anton introuvable pour le hook (${file}) : le rasteriseur se repliera sur la ` +
-        'police par défaut du système, ce qui ne ressemblera pas au rendu attendu.',
+      `Police Anton introuvable (${file}) : l'appelant se repliera sur la police par défaut ` +
+        'du système, ce qui ne ressemblera pas au rendu attendu.',
     )
   }
   // On mémorise le digest même en cas d'échec d'enregistrement : sinon

@@ -20,11 +20,13 @@
  * (`src/server/hook-image.ts`), pas par un second document ASS — un fond plein
  * à coins arrondis n'était pas atteignable avec `BorderStyle: 3`. Ces dix
  * symboles redeviennent internes à ce module, `renderAss` restant seul export
- * de rendu.
+ * de rendu — sauf `fontName`, réexportée pour `src/server/caption-measure.ts`.
  */
 
 import type { Word } from '@/core/transcript'
 import { MAX_CHARS_DEFAULT, MAX_DURATION_DEFAULT } from './cards'
+import { wrapCard, type Measure } from './wrap'
+export type { Measure } from './wrap'
 
 /**
  * L'apparence des sous-titres. Spec §9 : « ces valeurs deviennent un preset
@@ -114,6 +116,23 @@ function bound(value: number, min: number, max: number, fallback: number): numbe
 
 /** Le repère `PlayResY` de `renderAss`, partagé avec `CaptionOverlay` (spec §9). */
 export const PLAYRES_Y = 288
+
+/**
+ * Le repère `PlayResX`, désormais déclaré explicitement. Vaut ce que
+ * libass dérive déjà de `PlayResY: 288` quand `PlayResX` manque — `288 * 4/3`,
+ * le 4:3 par défaut de la spec ASS — vérifié par diff d'image avant ce
+ * changement : le rendu ne bouge pas. Le déclarer rend la largeur de retour à
+ * la ligne testable, là où elle était jusqu'ici une valeur implicite du
+ * moteur de rendu.
+ */
+export const PLAYRES_X = 384
+
+/**
+ * `ctx.measureText` (Anton) sous-estime de 35-37 % la largeur réellement
+ * rendue par libass — mesuré le 28 août 2026 sur trois textes (Copilot,
+ * PR #249). 1,4 arrondit au-dessus par prudence. Suivi (autres tailles) : #260.
+ */
+const CANVAS_TO_REAL_WIDTH_FACTOR = 1.4
 
 /**
  * Taille de police, marge basse et épaisseur de contour dans les unités
@@ -236,9 +255,10 @@ function escape(text: string): string {
  *
  * Une virgule y ajouterait des champs à la ligne `Style:`, donc réécrirait la
  * taille, les couleurs et la marge qui la suivent ; une accolade ou un antislash
- * y ouvriraient des balises.
+ * y ouvriraient des balises. Réexportée pour `caption-measure.ts`, qui doit
+ * nettoyer le même nom avant de le passer à `ctx.font`.
  */
-function fontName(name: string): string {
+export function fontName(name: string): string {
   const clean = String(name ?? '')
     .replace(/[^A-Za-z0-9 _-]/g, '')
     .trim()
@@ -269,7 +289,7 @@ function fontName(name: string): string {
  * Sans carton, le document rendu est valide et ne porte aucun événement. C'est à
  * l'appelant de décider s'il vaut la peine d'incruster un fichier vide.
  */
-export function renderAss(cards: Word[][], style: CaptionStyle): string {
+export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure): string {
   // Partagé avec `CaptionOverlay` — voir `captionUnits`.
   const { sizeUnits: size, marginUnits: margin, borderUnits: thickness } = captionUnits(style)
   const font = fontName(style.fontName)
@@ -285,19 +305,22 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
   // plage 90 → 108 est douce à dessein — le 75 → 112 d'une version antérieure
   // partait de si bas qu'une image saisie en pleine animation se lisait comme un
   // défaut de dimensionnement plutôt que comme un temps fort.
-  const wordActive = `{\\c${highlight}\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}`
+  const ACTIVE_WORD_PEAK_SCALE = 1.08 // seule source du 108 de la balise, pour ne jamais diverger
+  const peakPercent = Math.round(ACTIVE_WORD_PEAK_SCALE * 100)
+  const wordActive = `{\\c${highlight}\\fscx90\\fscy90\\t(0,110,\\fscx${peakPercent}\\fscy${peakPercent})}`
 
-  // `PlayResX` n'est volontairement pas déclaré, comme dans la version d'origine
-  // dont le rendu fait référence. En ajouter un changerait l'échelle du texte
-  // par rapport à cette référence : à ne toucher qu'avec une mesure à l'appui.
+  // `PlayResX` est désormais déclaré — voir sa doc — et `WrapStyle: 2` interdit
+  // à libass tout retour à la ligne automatique : les seules coupures sont les
+  // `\N` explicites posés plus bas par `wrapCard`.
   //
   // `Alignment: 2` — bas centré. C'est ce que `marginV` mesure : une marge
   // depuis le bas.
   const header =
     BOM + '[Script Info]\n' +
     'ScriptType: v4.00+\n' +
+    `PlayResX: ${PLAYRES_X}\n` +
     `PlayResY: ${PLAYRES_Y}\n` +
-    'WrapStyle: 0\n' +
+    'WrapStyle: 2\n' +
     'ScaledBorderAndShadow: yes\n' +
     '\n' +
     '[V4+ Styles]\n' +
@@ -311,9 +334,32 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
     '[Events]\n' +
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
 
+  // `PLAYRES_X - 2 * MARGIN_SIDE` : la largeur disponible entre les marges
+  // latérales du bloc `[V4+ Styles]`, dans le même repère que `PlayResX`.
+  const maxWidth = PLAYRES_X - 2 * MARGIN_SIDE
+
   const events: string[] = []
   for (const card of cards) {
     if (card.length === 0) continue
+
+    // Le texte affiché de chaque mot, calculé une seule fois pour tout le
+    // carton : c'est lui que `measure` doit mesurer, puisque c'est lui que
+    // libass trace — pas le mot brut du transcript.
+    const displayWords = card.map((w) => (style.uppercase ? escape(w.word).toUpperCase() : escape(w.word)))
+
+    // `calibrated` corrige le sous-comptage canvas-vs-libass avant toute autre
+    // marge — voir `CANVAS_TO_REAL_WIDTH_FACTOR`.
+    const calibrated: Measure = (text) => measure(text) * CANVAS_TO_REAL_WIDTH_FACTOR
+
+    // Marge anti-débordement pour le pic `ACTIVE_WORD_PEAK_SCALE` de `wordActive` :
+    // prise sur `displayWords` tel quel, jamais rescindé sur l'espace — un `Word`
+    // peut en porter un interne (`cards.ts`), et l'entrée entière grossit d'un bloc.
+    const activeWordMargin = Math.max(...displayWords.map(calibrated)) * (ACTIVE_WORD_PEAK_SCALE - 1)
+    // `ctx.measureText` ne rend que l'avance du glyphe, pas le contour que
+    // `thickness` (`Outline:`) fait dessiner de chaque côté de la ligne.
+    const measureAtPeak: Measure = (text) => calibrated(text) + activeWordMargin + 2 * thickness
+    const breakAfter = wrapCard(displayWords, measureAtPeak, maxWidth)
+
     for (let i = 0; i < card.length; i++) {
       // L'événement commence au mot actif — ce qui, pour le premier, revient au
       // début du carton — et se termine au début du mot suivant.
@@ -327,13 +373,22 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
       const fin = hundredths(i < card.length - 1 ? card[i + 1].start : card[i].end)
       if (fin <= start) continue
 
-      const parts = card.map((other, j) => {
-        const text = style.uppercase ? escape(other.word).toUpperCase() : escape(other.word)
-        return j === i ? `${wordActive}${text}{\\r}` : text
+      // La même coupure `breakAfter` pour tous les événements du carton, quel
+      // que soit le mot actif : c'est ce qui rend la mise en lignes stable.
+      const parts = displayWords.map((text, j) => (j === i ? `${wordActive}${text}{\\r}` : text))
+      const lines: string[] = []
+      let line: string[] = []
+      parts.forEach((part, j) => {
+        line.push(part)
+        if (breakAfter[j]) {
+          lines.push(line.join(' '))
+          line = []
+        }
       })
+      if (line.length > 0) lines.push(line.join(' '))
 
       events.push(
-        `Dialogue: 0,${timeAss(start)},${timeAss(fin)},Default,,0,0,0,,${parts.join(' ')}`,
+        `Dialogue: 0,${timeAss(start)},${timeAss(fin)},Default,,0,0,0,,${lines.join('\\N')}`,
       )
     }
   }

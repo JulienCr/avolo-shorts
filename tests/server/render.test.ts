@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
+import type { Measure } from '@/core/captions/wrap'
 import type { Clip, Ratio } from '@/core/edl'
 import { cleanPaths } from '@/core/errors'
 import type { Word } from '@/core/transcript'
@@ -931,6 +932,10 @@ describe('scheduleMarkers', () => {
  * que le preset traverse jusqu'au découpage.
  */
 describe('clipUnderTitles', () => {
+  // `renderAss` obligeant désormais un `measure` réel, ce contrôle-ci n'en teste
+  // pas la coupure : la même valeur que `tests/core/captions.test.ts` sert de repli.
+  const NO_WRAP: Measure = () => 0
+
   const words: Word[] = [
     { word: 'un', start: 10.0, end: 10.4 },
     { word: 'deux', start: 10.5, end: 11.0 },
@@ -945,7 +950,7 @@ describe('clipUnderTitles', () => {
   ]
 
   it('recale les mots sur la timeline du clip, pas sur celle de la source', () => {
-    const ass = clipUnderTitles(words, segments, DEFAULT_CAPTION_STYLE)
+    const ass = clipUnderTitles(words, segments, DEFAULT_CAPTION_STYLE, NO_WRAP)
     expect(ass).not.toBeNull()
     // Le premier segment dure 5 s, donc le premier mot du second segment tombe à
     // 5,00 s dans le clip — et surtout pas à 1:40, son heure dans l'émission.
@@ -956,7 +961,7 @@ describe('clipUnderTitles', () => {
   })
 
   it('laisse tomber les mots pris dans une coupe interne', () => {
-    expect(clipUnderTitles(words, segments, DEFAULT_CAPTION_STYLE)).not.toContain('COUPÉ')
+    expect(clipUnderTitles(words, segments, DEFAULT_CAPTION_STYLE, NO_WRAP)).not.toContain('COUPÉ')
   })
 
   it('passe maxChars et maxDuration du preset au découpage', () => {
@@ -974,13 +979,13 @@ describe('clipUnderTitles', () => {
           .filter((l) => l.startsWith('Dialogue:'))
           .map((l) => l.slice(l.lastIndexOf(',,') + 2).replace(/\{[^}]*\}/g, '')),
       ).size
-    expect(cards(clipUnderTitles(words, segments, tight))).toBeGreaterThan(
-      cards(clipUnderTitles(words, segments, wide)),
+    expect(cards(clipUnderTitles(words, segments, tight, NO_WRAP))).toBeGreaterThan(
+      cards(clipUnderTitles(words, segments, wide, NO_WRAP)),
     )
   })
 
   it("rend null quand aucun mot ne tombe dans les segments", () => {
-    expect(clipUnderTitles(words, [{ start: 500, end: 510 }], DEFAULT_CAPTION_STYLE)).toBeNull()
+    expect(clipUnderTitles(words, [{ start: 500, end: 510 }], DEFAULT_CAPTION_STYLE, NO_WRAP)).toBeNull()
   })
 })
 

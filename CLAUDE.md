@@ -93,6 +93,9 @@ coexistent. Le détail est dans [`docs/lessons.md`](docs/lessons.md).
 - **Changer la recette ffmpeg oblige à monter `VERSION_FINGERPRINT`**
   (`src/server/steps/render.ts`) : aucun champ de l'empreinte ne porte le graphe,
   donc les rendus périmés se disent à jour et l'ordonnanceur les republie.
+  **Deux PR qui montent toutes deux cette valeur ne se voient pas** : git les
+  fusionne sans conflit, et la seconde n'invalide plus rien. Qui fusionne en
+  second relit la valeur sur `main` et la corrige à `main + 1` si elle a bougé.
 
 Les cas qui les ont produites, avec leurs chiffres : [`docs/lessons.md`](docs/lessons.md).
 

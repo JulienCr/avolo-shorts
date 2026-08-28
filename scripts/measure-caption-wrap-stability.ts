@@ -1,13 +1,11 @@
 /**
- * La mise en lignes d'un carton reste-t-elle stable pendant son affichage,
- * image par image ?
+ * La mise en lignes d'un carton reste-t-elle stable, image par image ?
  *
  *     pnpm tsx scripts/measure-caption-wrap-stability.ts
  *
- * Cherche un carton posé à la frontière du retour à la ligne, brûle son
- * document ASS via le ffmpeg statique réel, et compte les bandes de texte par
- * image — pour l'ancien document (dérivé de `renderAss` et vérifié contre le
- * commit parent) et pour celui de cette branche.
+ * Cherche un carton frontière, le brûle via le ffmpeg statique réel, et
+ * compte les bandes de texte par image — ancien document (dérivé, vérifié
+ * contre le commit parent) contre celui de cette branche.
  */
 
 import { execFileSync } from 'node:child_process'

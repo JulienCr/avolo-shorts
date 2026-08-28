@@ -2596,11 +2596,6 @@ function fontsUsableFolder(given?: string): string | undefined {
  *    longueur par défaut pendant que tout le reste du style change.
  * 3. `renderAss` — dont la sortie commence par un BOM UTF-8 et s'écrit telle
  *    quelle.
- *
- * `measure` est **obligatoire**, jamais par défaut : un défaut qui mesurerait
- * tout à zéro laisserait `wrapCard` ne jamais couper, donc libass reprendrait
- * la main faute de `\N` — exactement le défaut que cette chaîne ferme, revenu
- * en silence par l'oubli d'un appelant plutôt que par une régression visible.
  */
 export function clipUnderTitles(
   words: Word[],

@@ -19,7 +19,7 @@ import { FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS, type FramingSettings } from 
  * `GET /api/settings`, la section montre les défauts, tout inerte.
  */
 
-type NumericKey = Exclude<keyof FramingSettings, 'splitScreen'>
+type NumericKey = Exclude<keyof FramingSettings, 'splitScreen' | 'dubbingLayout'>
 
 type NumericField = {
   label: string
@@ -105,6 +105,16 @@ export function FramingSection({
             defaultValue={FRAMING_SETTINGS_DEFAULTS.splitScreen}
             disabled={inert}
             onChange={(value) => onChange({ splitScreen: value })}
+          />
+        </Row>
+
+        <Row>
+          <ToggleField
+            label="Montage doublage activé par défaut"
+            checked={shown.dubbingLayout}
+            defaultValue={FRAMING_SETTINGS_DEFAULTS.dubbingLayout}
+            disabled={inert}
+            onChange={(value) => onChange({ dubbingLayout: value })}
           />
         </Row>
 

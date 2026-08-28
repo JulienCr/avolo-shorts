@@ -544,19 +544,21 @@ describe('la famille `hook`', () => {
 })
 
 /**
- * La famille `framing` (issue #180, première moitié) : les six leviers
- * globaux du split-screen (PR #176) et du plancher de taille (PR #177),
- * jusqu'ici en dur dans `FRAMING_DEFAULTS` (`src/core/framing.ts`).
+ * La famille `framing` (issue #180, première moitié) : les sept leviers
+ * globaux du split-screen (PR #176), du plancher de taille (PR #177) et de la
+ * bascule du montage doublage, jusqu'ici en dur dans `FRAMING_DEFAULTS`
+ * (`src/core/framing.ts`).
  *
- * **Entiers et un booléen, jamais de fraction** — même patron que `hook`.
+ * **Entiers et deux booléens, jamais de fraction** — même patron que `hook`.
  * `splitMinShotMs` porte des millisecondes, les quatre autres des millièmes ;
  * la conversion vers `FramingOptions` vit dans `src/server/clip-framing.ts`,
  * pas ici.
  */
 describe('la famille `framing`', () => {
-  it('décrit ses six champs', () => {
+  it('décrit ses sept champs', () => {
     for (const name of [
       'splitScreen',
+      'dubbingLayout',
       'splitMinShotMs',
       'splitMinCellWidthPermille',
       'splitBleedTolerancePermille',
@@ -568,8 +570,22 @@ describe('la famille `framing`', () => {
     }
   })
 
-  it('rend les six défauts sur une base vierge', () => {
+  it('rend les sept défauts sur une base vierge', () => {
     expect(effectiveSettings(db).framing).toEqual(FRAMING_SETTINGS_DEFAULTS)
+  })
+
+  it('fait l’aller-retour sur `dubbingLayout`, et une valeur corrompue en base retombe sur le défaut', () => {
+    expect(applySettings(db, { framing: { dubbingLayout: false } }).framing.dubbingLayout).toBe(
+      false,
+    )
+    expect(effectiveSettings(db).framing.dubbingLayout).toBe(false)
+
+    db.prepare('INSERT OR REPLACE INTO settings (key, value, updatedAt) VALUES (?, ?, ?)').run(
+      'framing.dubbingLayout',
+      'oui',
+      Date.now(),
+    )
+    expect(effectiveSettings(db).framing.dubbingLayout).toBe(FRAMING_SETTINGS_DEFAULTS.dubbingLayout)
   })
 
   it('fait l’aller-retour sur un champ de chacun des deux types', () => {
@@ -1181,6 +1197,12 @@ describe('la surcharge de cadrage sur un clip', () => {
     putClip(db, clip('avec-surcharge', { framingStyle: { splitScreen: true } }))
     expect(getClip(db, 'sans-surcharge')?.framingStyle).toEqual({})
     expect(getClip(db, 'avec-surcharge')?.framingStyle).toEqual({ splitScreen: true })
+  })
+
+  it('fait l’aller-retour sur `dubbingLayout` seul', () => {
+    const c = clip('clip_07', { framingStyle: { dubbingLayout: false } })
+    putClip(db, c)
+    expect(getClip(db, 'clip_07')?.framingStyle).toEqual({ dubbingLayout: false })
   })
 
   it('un framingStyle illisible retombe sur `{}`, et se dit', () => {

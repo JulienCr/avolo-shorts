@@ -708,8 +708,9 @@ const HOOK_FIELDS: readonly SettingField[] = (
 ).map((name) => ({ family: 'hook' as const, name, ...HOOK_FIELD_SHAPES[name] }))
 
 /**
- * Les six champs `framing` (issue #180) : split-screen (PR #176) et plancher
- * de taille (PR #177), jusqu'ici en dur dans `FRAMING_DEFAULTS`.
+ * Les sept champs `framing` (issue #180) : split-screen (PR #176), plancher
+ * de taille (PR #177) et bascule du montage doublage, jusqu'ici en dur dans
+ * `FRAMING_DEFAULTS`.
  *
  * **Même patron que `HOOK_FIELD_SHAPES`** : `keyof FramingSettings`, défauts
  * et bornes tirés de `FRAMING_SETTINGS_DEFAULTS`/`FRAMING_BOUNDS`, jamais
@@ -718,6 +719,7 @@ const HOOK_FIELDS: readonly SettingField[] = (
  */
 const FRAMING_FIELD_SHAPES = {
   splitScreen: { type: 'boolean', defaultValue: FRAMING_SETTINGS_DEFAULTS.splitScreen },
+  dubbingLayout: { type: 'boolean', defaultValue: FRAMING_SETTINGS_DEFAULTS.dubbingLayout },
   splitMinShotMs: {
     type: 'integer',
     defaultValue: FRAMING_SETTINGS_DEFAULTS.splitMinShotMs,
@@ -1340,6 +1342,7 @@ function readHookStyle(raw: string, clipId: string): Partial<HookSettings> {
  */
 export const FRAMING_STYLE_SHAPE = {
   splitScreen: z.boolean(),
+  dubbingLayout: z.boolean(),
   splitMinShotMs: z
     .number()
     .int()

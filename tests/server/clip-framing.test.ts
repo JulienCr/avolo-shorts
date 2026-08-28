@@ -7,6 +7,7 @@ import type { Clip } from '@/core/edl'
 import { framingWith, clipFraming, projectAnalysis, forgetAnalyses } from '@/server/clip-framing'
 import { FRAMING_SETTINGS_DEFAULTS } from '@/core/framing'
 import type { FramingSettings } from '@/core/framing'
+import { DUBBING_ANCHORS } from '@/core/dubbing'
 import { POINT, POINT_COUNT } from '@/core/shots'
 import type { PersonBox } from '@/core/shots'
 import { applySettings, closeDb, effectiveSettings, getClip, openDb, putClip, upsertProject } from '@/server/db'
@@ -520,6 +521,75 @@ describe('le split-screen à travers le registre des réglages', () => {
     } finally {
       closeDb()
     }
+  })
+})
+
+/**
+ * `dubbingLayout` (PR4, issue #180) : le seul réglage booléen de la famille
+ * qui ne passe par aucune division. Sa surcharge par clip doit arriver
+ * jusqu'à `computeFraming` telle quelle — c'est le point que
+ * `src/server/clip-framing.ts` teste ailleurs pour les cinq réglages
+ * numériques, et qui manquait pour celui-ci.
+ */
+describe('`dubbingLayout` à travers le registre des réglages', () => {
+  const DUBBING_ID = 'projet-doublage'
+  const ANCHOR = DUBBING_ANCHORS[0]
+
+  /** Une boîte de comédien, entièrement contenue dans l'ancre de doublage. */
+  function dubBox(t: number): PersonBox {
+    return {
+      t,
+      x0: ANCHOR.pip.x0 + 0.02,
+      x1: ANCHOR.pip.x1 - 0.02,
+      y0: ANCHOR.pip.y0 + 0.02,
+      y1: ANCHOR.pip.y1 - 0.02,
+      score: 0.9,
+    }
+  }
+
+  function writeDubbingAnalysis(): void {
+    // Une image par seconde, largement au-delà du délai d'entrée de 30 s.
+    const boxes: PersonBox[] = []
+    for (let t = 0; t <= 69; t += 1) boxes.push(dubBox(t))
+    writeTwoPersonAnalysis(DUBBING_ID, boxes, 69)
+  }
+
+  function dubbingClip(framingStyle: Partial<FramingSettings> = {}): Clip {
+    return {
+      id: 'clip_dubbing',
+      projectId: DUBBING_ID,
+      segments: [{ start: 20, end: 40 }],
+      ratio: 'auto',
+      cropX: 0.5,
+      captions: true,
+      branding: false,
+      title: 'Une scène doublée',
+      description: '',
+      status: 'kept',
+      pass: 1,
+      hookText: '',
+      hookBadge: '',
+      hookStyle: {},
+      framingStyle,
+    }
+  }
+
+  it('pose `dubbing` par défaut, et plus aucun quand `framingStyle.dubbingLayout` vaut `false`', () => {
+    writeDubbingAnalysis()
+
+    const withDefault = framingWith(
+      dubbingClip(),
+      projectAnalysis(DUBBING_ID),
+      FRAMING_SETTINGS_DEFAULTS,
+    )
+    expect(withDefault.shots[0].dubbing).toBeDefined()
+
+    const withOverride = framingWith(
+      dubbingClip({ dubbingLayout: false }),
+      projectAnalysis(DUBBING_ID),
+      FRAMING_SETTINGS_DEFAULTS,
+    )
+    expect(withOverride.shots[0].dubbing).toBeUndefined()
   })
 })
 

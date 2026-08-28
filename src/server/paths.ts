@@ -91,17 +91,21 @@ export function resolveSource(source: string): string {
 }
 
 /**
- * L'identifiant de projet : le nom de fichier sans son extension, **accents
- * dépliés** — `2026-01-11-méchante.mp4` donne `2026-01-11-mechante`.
+ * L'identifiant de projet : le nom sans extension, **accents dépliés** —
+ * `2026-01-11-méchante.mp4` donne `2026-01-11-mechante`. Il devient un
+ * dossier, un préfixe de `clipId`, une URL, un nom de rendu. Or
+ * `é` a deux écritures Unicode qui s'affichent pareil et le montage décide
+ * laquelle : deux chaînes non égales pour un fichier, donc deux projets.
  *
- * L'identifiant devient un dossier, un préfixe de `clipId`, un segment d'URL,
- * un nom de rendu. Or `é` a deux écritures Unicode qui s'affichent pareil et le
- * montage décide laquelle : deux chaînes non égales pour un fichier, donc deux
- * projets et un `grep` qui rate. **Le reste passe tel quel**, espaces compris
- * (spec §12) ; l'accent survit dans le titre, tiré du nom (`summaryProject`).
+ * @returns L'identifiant, **jamais vide**. Le reste passe tel quel, espaces
+ *   compris (spec §12) ; l'accent survit dans le titre (`summaryProject`).
  */
 export function projectIdFromSource(source: string): string {
-  return foldAccents(withoutExtension(path.basename(resolveSource(source))))
+  const name = withoutExtension(path.basename(resolveSource(source)))
+  // Un nom qui n'est fait que de signes se replierait sur rien, et `verifyId`
+  // refuserait ensuite tout accès à un projet déjà inscrit en base. C'est le
+  // `|| name` de `withoutExtension`, pour la même raison. (relevé par Aristarque)
+  return foldAccents(name) || name
 }
 
 /**

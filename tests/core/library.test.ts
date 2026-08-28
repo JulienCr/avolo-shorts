@@ -376,3 +376,12 @@ describe('foldAccents', () => {
     expect(foldAccents('')).toBe('')
   })
 })
+
+describe('normalizeForSearch', () => {
+  it('déplie aussi les ligatures depuis qu’il passe par foldAccents', () => {
+    // Chercher « coeur » trouve « Cœur » : c'est un gain de permissivité, et il
+    // n'était couvert par rien avant. (relevé par Aristarque)
+    expect(normalizeForSearch('Cœur de Pirate.mp4')).toBe('coeur de pirate.mp4')
+    expect(normalizeForSearch('  Ex Æquo  ')).toBe('ex aequo')
+  })
+})

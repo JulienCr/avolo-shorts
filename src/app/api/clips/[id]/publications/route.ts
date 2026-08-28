@@ -10,9 +10,8 @@ import { publicationFingerprint, renderFingerprintForClip } from '@/server/publi
  * Route séparée de `GET /api/clips/:id` : l'écran de clip la sonde seule,
  * à son rythme (`refetchInterval` tant qu'une ligne est `in_progress`).
  *
- * **`stale` est décidé ici, pas côté client** (issue #145), sur le même
- * condensat SHA-256 des deux côtés. Il couvre le rendu **et** les textes
- * de la plateforme (issue #226), pas le rendu seul.
+ * `stale` est décidé ici (issue #145), sur un condensat qui couvre le
+ * rendu **et** les textes de la plateforme (issue #226).
  */
 export const GET = route(
   'GET /api/clips/:id/publications',

@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "tmp/decisions-ecran-clip.html"
+        ],
+        "createdAt": "2026-08-28T18:26:35.271Z",
+        "reason": "Feuille de style figée de la skill decision-sheet (reference/style.css:55), recopiee verbatim comme la skill l'exige. Barre de progression de 4px, un seul element, <=7 transitions par page, deja neutralisee par le prefers-reduced-motion de la meme feuille (style.css:207). Le correctif durable appartient a la skill, pas a la page generee."
+      }
+    ]
+  }
+}

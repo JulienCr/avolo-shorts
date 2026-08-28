@@ -1,7 +1,12 @@
 # La hiérarchie des écrans : ce qui domine, et ce qui devrait
 
 Date : 23 août 2026.
-Statut : en cours. Les §3.3 et §3.4 (l'établi de l'écran clip) sont implémentés ;
+Statut : en cours, et **le §3.3 est périmé** — l'établi qu'il arrête a été
+remplacé le 28 août par
+`docs/superpowers/specs/2026-08-28-ecran-clip-design.md`, qui amende aussi le
+premier relevé du §8. Le §3.4 tient sans changement.
+
+Statut d'origine : en cours. Les §3.3 et §3.4 (l'établi de l'écran clip) sont implémentés ;
 le reste — dont le §3.1 (l'undo du cadrage) — ne l'est pas encore. Le chantier
 est suivi par l'**issue #131**, qui porte le périmètre et l'ordre ; les mesures
 et les arbitrages sont ici.
@@ -125,6 +130,14 @@ en coller un seul. Les mots-dièse restent visibles quelque part, parce qu'eux n
 sont écrits nulle part ailleurs — ils se calculent.
 
 ### 3.3 La colonne « Image » gaspille 45 % de sa largeur, « Contenu » étrangle ses champs
+
+> **Périmé depuis le 28 août 2026.** Le diagnostic ci-dessous reste juste et la
+> forme qu'il arrête ne l'est plus : l'établi traitait la source 16:9 et la
+> sortie 9:16 comme deux vues équivalentes, à hauteur égale depuis une source
+> unique. Elles ne le sont pas — l'une est l'instrument, l'autre est le produit,
+> et la règle donnait à l'instrument trois fois la surface de l'ouvrage
+> (935 × 526 contre 296 × 526, mesurés). La forme qui la remplace est en
+> `docs/superpowers/specs/2026-08-28-ecran-clip-design.md`.
 
 Mesuré à 2558 px de fenêtre, `main` plafonné à `max-w-[104rem]` soit 1664 px :
 
@@ -415,6 +428,10 @@ Pas une liste de cases : trois questions à poser devant l'écran rendu.
    l'écran ne défile plus (`document.scrollingElement.scrollHeight` vaut la
    hauteur de la fenêtre, et le `main` n'a plus de dépassement), et le primaire
    est l'élément interactif **le plus à droite** de la dernière ligne.
+   **Amendé le 28 août** : le primaire monte dans la barre d'app, à côté des
+   onglets `Édition | Exports`, et le relevé devient « le plus à droite de la
+   **première** ligne, et il n'en existe qu'un sur l'écran ». Le premier relevé,
+   l'écran qui ne défile plus, ne change pas.
 2. Dans l'onglet « Gardés », combien de boutons pour neuf clips ? Neuf est la
    bonne réponse.
 3. `Ctrl+Z` après un déplacement du rectangle de cadrage : est-ce que le

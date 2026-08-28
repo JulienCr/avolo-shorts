@@ -565,6 +565,7 @@ describe('`dubbingLayout` à travers le registre des réglages', () => {
       cropX: 0.5,
       captions: true,
       branding: false,
+      footer: false,
       title: 'Une scène doublée',
       description: '',
       status: 'kept',

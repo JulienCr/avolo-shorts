@@ -679,16 +679,22 @@ function ConfirmStep({
         <div className="flex flex-col gap-2">
           <p className="text-xs font-medium text-muted-foreground">Description envoyée</p>
           {previewed.map((clip) =>
-            previewSections(clip, platformsByClip.get(clip.clipId) ?? []).map((section) => (
-              <div key={`${clip.clipId}-${section.label}`} className="flex flex-col gap-1">
-                {section.label && (
-                  <p className="text-[11px] text-muted-foreground">{section.label}</p>
-                )}
-                <pre className="whitespace-pre-wrap rounded-lg border bg-muted/30 px-3 py-2 font-sans text-xs">
-                  {section.text}
-                </pre>
-              </div>
-            )),
+            previewSections(clip, platformsByClip.get(clip.clipId) ?? []).map((section) => {
+              // Plusieurs clips à l'écran : le titre lève l'ambiguïté que le seul
+              // libellé de plateforme ne résout pas (relevé par Copilot).
+              const label =
+                previewed.length > 1
+                  ? [clip.title, section.label].filter((part) => part !== '').join(' — ')
+                  : section.label
+              return (
+                <div key={`${clip.clipId}-${section.label}`} className="flex flex-col gap-1">
+                  {label && <p className="text-[11px] text-muted-foreground">{label}</p>}
+                  <pre className="whitespace-pre-wrap rounded-lg border bg-muted/30 px-3 py-2 font-sans text-xs">
+                    {section.text}
+                  </pre>
+                </div>
+              )
+            }),
           )}
         </div>
       )}

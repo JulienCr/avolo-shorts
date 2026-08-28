@@ -295,6 +295,29 @@ describe('PublishDialog — aperçu de la description finale (récapitulatif)', 
     expect(previews).toContain('Une scène.\n\n———\nLa Scène Avolo.')
   })
 
+  it('distingue les clips au titre quand plusieurs sont prévisualisés', () => {
+    const onlyYoutube: Record<Platform, PlatformAvailability> = {
+      instagram: { available: false, reason: 'not_configured' },
+      facebook: { available: false, reason: 'not_configured' },
+      tiktok: { available: false, reason: 'not_configured' },
+      youtube: { available: true },
+    }
+    render(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[
+          eligible({ clipId: 'c1', title: 'Premier clip', composedDescription: 'Une scène.' }),
+          eligible({ clipId: 'c2', title: 'Deuxième clip', composedDescription: 'Une autre scène.' }),
+        ]}
+        availability={onlyYoutube}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    expect(screen.getByText('Premier clip')).toBeTruthy()
+    expect(screen.getByText('Deuxième clip')).toBeTruthy()
+  })
+
   it("n'affiche rien quand l'appelant n'a pas fourni la description composée", () => {
     render(
       <PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={onlyInstagram} />,

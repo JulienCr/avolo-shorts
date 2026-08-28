@@ -1423,11 +1423,12 @@ export type PlanningPendingClip = {
   projectId: string
   title: string
   /**
-   * `stale` : le rendu existe mais ne décrit plus le montage ou la recette.
-   * `unedited` : le clip est gardé et n'a jamais été rendu — l'exporter le
-   * produira donc avec ses réglages par défaut.
+   * L'état du **rendu**, jamais l'histoire du clip : `stale`, un rendu qui ne
+   * décrit plus le montage ; `missing`, aucun rendu sur le disque. `kept` ne
+   * prouve pas qu'un clip n'a jamais été monté — `discardRenderStale` y fait
+   * redescendre un clip exporté qu'on rouvre (relevé par Copilot et Codex).
    */
-  reason: 'unedited' | 'stale'
+  reason: 'missing' | 'stale'
 }
 
 /** Ce que rend `GET /api/planning/pool` : le vivier, et ce qui lui manque. */

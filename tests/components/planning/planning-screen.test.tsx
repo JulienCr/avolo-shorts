@@ -179,16 +179,16 @@ describe('PlanningScreen', () => {
       pool: [],
       pending: [
         { clipId: 'c1', projectId: '2026-06-15-cqlp', title: 'La chute', reason: 'stale' },
-        { clipId: 'c2', projectId: '2026-06-15-cqlp', title: 'Le silence', reason: 'unedited' },
+        { clipId: 'c2', projectId: '2026-06-15-cqlp', title: 'Le silence', reason: 'missing' },
       ],
     })
     render(<PlanningScreen />, { wrapper: wrapper() })
 
     await waitFor(() => expect(screen.getByText(/Aucun clip à programmer/)).toBeTruthy())
-    expect(screen.getByText(/Des clips gardés n’ont pas de vidéo à jour/)).toBeTruthy()
+    expect(screen.getByText(/Des clips gardés n’ont pas de rendu à jour/)).toBeTruthy()
     expect(screen.queryByText(/Exportez un clip depuis son émission/)).toBeNull()
     expect(screen.getByRole('button', { name: /Exporter les 2 clips manquants/ })).toBeTruthy()
-    expect(screen.getByText(/1 jamais monté, 1 rendu périmé/)).toBeTruthy()
+    expect(screen.getByText(/1 sans rendu, 1 rendu périmé/)).toBeTruthy()
   })
 
   it('coche deux clips et confirme une date : un seul appel, une échéance unique', async () => {

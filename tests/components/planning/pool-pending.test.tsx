@@ -87,12 +87,12 @@ function wrapper() {
 
 describe('PendingExport', () => {
   it('nomme le compte et le détail des deux raisons', () => {
-    render(<PendingExport pending={[pending('a', 'unedited'), pending('b'), pending('c')]} />, {
+    render(<PendingExport pending={[pending('a', 'missing'), pending('b'), pending('c')]} />, {
       wrapper: wrapper(),
     })
 
     expect(screen.getByRole('button', { name: /Exporter les 3 clips manquants/ })).toBeTruthy()
-    expect(screen.getByText(/1 jamais monté, 2 rendus périmés/)).toBeTruthy()
+    expect(screen.getByText(/1 sans rendu, 2 rendus périmés/)).toBeTruthy()
   })
 
   it('exporte un clip à la fois, dans l’ordre, et suit l’avancement', async () => {

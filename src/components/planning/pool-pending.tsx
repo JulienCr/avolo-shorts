@@ -74,7 +74,10 @@ export function PendingExport({ pending }: { pending: readonly PlanningPendingCl
       )}
 
       {failures.length > 0 && run === null && (
-        <p className="text-xs text-destructive">
+        // `role="alert"` : l'échec arrive au bout d'une attente longue, et un
+        // lecteur d'écran resté sur le bouton ne verrait rien passer sans lui.
+        // (relevé par Copilot)
+        <p role="alert" className="text-xs text-destructive">
           {agreement(failures.length, 'clip n’a pas pu être exporté', 'clips n’ont pas pu être exportés')}
           &nbsp;: {failures.join(', ')}.
         </p>
@@ -84,17 +87,18 @@ export function PendingExport({ pending }: { pending: readonly PlanningPendingCl
 }
 
 /**
- * Les deux raisons, comptées séparément.
+ * Les deux raisons, comptées séparément — elles ne coûtent pas le même temps :
+ * `stale` réencode par-dessus un rendu existant, `missing` part de zéro.
  *
- * Elles ne portent pas le même risque : `stale` rattrape un clip déjà réglé,
- * `unedited` en rend un que personne n'a ouvert — donc avec ses valeurs par
- * défaut. Le mélange doit se lire avant le clic, pas se découvrir après.
+ * **Elles disent l'état du rendu, pas l'histoire du clip.** Un clip sans rendu
+ * n'est pas un clip que personne n'a ouvert : `discardRenderStale` fait
+ * redescendre à `kept` un exporté qu'on rouvre. (relevé par Copilot et Codex)
  */
 function breakdown(pending: readonly PlanningPendingClip[]): string {
-  const unedited = pending.filter((c) => c.reason === 'unedited').length
-  const stale = pending.length - unedited
+  const missing = pending.filter((c) => c.reason === 'missing').length
+  const stale = pending.length - missing
   const parts: string[] = []
-  if (unedited > 0) parts.push(agreement(unedited, 'jamais monté', 'jamais montés'))
+  if (missing > 0) parts.push(`${missing} sans rendu`)
   if (stale > 0) parts.push(agreement(stale, 'rendu périmé', 'rendus périmés'))
   return parts.join(', ')
 }

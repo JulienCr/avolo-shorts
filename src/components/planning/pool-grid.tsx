@@ -98,7 +98,7 @@ export function PoolGrid({
           <p className="mt-1 text-sm text-muted-foreground">
             {pending.length === 0
               ? 'Exportez un clip depuis son émission pour qu’il rejoigne le vivier.'
-              : 'Des clips gardés n’ont pas de vidéo à jour. Les exporter les fera entrer ici.'}
+              : 'Des clips gardés n’ont pas de rendu à jour. Les exporter les fera entrer ici.'}
           </p>
         </div>
       )}

@@ -32,7 +32,7 @@ export const GET = route('GET /api/planning/pool', async () => {
     // `clipOutputs` rendrait des `null` sans lever la moindre erreur.
     const framing = clipFraming(clip, settings.framing)
     if (!deliveryToDay(clip, framing, settings.hook)) {
-      pending.push(waiting(clip, 'stale'))
+      pushWaiting(clip, 'stale')
       continue
     }
     clips.push({
@@ -51,13 +51,19 @@ export const GET = route('GET /api/planning/pool', async () => {
 
   for (const clip of listKeptClips(db)) {
     if (schedulableStatuses(clip) === null) continue
-    pending.push(waiting(clip, 'unedited'))
+    pushWaiting(clip, 'missing')
   }
 
   // Les deux listes se concatènent, donc l'ordre lexicographique que chaque
   // requête tenait séparément ne survit pas au collage.
   pending.sort((a, b) => a.clipId.localeCompare(b.clipId))
   return json({ clips, pending })
+
+  /** Empile l'entrée d'attente, sauf pour un clip qu'aucun export ne peut rendre. */
+  function pushWaiting(clip: Clip, reason: PlanningPendingClip['reason']): void {
+    const entry = waiting(clip, reason)
+    if (entry !== null) pending.push(entry)
+  }
 
   /** Les statuts du clip, ou `null` si plus rien n'est programmable pour lui. */
   function schedulableStatuses(clip: Clip): PlanningPoolClip['statuses'] | null {
@@ -68,6 +74,15 @@ export const GET = route('GET /api/planning/pool', async () => {
   }
 })
 
-function waiting(clip: Clip, reason: PlanningPendingClip['reason']): PlanningPendingClip {
+/**
+ * L'entrée de `pending`, ou `null` pour un clip qu'aucun export ne peut rendre.
+ *
+ * **Un clip sans segment est écarté** : l'édition autorise de vider un clip
+ * (`tests/core/phase.test.ts`), et `renderClip` refuse une durée nulle — le
+ * proposer offrirait une cible qui échoue à chaque tentative. (relevé par
+ * Copilot)
+ */
+function waiting(clip: Clip, reason: PlanningPendingClip['reason']): PlanningPendingClip | null {
+  if (clipDuration(clip.segments) <= 0) return null
   return { clipId: clip.id, projectId: clip.projectId, title: clip.title, reason }
 }

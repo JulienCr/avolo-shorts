@@ -157,7 +157,7 @@ describe('GET /api/planning/pool', () => {
   })
 
   it('rend en `pending` un clip gardé et un clip exporté périmé, avec leur raison', async () => {
-    putClip(getDb(), baseClip('jamais-monté', { status: 'kept' }))
+    putClip(getDb(), baseClip('sans-rendu', { status: 'kept' }))
     putClip(getDb(), baseClip('périmé'))
     putClip(getDb(), baseClip('à-jour'))
     fresh.add('à-jour')
@@ -169,9 +169,20 @@ describe('GET /api/planning/pool', () => {
     }
     expect(payload.clips.map((c) => c.clipId)).toEqual(['à-jour'])
     expect(payload.pending).toEqual([
-      { clipId: 'jamais-monté', projectId: PROJECT_ID, title: 'Titre jamais-monté', reason: 'unedited' },
       { clipId: 'périmé', projectId: PROJECT_ID, title: 'Titre périmé', reason: 'stale' },
+      { clipId: 'sans-rendu', projectId: PROJECT_ID, title: 'Titre sans-rendu', reason: 'missing' },
     ])
+  })
+
+  // `renderClip` refuse une durée nulle, et l'édition autorise de vider un
+  // clip : le proposer offrirait une cible qui échoue à chaque tentative.
+  it('exclut de `pending` un clip vidé de ses segments', async () => {
+    putClip(getDb(), baseClip('vidé', { status: 'kept', segments: [] }))
+    putClip(getDb(), baseClip('périmé-vidé', { segments: [] }))
+
+    const response = await poolRoute()
+    const payload = (await response.json()) as { pending: { clipId: string }[] }
+    expect(payload.pending).toEqual([])
   })
 
   // Le bouton d'export du vivier ne propose que ce qui pourra ensuite y entrer.

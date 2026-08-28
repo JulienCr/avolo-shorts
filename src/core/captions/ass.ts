@@ -21,6 +21,11 @@
  * à coins arrondis n'était pas atteignable avec `BorderStyle: 3`. Ces dix
  * symboles redeviennent internes à ce module, `renderAss` restant seul export
  * de rendu.
+ *
+ * **Exception : `fontName` est réexportée**, pour `src/server/caption-measure.ts`
+ * — elle doit nettoyer le même nom que celui écrit dans `Style:` avant de le
+ * passer à `ctx.font`, sous peine de mesurer une police que libass ne chargera
+ * jamais.
  */
 
 import type { Word } from '@/core/transcript'
@@ -297,8 +302,13 @@ export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure
   // plage 90 → 108 est douce à dessein — le 75 → 112 d'une version antérieure
   // partait de si bas qu'une image saisie en pleine animation se lisait comme un
   // défaut de dimensionnement plutôt que comme un temps fort.
-  const wordActive = `{\\c${highlight}\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}`
+  //
+  // `ACTIVE_WORD_PEAK_SCALE` porte le même 108 que la balise `\fscx`/`\fscy` :
+  // une seule source, pour que la garantie anti-débordement de `measureAtPeak`
+  // ne se décale jamais en silence si l'animation est retouchée.
   const ACTIVE_WORD_PEAK_SCALE = 1.08
+  const peakPercent = Math.round(ACTIVE_WORD_PEAK_SCALE * 100)
+  const wordActive = `{\\c${highlight}\\fscx90\\fscy90\\t(0,110,\\fscx${peakPercent}\\fscy${peakPercent})}`
 
   // `PlayResX` est désormais déclaré — voir sa doc — et `WrapStyle: 2` interdit
   // à libass tout retour à la ligne automatique : les seules coupures sont les

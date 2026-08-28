@@ -16,6 +16,8 @@ import { ensureFontRegistered } from './hook-image'
 export function createCaptionMeasure(fontsDir: string, fontFamily: string, fontSizePx: number): Measure {
   ensureFontRegistered(fontsDir)
   const ctx = createCanvas(1, 1).getContext('2d')
-  ctx.font = `${fontSizePx}px ${fontFamily}`
+  // `bold` : la ligne `Style:` de `renderAss` écrit toujours `Bold=1`, et Anton
+  // Bold n'a pas la même largeur qu'Anton normal à la frontière de `maxWidth`.
+  ctx.font = `bold ${fontSizePx}px ${fontFamily}`
   return (text: string) => ctx.measureText(text).width
 }

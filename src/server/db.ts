@@ -24,6 +24,7 @@ import {
   PUBLICATION_ADAPTER_CHOICES,
   type AiSettings,
   type FramingSettings,
+  type FramingStyleOverride,
   type HookSettings,
   type IngestionSettings,
   type PublicationSettings,
@@ -708,8 +709,9 @@ const HOOK_FIELDS: readonly SettingField[] = (
 ).map((name) => ({ family: 'hook' as const, name, ...HOOK_FIELD_SHAPES[name] }))
 
 /**
- * Les six champs `framing` (issue #180) : split-screen (PR #176) et plancher
- * de taille (PR #177), jusqu'ici en dur dans `FRAMING_DEFAULTS`.
+ * Les sept champs `framing` (issue #180) : split-screen (PR #176), plancher
+ * de taille (PR #177) et bascule du montage doublage, jusqu'ici en dur dans
+ * `FRAMING_DEFAULTS`.
  *
  * **Même patron que `HOOK_FIELD_SHAPES`** : `keyof FramingSettings`, défauts
  * et bornes tirés de `FRAMING_SETTINGS_DEFAULTS`/`FRAMING_BOUNDS`, jamais
@@ -718,6 +720,7 @@ const HOOK_FIELDS: readonly SettingField[] = (
  */
 const FRAMING_FIELD_SHAPES = {
   splitScreen: { type: 'boolean', defaultValue: FRAMING_SETTINGS_DEFAULTS.splitScreen },
+  dubbingLayout: { type: 'boolean', defaultValue: FRAMING_SETTINGS_DEFAULTS.dubbingLayout },
   splitMinShotMs: {
     type: 'integer',
     defaultValue: FRAMING_SETTINGS_DEFAULTS.splitMinShotMs,
@@ -1340,6 +1343,10 @@ function readHookStyle(raw: string, clipId: string): Partial<HookSettings> {
  */
 export const FRAMING_STYLE_SHAPE = {
   splitScreen: z.boolean(),
+  // Littéral, pas `z.boolean()` : la surcharge par clip ne peut que
+  // désactiver (§1 du contrat), jamais réactiver là où le défaut global
+  // est éteint — `true` violerait cette asymétrie au niveau de l'API.
+  dubbingLayout: z.literal(false),
   splitMinShotMs: z
     .number()
     .int()
@@ -1375,7 +1382,7 @@ const FRAMING_STYLE_SCHEMA = z.strictObject(FRAMING_STYLE_SHAPE).partial().catch
  * (`console.warn`), une clé hors bornes ou inconnue retombe sur `{}` en
  * silence via le `.catch({})` du schéma.
  */
-function readFramingStyle(raw: string, clipId: string): Partial<FramingSettings> {
+function readFramingStyle(raw: string, clipId: string): FramingStyleOverride {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)

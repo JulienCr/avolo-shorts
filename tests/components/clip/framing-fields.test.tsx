@@ -8,7 +8,7 @@
  * « Réinitialiser » n'apparaît que s'il y a de quoi défaire.
  */
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { FramingFields } from '@/components/clip/framing-fields'
@@ -71,7 +71,31 @@ describe('le switch split-screen', () => {
 
   it('se dit hérité tant qu’aucune surcharge n’existe', () => {
     mount({ clip: clip({ framingStyle: {} }) })
-    expect(screen.getByText('— hérité')).toBeTruthy()
+    const row = within(screen.getByRole('checkbox', { name: 'Split-screen' }).parentElement!)
+    expect(row.getByText('— hérité')).toBeTruthy()
+  })
+})
+
+describe('le switch montage doublage', () => {
+  it('montre la valeur globale sans qu’il faille ouvrir le pli', () => {
+    mount({ globals: { ...FRAMING_SETTINGS_DEFAULTS, dubbingLayout: false } })
+    expect(screen.getByRole('checkbox', { name: 'Montage doublage' }).getAttribute('aria-checked')).toBe(
+      'false',
+    )
+  })
+
+  it('écrit une surcharge au clic', () => {
+    const onWrite = vi.fn()
+    mount({ globals: { ...FRAMING_SETTINGS_DEFAULTS, dubbingLayout: true }, onWrite })
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Montage doublage' }))
+    expect(onWrite).toHaveBeenCalledWith({ framingStyle: { dubbingLayout: false } })
+  })
+
+  it('se dit hérité tant qu’aucune surcharge n’existe', () => {
+    mount({ clip: clip({ framingStyle: {} }) })
+    const row = within(screen.getByRole('checkbox', { name: 'Montage doublage' }).parentElement!)
+    expect(row.getByText('— hérité')).toBeTruthy()
   })
 })
 
@@ -83,8 +107,9 @@ describe('hérité vs surchargé', () => {
       clip: clip({ framingStyle: { splitScreen: true } }),
       globals: { ...FRAMING_SETTINGS_DEFAULTS, splitScreen: true },
     })
-    expect(screen.queryByText('— hérité')).toBeNull()
-    expect(screen.getByRole('button', { name: /revenir à l’héritage/ })).toBeTruthy()
+    const row = within(screen.getByRole('checkbox', { name: 'Split-screen' }).parentElement!)
+    expect(row.queryByText('— hérité')).toBeNull()
+    expect(row.getByRole('button', { name: /revenir à l’héritage/ })).toBeTruthy()
   })
 
   it('un champ numérique non surchargé se dit hérité, une fois le pli ouvert', () => {

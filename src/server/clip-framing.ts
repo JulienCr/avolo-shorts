@@ -255,6 +255,7 @@ export function framingWith(
     // une deuxième, ici ou à l'écran, diverge en silence — voir
     // `tests/server/clip-framing.test.ts` pour le test qui l'épingle.
     splitScreen: effective.splitScreen,
+    dubbingLayout: effective.dubbingLayout,
     splitMinShot: effective.splitMinShotMs / 1000,
     splitMinCellWidth: effective.splitMinCellWidthPermille / 1000,
     splitBleedTolerance: effective.splitBleedTolerancePermille / 1000,

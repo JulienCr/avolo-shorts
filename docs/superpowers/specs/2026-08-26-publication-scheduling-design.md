@@ -237,6 +237,14 @@ clip qui n'a plus rien à programmer. **Le prix du périmètre retenu** : un cli
 publié puis réédité repasse à `kept` (`src/server/steps/render.ts`) et quitte
 l'écran, son historique de publication avec lui.
 
+**Ce que devient `pending` (#263).** La liste de ce qui manque au vivier garde
+ses deux gardes — ni échéance `planned`, ni plateformes toutes arrêtées — mais
+sa raison `stale` recouvre désormais des clips **présents** à l'écran : un rendu
+périmé est à la fois dans `clips`, marqué « rendu périmé », et dans `pending`,
+où le bouton propose de le réencoder. Le doublon est voulu : voir l'état d'un
+clip n'est pas le réparer, et retirer les périmés de `pending` priverait le
+bouton du cas qui l'a motivé — une montée de `VERSION_FINGERPRINT`.
+
 **Ce scénario tient parce que `discardRenderStale` épargne les sorties d'un
 clip qui porte encore une échéance `planned`** (`keepScheduledOutputs`,
 `src/server/db.ts:hasPendingSchedule`, issue #205). Sans cette réserve, la

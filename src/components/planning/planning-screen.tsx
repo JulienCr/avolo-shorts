@@ -56,7 +56,7 @@ export function PlanningScreen() {
   // **Réconciliée avec le vivier, jamais lue seule** — même règle que
   // `ReviewFeed` (`feed.tsx:173-181`) : la sélection ne doit pas annoncer un
   // compte qu'elle ne peut plus honorer.
-  const poolClips = pool.data ?? []
+  const poolClips = pool.data?.clips ?? []
   // Et réconciliée avec la programmabilité, pas seulement avec la présence :
   // un clip dont les lignes `planned` passent à `in_progress` pendant le
   // sondage perd sa case, et le `POST` sur lui rendrait 400.
@@ -125,6 +125,7 @@ export function PlanningScreen() {
           <h2 className="text-sm font-medium text-muted-foreground">Vivier</h2>
           <PoolGrid
             clips={poolClips}
+            pending={pool.data?.pending ?? []}
             loading={pool.isPending}
             view={view}
             onView={(next: PoolView) => setViewParam(next)}

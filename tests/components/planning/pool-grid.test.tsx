@@ -6,8 +6,10 @@
  * sélection masquée.
  */
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PoolGrid } from '@/components/planning/pool-grid'
@@ -15,6 +17,11 @@ import { PLATFORMS, type Platform } from '@/core/publication'
 import type { PlanningPoolClip, PublicationDetail } from '@/lib/api'
 
 afterEach(cleanup)
+
+// `PendingExport`, monté par la grille dans les deux états, tient une mutation.
+function wrapper({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
+}
 
 function clip(id: string, fields: Partial<PlanningPoolClip> = {}): PlanningPoolClip {
   return {
@@ -41,7 +48,7 @@ function publishedEverywhere(): Partial<Record<Platform, PublicationDetail>> {
 const CLIPS = [clip('a'), clip('b'), clip('c')]
 
 /** Les props d'onglet, que chaque rendu doit porter. */
-const VIEW = { view: 'toPublish', onView: vi.fn() } as const
+const VIEW = { view: 'toPublish', onView: vi.fn(), pending: [] } as const
 
 describe('PoolGrid — le compte de la barre de filtre', () => {
   /**
@@ -52,7 +59,10 @@ describe('PoolGrid — le compte de la barre de filtre', () => {
   it('se tait sur un onglet seul, et compte dès qu’une recherche restreint', async () => {
     const user = userEvent.setup()
     const clips = [clip('a'), clip('b'), clip('c', { statuses: publishedEverywhere() })]
-    render(<PoolGrid {...VIEW} clips={clips} loading={false} selected={new Set()} onToggle={vi.fn()} onPreview={vi.fn()} />)
+    render(
+      <PoolGrid {...VIEW} clips={clips} loading={false} selected={new Set()} onToggle={vi.fn()} onPreview={vi.fn()} />,
+      { wrapper },
+    )
 
     // « À publier » n'en montre que deux sur trois, et ne l'annonce pas.
     expect(screen.queryByText(/clips sur/)).toBeNull()
@@ -65,7 +75,10 @@ describe('PoolGrid — le compte de la barre de filtre', () => {
 describe('PoolGrid — navigation clavier', () => {
   it('atteint chaque carte depuis la première par ArrowDown, et revient par ArrowUp', async () => {
     const user = userEvent.setup()
-    render(<PoolGrid {...VIEW} clips={CLIPS} loading={false} selected={new Set()} onToggle={vi.fn()} onPreview={vi.fn()} />)
+    render(
+      <PoolGrid {...VIEW} clips={CLIPS} loading={false} selected={new Set()} onToggle={vi.fn()} onPreview={vi.fn()} />,
+      { wrapper },
+    )
 
     const cards = CLIPS.map((c) => screen.getByText(c.title).closest('[data-clip]') as HTMLElement)
 
@@ -97,6 +110,7 @@ describe('PoolGrid — navigation clavier', () => {
     const user = userEvent.setup()
     const { container } = render(
       <PoolGrid {...VIEW} clips={CLIPS} loading={false} selected={new Set()} onToggle={vi.fn()} onPreview={vi.fn()} />,
+      { wrapper },
     )
     const grid = container.querySelector('[class*="grid"]') as HTMLElement
     grid.style.gridTemplateColumns = '1fr 1fr'
@@ -117,19 +131,26 @@ describe('PoolGrid — états', () => {
   it('affiche des squelettes pendant le chargement, pas l’état vide', () => {
     const { container } = render(
       <PoolGrid {...VIEW} clips={[]} loading onToggle={vi.fn()} onPreview={vi.fn()} selected={new Set()} />,
+      { wrapper },
     )
     expect(screen.queryByText(/Aucun clip exporté/)).toBeNull()
     expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
   })
 
   it('vivier vide : le bloc en pointillés', () => {
-    render(<PoolGrid {...VIEW} clips={[]} loading={false} onToggle={vi.fn()} onPreview={vi.fn()} selected={new Set()} />)
+    render(
+      <PoolGrid {...VIEW} clips={[]} loading={false} onToggle={vi.fn()} onPreview={vi.fn()} selected={new Set()} />,
+      { wrapper },
+    )
     expect(screen.getByText(/Aucun clip exporté/)).toBeTruthy()
   })
 
   it('filtre sans résultat : message distinct, avec le bouton « Tout afficher »', async () => {
     const user = userEvent.setup()
-    render(<PoolGrid {...VIEW} clips={CLIPS} loading={false} onToggle={vi.fn()} onPreview={vi.fn()} selected={new Set()} />)
+    render(
+      <PoolGrid {...VIEW} clips={CLIPS} loading={false} onToggle={vi.fn()} onPreview={vi.fn()} selected={new Set()} />,
+      { wrapper },
+    )
 
     await user.type(screen.getByLabelText('Rechercher un clip'), 'introuvable')
     expect(screen.getByText('Aucun clip ne correspond au filtre.')).toBeTruthy()
@@ -142,6 +163,7 @@ describe('PoolGrid — états', () => {
     const user = userEvent.setup()
     render(
       <PoolGrid {...VIEW} clips={CLIPS} loading={false} onToggle={vi.fn()} onPreview={vi.fn()} selected={new Set(['a'])} />,
+      { wrapper },
     )
     await user.type(screen.getByLabelText('Rechercher un clip'), 'introuvable')
     expect(screen.getByText('1 clip sélectionné est masqué par le filtre.')).toBeTruthy()
@@ -159,6 +181,7 @@ describe('PoolGrid — les onglets', () => {
         onPreview={vi.fn()}
         selected={new Set()}
       />,
+      { wrapper },
     )
     const tabs = screen.getAllByRole('tab')
     expect(tabs.map((tab) => tab.textContent)).toEqual([
@@ -173,9 +196,16 @@ describe('PoolGrid — les onglets', () => {
 
   it('l’onglet actif décide de ce que la grille montre', () => {
     const clips = [clip('a'), clip('parti', { statuses: publishedEverywhere() })]
-    const props = { clips, loading: false, onToggle: vi.fn(), onPreview: vi.fn(), selected: new Set<string>() }
+    const props = {
+      clips,
+      pending: [],
+      loading: false,
+      onToggle: vi.fn(),
+      onPreview: vi.fn(),
+      selected: new Set<string>(),
+    }
 
-    const { rerender } = render(<PoolGrid {...props} view="toPublish" onView={vi.fn()} />)
+    const { rerender } = render(<PoolGrid {...props} view="toPublish" onView={vi.fn()} />, { wrapper })
     expect(screen.getByText('Clip a')).toBeTruthy()
     expect(screen.queryByText('Clip parti')).toBeNull()
 
@@ -197,6 +227,7 @@ describe('PoolGrid — les onglets', () => {
         onPreview={vi.fn()}
         selected={new Set()}
       />,
+      { wrapper },
     )
     await user.click(screen.getByRole('tab', { name: /Publié/ }))
     expect(onView).toHaveBeenCalledWith('published')
@@ -215,6 +246,7 @@ describe('PoolGrid — les onglets', () => {
         onPreview={vi.fn()}
         selected={new Set()}
       />,
+      { wrapper },
     )
     expect(screen.getByText('Aucun clip en échec.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Tout afficher' })).toBeNull()

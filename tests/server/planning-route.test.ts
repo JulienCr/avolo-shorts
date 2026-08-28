@@ -188,6 +188,66 @@ describe('GET /api/planning/pool', () => {
     expect(byId.get('dépassé') ?? '').not.toContain('?poster=render')
   })
 
+  it('rend en `pending` un clip gardé et un clip exporté périmé, avec leur raison', async () => {
+    putClip(getDb(), baseClip('sans-rendu', { status: 'kept' }))
+    putClip(getDb(), baseClip('périmé'))
+    putClip(getDb(), baseClip('à-jour'))
+    fresh.add('à-jour')
+
+    const response = await poolRoute()
+    const payload = (await response.json()) as {
+      clips: { clipId: string }[]
+      pending: { clipId: string; title: string; reason: string }[]
+    }
+    // Depuis les six onglets, un rendu périmé est **des deux côtés** : au
+    // vivier avec son badge, et ici où le bouton propose de le réencoder.
+    expect(payload.clips.map((c) => c.clipId).sort()).toEqual(['périmé', 'à-jour'])
+    expect(payload.pending).toEqual([
+      { clipId: 'périmé', projectId: PROJECT_ID, title: 'Titre périmé', reason: 'stale' },
+      { clipId: 'sans-rendu', projectId: PROJECT_ID, title: 'Titre sans-rendu', reason: 'missing' },
+    ])
+  })
+
+  // `renderClip` refuse une durée nulle, et l'édition autorise de vider un
+  // clip : le proposer offrirait une cible qui échoue à chaque tentative.
+  it('exclut de `pending` un clip vidé de ses segments', async () => {
+    putClip(getDb(), baseClip('vidé', { status: 'kept', segments: [] }))
+    putClip(getDb(), baseClip('périmé-vidé', { segments: [] }))
+
+    const response = await poolRoute()
+    const payload = (await response.json()) as { pending: { clipId: string }[] }
+    expect(payload.pending).toEqual([])
+  })
+
+  // Le bouton d'export du vivier ne propose que ce qui pourra ensuite y entrer.
+  // Un clip qu'aucune de ces deux règles n'écarterait serait rendu, puis
+  // resterait invisible — ce qui se lit comme une panne, pas comme une règle.
+  it('exclut de `pending` un clip déjà programmé et un clip aux plateformes épuisées', async () => {
+    putClip(getDb(), baseClip('programmé', { status: 'kept' }))
+    schedulePublications(getDb(), ['programmé'], 5000, 1000)
+
+    putClip(getDb(), baseClip('épuisé-périmé'))
+    for (const platform of ['instagram', 'facebook', 'tiktok', 'youtube'] as const) {
+      upsertPublication(getDb(), {
+        clipId: 'épuisé-périmé',
+        platform,
+        status: 'published',
+        remoteId: 'p1',
+        remoteUrl: 'https://example.test/p1',
+        requestId: null,
+        error: null,
+        publishedFingerprint: null,
+        createdAt: 1000,
+        updatedAt: 1000,
+        scheduledAt: null,
+      })
+    }
+
+    const response = await poolRoute()
+    const payload = (await response.json()) as { pending: { clipId: string }[] }
+    expect(payload.pending).toEqual([])
+  })
+
   it('rend la description, les sorties et les statuts du clip', async () => {
     putClip(getDb(), baseClip('complet', { description: 'Une scène.' }))
     fresh.add('complet')

@@ -452,6 +452,10 @@ export function useExporter() {
     onSuccess(_result, { clipId }) {
       void client.invalidateQueries({ queryKey: keys.clip(clipId) })
       void client.invalidateQueries({ queryKey: keys.tousCandidats })
+      // **Et le vivier**, que l'export fait bouger des deux côtés : le clip y
+      // entre et il sort de `pending`. Sans ça le bouton de rattrapage
+      // recompterait des clips qu'il vient lui-même de rendre.
+      void client.invalidateQueries({ queryKey: keys.planningPool })
     },
   })
 }
@@ -952,7 +956,8 @@ export function usePublisher() {
 }
 
 /**
- * Le vivier du planning — tous les clips exportés, publications comprises.
+ * Le vivier du planning — tous les clips exportés, publications comprises —
+ * et `pending`, ceux qui n'y sont pas faute de vidéo à jour.
  *
  * **Sonde tant qu'un envoi tourne**, même cadence que `usePublications` :
  * `POST /api/clips/:id/publish` rend sur `in_progress` et téléverse détaché,
@@ -963,7 +968,7 @@ export function usePlanningPool() {
     queryKey: keys.planningPool,
     queryFn: listPlanningPool,
     refetchInterval: (query) =>
-      query.state.data?.some((clip) =>
+      query.state.data?.clips.some((clip) =>
         Object.values(clip.statuses).some((detail) => detail?.status === 'in_progress'),
       )
         ? 2_000

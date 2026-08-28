@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState } from 'react'
 
-import type { PlanningPoolClip } from '@/lib/api'
+import type { PlanningPendingClip, PlanningPoolClip } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,6 +21,7 @@ import {
   type PoolRestriction,
   type PoolView,
 } from '@/components/planning/pool-filter'
+import { PendingExport } from '@/components/planning/pool-pending'
 import { formatShowOrigin } from '@/components/planning/texts'
 
 const ALL_SHOWS = 'all'
@@ -30,14 +31,15 @@ const SKELETONS = 8
  * Le vivier en grille : six onglets, filtre par émission, recherche, et
  * navigation clavier bidimensionnelle.
  *
- * **L'émission et la recherche restent dans le composant, pas dans l'URL** —
- * même règle que `LibraryGrid` (`sources/library.tsx`) : une recherche à demi
- * tapée dans une URL est une URL qu'on ne peut plus partager. L'onglet, lui,
- * vit dans l'URL (`review/template.ts`) : un rechargement doit rendre le même
- * écran, et on revient ici après un aller-retour par « Éditer ».
+ * **L'émission et la recherche restent locales, l'onglet vit dans l'URL** : une
+ * recherche à demi tapée est impartageable, un rechargement doit rendre le même
+ * écran. **`PendingExport` garde sa place dans l'arbre entre les deux états** :
+ * le placer par branche le démonterait à l'arrivée du premier clip, réarmant
+ * le bouton en pleine boucle — deux ffmpeg concurrents à un clic.
  */
 export function PoolGrid({
   clips,
+  pending,
   loading,
   view,
   onView,
@@ -46,6 +48,7 @@ export function PoolGrid({
   onPreview,
 }: {
   clips: readonly PlanningPoolClip[]
+  pending: readonly PlanningPendingClip[]
   loading: boolean
   view: PoolView
   onView: (view: PoolView) => void
@@ -95,43 +98,50 @@ export function PoolGrid({
     )
   }
 
-  if (clips.length === 0) {
-    return (
-      <div className="rounded-xl border border-dashed px-6 py-14 text-center">
-        <p className="text-sm font-medium">Aucun clip exporté.</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Exportez un clip depuis son émission pour qu’il rejoigne le vivier.
-        </p>
-      </div>
-    )
-  }
-
   return (
     /* **Le contenu est dans un panneau, pas à côté des onglets** — un
        `tablist` sans `tabpanel` s'annonce « onglet 1 sur 6 » sans qu'aucun
        panneau ne soit désigné (`review/feed.tsx`). Un seul suffit, celui de
        l'onglet actif. */
     <Tabs value={view} onValueChange={(value) => onView(value as PoolView)} className="gap-3">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <TabsList>
-          {POOL_VIEWS.map(({ value, label }) => (
-            <TabsTrigger key={value} value={value}>
-              {label}
-              <Badge variant="outline" className="ml-1 font-mono text-xs tabular-nums">
-                {counts[value]}
-              </Badge>
-            </TabsTrigger>
-          ))}
-        </TabsList>
-
-        <FilterBar
-          clips={clips}
-          filter={filter}
-          onRestrict={setRestriction}
-          restricted={restricting}
-          visibleCount={visible.length}
-        />
+      {/* `empty:hidden` retire la ligne — et l'espacement qu'elle prendrait —
+          quand ni les onglets, ni le filtre, ni le rattrapage n'ont rien à y
+          mettre, sans pour autant démonter `PendingExport`. */}
+      <div className="flex flex-wrap items-end justify-between gap-3 empty:hidden">
+        {clips.length > 0 && (
+          <TabsList>
+            {POOL_VIEWS.map(({ value, label }) => (
+              <TabsTrigger key={value} value={value}>
+                {label}
+                <Badge variant="outline" className="ml-1 font-mono text-xs tabular-nums">
+                  {counts[value]}
+                </Badge>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        )}
+        {clips.length > 0 && (
+          <FilterBar
+            clips={clips}
+            filter={filter}
+            onRestrict={setRestriction}
+            restricted={restricting}
+            visibleCount={visible.length}
+          />
+        )}
+        <PendingExport pending={pending} />
       </div>
+
+      {clips.length === 0 && (
+        <div className="rounded-xl border border-dashed px-6 py-14 text-center">
+          <p className="text-sm font-medium">Aucun clip exporté.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {pending.length === 0
+              ? 'Exportez un clip depuis son émission pour qu’il rejoigne le vivier.'
+              : 'Des clips gardés n’ont pas de rendu à jour. Les exporter les fera entrer ici.'}
+          </p>
+        </div>
+      )}
 
       {hiddenSelectedCount > 0 && (
         <p className="text-sm text-muted-foreground">
@@ -142,7 +152,7 @@ export function PoolGrid({
       )}
 
       <TabsContent value={view}>
-      {visible.length === 0 ? (
+      {clips.length > 0 && visible.length === 0 && (
         <div className="rounded-xl border border-dashed px-6 py-14 text-center">
           {/* Deux vides à ne pas confondre : l'onglet n'a rien, ou le filtre
               cache ce qu'il a. Le second se répare d'un clic, le premier non. */}
@@ -155,7 +165,9 @@ export function PoolGrid({
             </Button>
           )}
         </div>
-      ) : (
+      )}
+
+      {visible.length > 0 && (
         <div
           ref={grid}
           className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7"

@@ -20,6 +20,7 @@ import {
   DEFAULT_SCHEDULE_HOURS,
   FRAMING_SETTINGS_DEFAULTS,
   HOOK_DEFAULTS,
+  type PlanningPendingClip,
   type PlanningPoolClip,
   type PublicationDetail,
   type ScheduledEntry,
@@ -116,6 +117,7 @@ function entry(fields: Partial<ScheduledEntry> = {}): ScheduledEntry {
 /** Un serveur réduit aux quatre routes du planning et à `/api/settings`. */
 function server(options: {
   pool?: PlanningPoolClip[]
+  pending?: PlanningPendingClip[]
   schedule?: ScheduledEntry[]
   settings?: Settings
   onSchedule?: (body: unknown) => ScheduledEntry[]
@@ -125,7 +127,9 @@ function server(options: {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ path: url, init })
     if (url === '/api/settings') return response(options.settings ?? SETTINGS)
-    if (url === '/api/planning/pool') return response({ clips: options.pool ?? [] })
+    if (url === '/api/planning/pool') {
+      return response({ clips: options.pool ?? [], pending: options.pending ?? [] })
+    }
     if (url.startsWith('/api/planning/schedule?')) {
       return response({ entries: options.schedule ?? [] })
     }
@@ -166,6 +170,26 @@ describe('PlanningScreen', () => {
 
     await waitFor(() => expect(screen.getByText(/Aucun clip exporté/)).toBeTruthy())
     expect(screen.getByText(/Exportez un clip/)).toBeTruthy()
+  })
+
+  // Le cas qui a produit ce bouton : une recette de rendu montée d'un cran
+  // périme tous les rendus d'un coup, et le vivier se vide sans rien dire de
+  // ce qu'il faut faire pour le remplir (28 août 2026).
+  it('vivier vide mais des clips en attente : le bloc dit quoi faire et propose de le faire', async () => {
+    server({
+      pool: [],
+      pending: [
+        { clipId: 'c1', projectId: '2026-06-15-cqlp', title: 'La chute', reason: 'stale' },
+        { clipId: 'c2', projectId: '2026-06-15-cqlp', title: 'Le silence', reason: 'missing' },
+      ],
+    })
+    render(<PlanningScreen />, { wrapper: wrapper() })
+
+    await waitFor(() => expect(screen.getByText(/Aucun clip exporté/)).toBeTruthy())
+    expect(screen.getByText(/Des clips gardés n’ont pas de rendu à jour/)).toBeTruthy()
+    expect(screen.queryByText(/Exportez un clip depuis son émission/)).toBeNull()
+    expect(screen.getByRole('button', { name: /Exporter les 2 clips manquants/ })).toBeTruthy()
+    expect(screen.getByText(/1 sans rendu, 1 rendu périmé/)).toBeTruthy()
   })
 
   it('coche deux clips et confirme une date : un seul appel, une échéance unique', async () => {

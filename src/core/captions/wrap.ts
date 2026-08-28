@@ -27,7 +27,7 @@ export function wrapCard(words: readonly string[], measure: Measure, maxWidth: n
   let lineStart = 0
   for (let i = 1; i < words.length; i++) {
     const candidate = words.slice(lineStart, i + 1).join(' ')
-    if (measure(candidate) <= maxWidth || lineStart === i) continue
+    if (measure(candidate) <= maxWidth) continue
     breakAfter[i - 1] = true
     lineStart = i
   }

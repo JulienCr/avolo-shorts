@@ -298,6 +298,7 @@ export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure
   // partait de si bas qu'une image saisie en pleine animation se lisait comme un
   // défaut de dimensionnement plutôt que comme un temps fort.
   const wordActive = `{\\c${highlight}\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}`
+  const ACTIVE_WORD_PEAK_SCALE = 1.08
 
   // `PlayResX` est désormais déclaré — voir sa doc — et `WrapStyle: 2` interdit
   // à libass tout retour à la ligne automatique : les seules coupures sont les
@@ -328,6 +329,18 @@ export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure
   // latérales du bloc `[V4+ Styles]`, dans le même repère que `PlayResX`.
   const maxWidth = PLAYRES_X - 2 * MARGIN_SIDE
 
+  // Le mot actif grossit jusqu'à `ACTIVE_WORD_PEAK_SCALE` pendant l'animation
+  // (`wordActive`), mais `wrapCard` ne voit que des mots mesurés à 100 % : une
+  // ligne calée pile sous `maxWidth` déborderait donc pendant le pic, sans que
+  // `WrapStyle: 2` ne laisse plus libass corriger. On mesure ici la largeur
+  // pire cas — le mot le plus large de la ligne porté à son pic — plutôt que
+  // celle, plus optimiste, où tous les mots restent à 100 %.
+  const measureAtPeak: typeof measure = (text) => {
+    const words = text.split(' ')
+    const widest = Math.max(...words.map(measure))
+    return measure(text) + widest * (ACTIVE_WORD_PEAK_SCALE - 1)
+  }
+
   const events: string[] = []
   for (const card of cards) {
     if (card.length === 0) continue
@@ -336,7 +349,7 @@ export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure
     // carton : c'est lui que `measure` doit mesurer, puisque c'est lui que
     // libass trace — pas le mot brut du transcript.
     const displayWords = card.map((w) => (style.uppercase ? escape(w.word).toUpperCase() : escape(w.word)))
-    const breakAfter = wrapCard(displayWords, measure, maxWidth)
+    const breakAfter = wrapCard(displayWords, measureAtPeak, maxWidth)
 
     for (let i = 0; i < card.length; i++) {
       // L'événement commence au mot actif — ce qui, pour le premier, revient au

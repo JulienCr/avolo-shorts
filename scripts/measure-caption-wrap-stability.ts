@@ -155,6 +155,15 @@ function burnAndCountBands(
 
 async function main(): Promise<void> {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-wrap-measure-'))
+  try {
+    await run(scratch)
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true })
+  }
+}
+
+/** Le corps de la recherche, séparé pour que `main` garantisse le nettoyage de `scratch` même en échec. */
+async function run(scratch: string): Promise<void> {
   const { sizeUnits } = captionUnits(DEFAULT_CAPTION_STYLE)
   const measure = createCaptionMeasure(FONTS_DIR, DEFAULT_CAPTION_STYLE.fontName, sizeUnits)
 

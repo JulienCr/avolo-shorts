@@ -1753,14 +1753,6 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
     fonts: fontsDigest(fontsFolder(options.fontsDir)),
   }
 
-  // Même repère que `Style:` dans le fichier ASS : `fontName` et
-  // `captionUnits(...).sizeUnits`.
-  const captionMeasure = createCaptionMeasure(
-    fontsFolder(options.fontsDir),
-    fontName(look.style.fontName),
-    captionUnits(look.style).sizeUnits,
-  )
-
   // **Le hook qu'on incrusterait maintenant, avant la décision de saut** — le
   // même geste que `textCurrent` plus bas, pour la même raison : c'est ce qui
   // attrape un réglage global changé sans qu'aucun champ du clip n'ait bougé
@@ -1797,7 +1789,17 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   // Calculé une seule fois pour tout le passage : la décision de saut s'en
   // sert ici, et l'écriture du `.ass` plus bas réutilise le même document
   // plutôt que de relire le transcript une seconde fois.
-  const textCurrent: string | null = clip.captions ? await currentCaptionsDocument(clip, project, look.style, captionMeasure) : null
+  // Même repère que `Style:` dans le fichier ASS : `fontName` et
+  // `captionUnits(...).sizeUnits`. Construite seulement ici : un clip sans
+  // sous-titres n'a pas besoin de relire ni d'enregistrer la police.
+  const textCurrent: string | null = clip.captions
+    ? await currentCaptionsDocument(
+        clip,
+        project,
+        look.style,
+        createCaptionMeasure(fontsFolder(options.fontsDir), fontName(look.style.fontName), captionUnits(look.style).sizeUnits),
+      )
+    : null
 
   // Ce que les fichiers présents décrivent, s'il y en a.
   const gap = lFingerprintGap(lireFingerprint(paths.fingerprint), renderedShape(clip, framingSnapshot), {

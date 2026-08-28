@@ -248,6 +248,36 @@ export function thumbArgs(o: { src: string; dst: string; at: number }): string[]
 }
 
 /**
+ * La planche d'un clip : `count` vues tuilées sur une seule ligne.
+ *
+ * @param duration la durée couverte, en secondes ; doit être > 0
+ * @throws si `duration` est nulle ou négative — `fps=12/0` sort une planche vide
+ *   que la présence du fichier ferait passer pour valide
+ */
+export function filmstripArgs(o: {
+  src: string
+  dst: string
+  at: number
+  duration: number
+  count: number
+}): string[] {
+  if (!(o.duration > 0)) throw new Error(`filmstripArgs : durée invalide (${String(o.duration)}).`)
+  return [
+    ...GLOBAL,
+    '-ss', seconds(Math.max(0, o.at)),
+    '-t', seconds(o.duration),
+    '-i', o.src,
+    '-map', '0:v:0',
+    '-an',
+    '-vf', `fps=${o.count}/${o.duration},scale=160:90,tile=${o.count}x1`,
+    '-frames:v', '1',
+    '-q:v', '4',
+    '-update', '1',
+    ...destination(o.dst),
+  ]
+}
+
+/**
  * La vignette d'une **source** : une image prise dans l'original, sur le 9p.
  *
  * C'est l'exact contraire de `thumbArgs` juste au-dessus, et la contradiction

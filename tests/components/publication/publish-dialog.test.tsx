@@ -348,4 +348,40 @@ describe('PublishDialog — panne de l’historique (issue #150)', () => {
     expect(screen.getByText('Chargement de l’état des publications précédentes…')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Suivant' })).toHaveProperty('disabled', true)
   })
+
+  // Relevé par Aristarque : `canContinue` bloque « Suivant », mais le geste
+  // terminal ne le consultait pas. Une requête qui échoue une fois
+  // l'utilisateur déjà à l'étape de confirmation laissait « Confirmer et
+  // publier » actif — envoi sans `force`, 409 invisible.
+  it('bloque aussi le geste terminal si l’historique échoue après le passage à la confirmation', () => {
+    const onLaunch = vi.fn()
+    const { rerender } = render(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[eligible()]}
+        availability={onlyInstagram}
+        onLaunch={onLaunch}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    expect(screen.getByRole('button', { name: 'Confirmer et publier' })).toHaveProperty('disabled', false)
+
+    rerender(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[eligible()]}
+        availability={onlyInstagram}
+        onLaunch={onLaunch}
+        recordsError
+      />,
+    )
+
+    const confirmButton = screen.getByRole('button', { name: 'Confirmer et publier' })
+    expect(confirmButton).toHaveProperty('disabled', true)
+    fireEvent.click(confirmButton)
+    expect(onLaunch).not.toHaveBeenCalled()
+  })
 })

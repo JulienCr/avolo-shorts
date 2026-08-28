@@ -387,7 +387,7 @@ export function PublishDialog({
                 Retour
               </Button>
               {targets.length > 0 ? (
-                <Button variant="destructive" onClick={confirmLaunch}>
+                <Button variant="destructive" onClick={confirmLaunch} disabled={!canContinue}>
                   Confirmer et publier
                 </Button>
               ) : (

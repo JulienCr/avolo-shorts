@@ -192,4 +192,24 @@ describe('usePublicationRecordsByClip — distingue échec et absence (issue #15
     expect(result.current.pendingClipIds.has('c1')).toBe(true)
     expect(result.current.failedClipIds.has('c1')).toBe(false)
   })
+
+  // Suggéré par Aristarque : le cas réel de la sélection groupée, un clip en
+  // 200 et un autre en 500 dans le même appel, plutôt qu'un seul clip à la fois.
+  it('répartit correctement un mélange succès/échec entre `byClip` et `failedClipIds`', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes('/c-ok/')) return response({ publications: [row({ clipId: 'c-ok' })] })
+        return response({ error: 'panne' }, 500)
+      }),
+    )
+    const { envelope } = harness()
+    const { result } = renderHook(() => usePublicationRecordsByClip(['c-ok', 'c-ko']), { wrapper: envelope })
+
+    await waitFor(() => expect(result.current.failedClipIds.has('c-ko')).toBe(true))
+    expect(result.current.byClip['c-ok']).toBeDefined()
+    expect(result.current.byClip['c-ko']).toBeUndefined()
+    expect(result.current.pendingClipIds.size).toBe(0)
+  })
 })

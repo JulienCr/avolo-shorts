@@ -126,14 +126,13 @@ export type PublicationRecord = {
   remoteUrl: string | null
   /**
    * Le condensat du rendu **et** des textes envoyés à cette plateforme
-   * (issue #226), tel qu'il était **au moment de la publication**.
+   * (issue #226), au moment de la publication.
    *
    * **Écrit par les connecteurs depuis le 23 août 2026**
    * (`src/server/publication/service.ts`). `isPublicationStale` le compare
    * au condensat courant pour distinguer « Instagram — publié » de
-   * « Instagram — publié, mais le clip local a été modifié depuis » (retour
-   * d'usage §9). Diffère volontairement de `PublicationJob.fingerprint`
-   * (`adapter.ts`), qui reste rendu-seul — voir ce champ.
+   * « Instagram — publié, mais modifié depuis » (retour d'usage §9).
+   * Diffère de `PublicationJob.fingerprint` (`adapter.ts`), rendu-seul.
    */
   publishedFingerprint: string | null
   /**

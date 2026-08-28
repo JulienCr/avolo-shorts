@@ -7,16 +7,12 @@ import { publicationFingerprint, renderFingerprintForClip } from '@/server/publi
  * `GET /api/clips/:id/publications` — l'état de chaque publication, et si
  * elle est **périmée** par rapport au rendu actuel.
  *
- * Une route séparée plutôt qu'un champ de plus sur `GET /api/clips/:id` :
- * l'écran de clip interroge cet état seul, à son propre rythme
- * (`refetchInterval` tant qu'une ligne est `in_progress`), sans vouloir
- * redemander tout `ClipDetail` à chaque sondage.
+ * Route séparée de `GET /api/clips/:id` : l'écran de clip la sonde seule,
+ * à son rythme (`refetchInterval` tant qu'une ligne est `in_progress`).
  *
- * **`stale` est décidé ici, pas côté client** (issue #145) : les deux valeurs
- * comparées sont désormais dans la même représentation (le condensat SHA-256
- * du serveur), là où le client ne pouvait comparer qu'un `JSON.stringify` des
- * segments à ce même condensat. Ce condensat couvre le rendu **et** les
- * textes de la plateforme (issue #226), pas le rendu seul.
+ * **`stale` est décidé ici, pas côté client** (issue #145), sur le même
+ * condensat SHA-256 des deux côtés. Il couvre le rendu **et** les textes
+ * de la plateforme (issue #226), pas le rendu seul.
  */
 export const GET = route(
   'GET /api/clips/:id/publications',

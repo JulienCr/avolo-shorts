@@ -40,7 +40,7 @@ import {
 } from '@/server/steps/render'
 import { launch, lireStatus, progression } from '@/server/run'
 import { GeminiBlockedError } from '@/server/steps/candidates'
-import { vignettePath } from '@/server/thumbs'
+import { filmstripPath, vignettePath } from '@/server/thumbs'
 
 /**
  * Les routes, appelées comme Next les appelle.
@@ -1504,6 +1504,21 @@ describe('PATCH /api/clips/:id', () => {
 
       await patch({ segments: [{ start: 10, end: 20 }], seq: 41 })
       expect(fs.existsSync(vignette)).toBe(false)
+    })
+
+    /**
+     * La planche couvre `clipBounds` — début au premier segment, fin au
+     * dernier — là où la vignette ne suit que le premier segment. Une borne
+     * de fin déplacée seule laisse donc la vignette juste et la planche
+     * fausse : c'est le cas que l'éviction partagée aurait manqué.
+     */
+    it('efface la planche quand seule la fin du dernier segment bouge', async () => {
+      const strip = filmstripPath(PROJECT, CLIP)
+      fs.mkdirSync(path.dirname(strip), { recursive: true })
+      fs.writeFileSync(strip, 'jpeg')
+
+      await patch({ segments: [{ start: 60, end: 95 }], seq: 40 })
+      expect(fs.existsSync(strip)).toBe(false)
     })
   })
 })

@@ -24,7 +24,7 @@ import {
   discardRenderStale,
   publicationWriteText,
 } from '@/server/steps/render'
-import { vignettePath } from '@/server/thumbs'
+import { filmstripPath, vignettePath } from '@/server/thumbs'
 import { clipLinesAround, summaryProject, projectTranscript, urlProxy } from '@/server/views'
 
 /**
@@ -339,6 +339,21 @@ export const PATCH = route(
         fs.rmSync(vignettePath(clip.projectId, clip.id), { force: true })
       } catch (cause) {
         console.warn(`Vignette non effacée pour ${clip.id} :`, cause)
+      }
+    }
+
+    // La planche couvre tout le clip, du premier au dernier segment : une
+    // borne de fin déplacée seule laisse la vignette juste mais la planche
+    // fausse, d'où une seconde condition plutôt qu'un test partagé avec celle
+    // ci-dessus.
+    const boundsMoved =
+      written.segments[0]?.start !== clip.segments[0]?.start ||
+      written.segments.at(-1)?.end !== clip.segments.at(-1)?.end
+    if (boundsMoved) {
+      try {
+        fs.rmSync(filmstripPath(clip.projectId, clip.id), { force: true })
+      } catch (cause) {
+        console.warn(`Planche non effacée pour ${clip.id} :`, cause)
       }
     }
 

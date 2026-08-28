@@ -353,6 +353,13 @@ export type FramedSegment = Segment & {
    * natif n'en porte jamais, en ne les construisant pas pour lui.
    */
   split?: [Rectangle, Rectangle]
+  /**
+   * Les trois pavés d'une composition de doublage improvisé — film,
+   * comédiens, bande synchro —, en pixels de la source, quand ce plan en pose
+   * une. Comme `split`, `render.ts` ne les construit que pour la variante
+   * 9:16 : un segment natif n'en porte jamais.
+   */
+  dubbing?: { film: Rectangle; pip: Rectangle; strip: Rectangle }
 }
 
 export type RenderOptions = {
@@ -457,6 +464,40 @@ function chain(
  * ce que garantit le `split`, qui prend sa branche **avant** toute incrustation.
  */
 const BACKGROUND_SIGMA = 12
+
+/**
+ * Le disque des comédiens en pixels source 1920x1080 (contrat, amendement 3) —
+ * jamais dérivé de `src/core/dubbing.ts`, que ce fichier ne dépend pas.
+ */
+const DUBBING_DISC_ELLIPSE_PX = { cx: 1691.52, cy: 233.82, rx: 206.976, ry: 207.036 } as const
+
+/**
+ * L'expression alpha du masque du disque, transposée dans le repère du pavé
+ * comédiens à l'échelle où il est porté à la largeur du canevas — l'arc
+ * rogne les coins, jamais un rectangle inscrit dans une corde.
+ *
+ * `DUBBING_DISC_ELLIPSE_PX` est mesuré en pixels source 1920x1080 ; `sourceW`/
+ * `sourceH` remettent l'ellipse à l'échelle de la vraie source avant de la
+ * transposer, sinon une source 4K sort le masque hors du pavé (relevé par
+ * Copilot et Codex).
+ */
+function discAlphaExpr(pip: Rectangle, canvasWidth: number, sourceW: number, sourceH: number): string {
+  const scale = canvasWidth / pip.w
+  const scaleX = sourceW / 1920
+  const scaleY = sourceH / 1080
+  const { cx, cy, rx, ry } = DUBBING_DISC_ELLIPSE_PX
+  const fmt = (n: number): string => n.toFixed(3)
+  const x = fmt((cx * scaleX - pip.x) * scale)
+  const y = fmt((cy * scaleY - pip.y) * scale)
+  const a = fmt(rx * scaleX * scale)
+  const b = fmt(ry * scaleY * scale)
+  return `if(lte((X-${x})*(X-${x})/(${a}*${a})+(Y-${y})*(Y-${y})/(${b}*${b}),1),255,0)`
+}
+
+/** La hauteur d'un pavé porté à la largeur du canevas, aspect conservé. */
+function paneHeight(rect: Rectangle, canvasWidth: number): number {
+  return Math.floor((rect.h / rect.w) * canvasWidth)
+}
 
 /**
  * Le rendu **natif** d'un clip, celui du feed d'Instagram et de Facebook, depuis
@@ -746,6 +787,49 @@ function buildRender(
       graph.push(`[sa${i}]${cropOf(top, 0)},scale=${canvas.w}:${cellH}:flags=lanczos,setsar=1[st${i}]`)
       graph.push(`[sb${i}]${cropOf(bottom, 1)},scale=${canvas.w}:${cellH}:flags=lanczos,setsar=1[sbo${i}]`)
       graph.push(`[st${i}][sbo${i}]vstack=inputs=2[${output}]`)
+      return
+    }
+
+    // **Doublage improvisé** (amendement 3 du contrat) : le pavé comédiens
+    // prend toute la largeur du disque, coins masqués par l'arc — jamais un
+    // `vstack`, trois pavés inégaux empilés sur un fond flouté.
+    if (s.dubbing !== undefined) {
+      const { film, pip, strip } = s.dubbing
+      // La bande est ancrée pleine largeur/bas (contrat, amendement 3) : sa
+      // géométrie donne la taille de la source sans rien transporter de plus.
+      const sourceW = strip.w
+      const sourceH = strip.y + strip.h
+      const cropOfPane = (r: Rectangle, name: string): string =>
+        `crop=${number(r.w, `segments[${i}].dubbing.${name}.w`)}:` +
+        `${number(r.h, `segments[${i}].dubbing.${name}.h`)}:` +
+        `${number(r.x, `segments[${i}].dubbing.${name}.x`)}:` +
+        `${number(r.y, `segments[${i}].dubbing.${name}.y`)}`
+
+      const filmH = paneHeight(film, canvas.w)
+      const pipH = paneHeight(pip, canvas.w)
+      const stripH = paneHeight(strip, canvas.w)
+      const top = Math.round((canvas.h - (filmH + pipH + stripH)) / 2)
+
+      graph.push(`[${i}:v]${fps},split=4[dbg${i}][dfilm${i}][dpip${i}][dstrip${i}]`)
+      graph.push(
+        `[dbg${i}]scale=${canvas.w}:${canvas.h}:force_original_aspect_ratio=increase,` +
+          `crop=${canvas.w}:${canvas.h},gblur=sigma=${BACKGROUND_SIGMA}[dbgb${i}]`,
+      )
+      graph.push(
+        `[dfilm${i}]${cropOfPane(film, 'film')},scale=${canvas.w}:${filmH}:flags=lanczos,setsar=1[dfilmc${i}]`,
+      )
+      graph.push(
+        `[dpip${i}]${cropOfPane(pip, 'pip')},scale=${canvas.w}:${pipH}:flags=lanczos,format=yuva420p[dpiprgb${i}]`,
+      )
+      graph.push(
+        `[dpiprgb${i}]geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${discAlphaExpr(pip, canvas.w, sourceW, sourceH)}'[dpipc${i}]`,
+      )
+      graph.push(
+        `[dstrip${i}]${cropOfPane(strip, 'strip')},scale=${canvas.w}:${stripH}:flags=lanczos,setsar=1[dstripc${i}]`,
+      )
+      graph.push(`[dbgb${i}][dfilmc${i}]overlay=x=0:y=${top}[dstep1${i}]`)
+      graph.push(`[dstep1${i}][dpipc${i}]overlay=x=0:y=${top + filmH}[dstep2${i}]`)
+      graph.push(`[dstep2${i}][dstripc${i}]overlay=x=0:y=${top + filmH + pipH},setsar=1[${output}]`)
       return
     }
 

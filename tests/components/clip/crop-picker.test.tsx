@@ -13,7 +13,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CropOverlay, RatioPicker, frozenCropReason } from '@/components/clip/crop-picker'
-import { framing, manualFraming, shot, splitCells } from '../../fixtures/framing'
+import { framing, manualFraming, shot, splitCells, dubbingCells } from '../../fixtures/framing'
 
 afterEach(cleanup)
 
@@ -255,6 +255,40 @@ describe('frozenCropReason', () => {
     // plan à deux cellules n'a rien qu'un curseur horizontal puisse désigner.
     expect(frozenCropReason(manualFraming('1:1'), '1:1', true)).toContain('cellules empilées')
   })
+
+  // PR3 rend cette phrase vraie : `render.ts` compose désormais le pavé
+  // comédiens depuis `shot.dubbing`, ce qui n'était pas le cas quand PR4 avait
+  // fait retirer cette même cause (revue Copilot, PR #254).
+  it('dit qu’un plan de doublage n’a pas un seul crop à déplacer', () => {
+    expect(frozenCropReason(manualFraming('1:1'), '1:1', false, true)).toContain(
+      'doublage improvisé',
+    )
+  })
+})
+
+describe('doublage — porté par le ratio épinglé, comme le split', () => {
+  // Régression Copilot : le natif ignore `dubbing` (`render.ts`), donc épingler
+  // 9:16 doit faire taire la raison « doublage » comme `activeSplit` le fait
+  // déjà pour le split — jamais `shot.dubbing` seul.
+  it('ne cite plus le doublage quand le ratio épinglé supprime la variante', () => {
+    const withDubbing = framing({
+      ratio: '16:9',
+      origin: 'no-analysis',
+      shots: [shot(0, 100, '16:9', 0.5, 'manual', undefined, dubbingCells())],
+    })
+    render(<RatioPicker framing={withDubbing} ratio="9:16" onRatio={vi.fn()} />)
+    expect(screen.queryByText(/doublage improvisé/)).toBeNull()
+  })
+
+  it('cite le doublage quand la variante 9:16 existe bien', () => {
+    const withDubbing = framing({
+      ratio: '16:9',
+      origin: 'no-analysis',
+      shots: [shot(0, 100, '16:9', 0.5, 'manual', undefined, dubbingCells())],
+    })
+    render(<RatioPicker framing={withDubbing} ratio="16:9" onRatio={vi.fn()} />)
+    expect(screen.getByText(/doublage improvisé/)).toBeTruthy()
+  })
 })
 
 describe('CropOverlay', () => {
@@ -327,4 +361,5 @@ describe('CropOverlay', () => {
     expect(screen.queryByRole('group')).toBeNull()
     expect(screen.getByRole('slider')).toBeTruthy()
   })
+
 })

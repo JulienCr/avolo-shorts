@@ -10,6 +10,7 @@ import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
 import { clipDuration, type Clip, type Ratio, type Segment } from '@/core/edl'
 import { splitByShot } from '@/core/shot-split'
+import type { DubbingCells } from '@/core/dubbing'
 import { blurredVariantArgs, renderArgs, type FramedSegment } from '@/core/ffmpeg/args'
 import type { EncoderName } from '@/core/ffmpeg/encoder'
 import { cropRect, outputSize, sameCell, splitCellRect, type Cell } from '@/core/framing'
@@ -392,7 +393,16 @@ export function pathsRender(
  * la même valeur fusionnent sans conflit, et la seconde n'invaliderait alors
  * plus rien.
  */
-export const VERSION_FINGERPRINT = 12
+
+/**
+ * **Passée à 13 le 28 août 2026, avec la composition du doublage improvisé
+ * sur la variante 9:16.** `args.ts` gagne une quatrième branche de graphe,
+ * masquée par l'arc du disque, et aucun champ de l'empreinte ne la porte :
+ * les rendus déjà publiés sur une séquence de doublage se diraient à jour.
+ * **Relire cette valeur sur `main` au moment de fusionner** : une autre PR
+ * peut avoir déjà pris 13 pendant que celle-ci était en revue.
+ */
+export const VERSION_FINGERPRINT = 13
 
 /**
  * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes
@@ -418,6 +428,8 @@ export type RenderedFraming = {
     cropXNative: number
     /** Les deux cellules du split-screen, `[haut, bas]`, quand ce plan en pose un. */
     split?: [Cell, Cell]
+    /** Les trois pavés d'une composition de doublage, quand ce plan en pose une. */
+    dubbing?: DubbingCells
   }[]
 }
 
@@ -473,6 +485,7 @@ export function renderedFraming(framing: ResolvedFraming): RenderedFraming {
       cropX: s.cropX,
       cropXNative: s.cropXNative,
       split: s.split,
+      dubbing: s.dubbing,
     })),
   }
 }
@@ -673,6 +686,30 @@ const SCHEMA_FINGERPRINT = z.object({
               y1: z.number().finite(),
             }),
           ])
+          .optional(),
+        // Optionnel, pour la même raison que `split` : une empreinte d'avant
+        // le doublage improvisé ne le porte pas.
+        dubbing: z
+          .object({
+            film: z.object({
+              x0: z.number().finite(),
+              y0: z.number().finite(),
+              x1: z.number().finite(),
+              y1: z.number().finite(),
+            }),
+            pip: z.object({
+              x0: z.number().finite(),
+              y0: z.number().finite(),
+              x1: z.number().finite(),
+              y1: z.number().finite(),
+            }),
+            strip: z.object({
+              x0: z.number().finite(),
+              y0: z.number().finite(),
+              x1: z.number().finite(),
+              y1: z.number().finite(),
+            }),
+          })
           .optional(),
       }),
     ),
@@ -983,6 +1020,7 @@ export function renderFingerprint(
         cropX: p.cropX,
         cropXNative: p.cropXNative,
         split: p.split,
+        dubbing: p.dubbing,
       })),
     },
     captions: clip.captions,
@@ -2064,9 +2102,9 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
           ratio,
           crop: cropRect(ratio, m.cropXNative, size.w, size.h),
         }))
-        // **Le split ne touche que la variante 9:16** : le natif construit son
-        // `FramedSegment` sans jamais lire `m.split`, ce qui garantit qu'il ne
-        // peut pas bouger d'un pixel à cause d'un plan splitté.
+        // **Le split et le doublage ne touchent que la variante 9:16** : le
+        // natif ne lit jamais `m.split` ni `m.dubbing`, ce qui garantit qu'il
+        // ne peut pas bouger d'un pixel à cause de l'un ou de l'autre.
         const verticalPieces: FramedSegment[] = pieces.map((m) => ({
           start: m.start,
           end: m.end,
@@ -2078,6 +2116,14 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
                   splitCellRect(m.split[0], size.w, size.h),
                   splitCellRect(m.split[1], size.w, size.h),
                 ]
+              : undefined,
+          dubbing:
+            m.dubbing !== undefined
+              ? {
+                  film: splitCellRect(m.dubbing.film, size.w, size.h),
+                  pip: splitCellRect(m.dubbing.pip, size.w, size.h),
+                  strip: splitCellRect(m.dubbing.strip, size.w, size.h),
+                }
               : undefined,
         }))
 
@@ -2550,7 +2596,10 @@ export function renderIsStale(render: ShapeRendered, toDay: ShapeRendered): bool
         p.cropX === toDay.framing.shots[i].cropX &&
         p.cropXNative === toDay.framing.shots[i].cropXNative &&
         sameCell(p.split?.[0], toDay.framing.shots[i].split?.[0]) &&
-        sameCell(p.split?.[1], toDay.framing.shots[i].split?.[1]),
+        sameCell(p.split?.[1], toDay.framing.shots[i].split?.[1]) &&
+        sameCell(p.dubbing?.film, toDay.framing.shots[i].dubbing?.film) &&
+        sameCell(p.dubbing?.pip, toDay.framing.shots[i].dubbing?.pip) &&
+        sameCell(p.dubbing?.strip, toDay.framing.shots[i].dubbing?.strip),
     )
   return (
     !sameSegments ||

@@ -1,13 +1,14 @@
 /**
- * La frontière entre l'interface et les données. **Le seul fichier qui sait d'où
- * elles viennent.**
+ * La frontière entre l'interface et les données. **Le seul fichier qui sait
+ * d'où elles viennent.** Écrit contre des fixtures pendant que les routes
+ * n'existaient pas, en pariant que le jour où elles arriveraient, seul ce
+ * fichier changerait — pari tenu : les corps sont devenus des `fetch`, les
+ * types n'ont pas bougé, aucun composant n'a été touché.
  *
- * Il a été écrit contre des fixtures pendant que les routes n'existaient pas, en
- * pariant que le jour où elles arriveraient, seul ce fichier changerait. C'est
- * ce qui s'est passé : les corps sont devenus des `fetch`, les types n'ont pas
- * bougé d'une ligne, et aucun composant n'a été touché.
- *
- * ```
+ * Les routes, en trois blocs pour tenir sous le plafond de commentaire :
+ */
+
+/**
  * GET   /api/sources                        -> SourcesListing
  * GET   /api/sources/thumb?file=<nom>       -> image/jpeg
  * GET   /api/projects                       -> ProjectListItem[]
@@ -16,6 +17,9 @@
  * POST  /api/projects/:id/run  { target }   -> RunPlan       (202)
  * POST  /api/projects/:id/stop              -> { stopped }
  * GET   /api/projects/:id/candidates        -> CandidateClip[]
+ */
+
+/**
  * GET   /api/clips/:id                      -> ClipDetail
  * PATCH /api/clips/:id       { ClipPatch }  -> PatchClipResult
  * POST  /api/clips/:id/export  { force? }   -> ExportResult
@@ -24,28 +28,31 @@
  * GET   /api/llm/availability               -> LlmAvailability
  * GET   /api/publication/availability        -> Record<Platform, PlatformAvailability>
  * POST  /api/clips/:id/publish { platforms, force? } -> { publications: PublicationRow[] }
+ */
+
+/**
  * GET   /api/clips/:id/publications         -> { publications: PublicationView[] }
  * GET   /api/planning/pool                  -> PlanningPool
  * GET   /api/planning/schedule?from=<ms>&to=<ms>      -> { entries: ScheduledEntry[] }
  * POST  /api/planning/schedule { clipIds, scheduledAt } -> { entries: ScheduledEntry[] }
  * POST  /api/planning/unschedule { clipIds } -> { removed: number }
- * ```
  *
- * Les trois `POST` ont vécu sans appelant le temps d'une itération, et la chaîne
- * s'arrêtait là où ils manquaient : pas d'entrée pour créer un projet, pas de
- * relance, et un export qui ne se déclenchait qu'en `curl`.
- *
- * Les champs `string | null` — `CandidateClip.thumbnailUrl`, `proxyUrl`, les URL
- * de `ClipOutputs` — suivent tous la même règle. Le serveur les remplit quand
- * l'artefact est là et rend `null` sinon, jamais une URL morte : un projet créé
- * il y a trois secondes n'a ni proxy ni vignettes, et `null` a un rendu prévu et
- * testé à l'œil. `Source.thumbnailUrl` fait exception et n'est jamais `null` :
- * la source, elle, existe — c'est l'image qui peut manquer au bout, et la route
- * répond alors 404.
- *
- * **Les identifiants sont encodés.** Ceux des projets viennent du nom du fichier
- * d'origine, accents et espaces compris (spec §12), et ceux des clips en
- * héritent : `2026-01-11-méchante_000123456-000234567`. Sans encodage, la
+ * Les trois derniers `POST` ont vécu sans appelant le temps d'une itération :
+ * pas d'entrée pour créer un projet, pas de relance, un export en `curl` seul.
+ */
+
+/**
+ * Les champs `string | null` — `CandidateClip.thumbnailUrl`, `proxyUrl`, les
+ * URL de `ClipOutputs` — suivent tous la même règle : le serveur les remplit
+ * quand l'artefact est là, rend `null` sinon, jamais une URL morte. `Source.
+ * thumbnailUrl` fait exception et n'est jamais `null` : la source existe,
+ * c'est l'image qui peut manquer au bout, et la route répond alors 404.
+ */
+
+/**
+ * **Les identifiants sont encodés.** Ceux des projets viennent du nom du
+ * fichier d'origine, accents et espaces compris (spec §12), et ceux des clips
+ * en héritent : `2026-01-11-méchante_000123456-000234567`. Sans encodage, la
  * moindre espace casserait l'URL.
  */
 

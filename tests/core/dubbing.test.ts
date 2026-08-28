@@ -6,7 +6,6 @@ import {
   detectDubbingRuns,
   dubbingCellsFor,
 } from '@/core/dubbing'
-import type { Cell } from '@/core/framing'
 import type { DubbingAnchor } from '@/core/dubbing'
 import { POINT, POINT_COUNT } from '@/core/shots'
 import type { PersonBox } from '@/core/shots'
@@ -59,31 +58,22 @@ function series(
   return out
 }
 
-const CX = (PIP.x0 + PIP.x1) / 2
 const CY = (PIP.y0 + PIP.y1) / 2
-const RX = (PIP.x1 - PIP.x0) / 2
 const RY = (PIP.y1 - PIP.y0) / 2
 const BAND_HEIGHT = DUBBING_PIP_BAND_HEIGHT * RY * 2
 
-/** `(x, y)` dans le disque de l'ancre — même équation d'ellipse que `dubbingCellsFor`. */
-function insideDisc([x, y]: readonly [number, number]): boolean {
-  return ((x - CX) / RX) ** 2 + ((y - CY) / RY) ** 2 <= 1 + 1e-9
-}
-
-function corners(cell: Cell): [number, number][] {
-  return [
-    [cell.x0, cell.y0],
-    [cell.x1, cell.y0],
-    [cell.x0, cell.y1],
-    [cell.x1, cell.y1],
-  ]
-}
-
 describe('dubbingCellsFor', () => {
-  it('rend le film pleine largeur et la bande telle quelle', () => {
+  it('rend le film pleine largeur, arrêté où la bande commence', () => {
     const cells = dubbingCellsFor(ANCHOR, CY)
-    expect(cells.film).toEqual({ x0: 0, y0: 0, x1: DUBBING_FILM_WIDTH, y1: 1 })
+    expect(cells.film).toEqual({ x0: 0, y0: 0, x1: DUBBING_FILM_WIDTH, y1: ANCHOR.strip.y0 })
     expect(cells.strip).toEqual(ANCHOR.strip)
+  })
+
+  // Régression Codex (PR de rendu) : `y1: 1` faisait déborder le pavé film
+  // sur la bande, qu'`args.ts` rendait alors deux fois.
+  it('ne chevauche jamais la bande synchro', () => {
+    const cells = dubbingCellsFor(ANCHOR, CY)
+    expect(cells.film.y1).toBeLessThanOrEqual(cells.strip.y0)
   })
 
   it('place le bord haut du bandeau au tiers sous le regard mesuré, loin des bords du disque', () => {
@@ -104,19 +94,10 @@ describe('dubbingCellsFor', () => {
     expect(cells.pip.y1 - cells.pip.y0).toBeCloseTo(BAND_HEIGHT, 9)
   })
 
-  it('borne la demi-largeur au pire des deux bords horizontaux, jamais au milieu', () => {
-    // Assez loin des deux bords du disque pour qu'aucun glissement ne se
-    // déclenche : le bord haut du bandeau reste plus loin du centre que son
-    // bord bas, ce que la demi-largeur doit refléter.
-    const eyeLevel = PIP.y0 + BAND_HEIGHT / 3 + 0.03
-    const cells = dubbingCellsFor(ANCHOR, eyeLevel)
-    const d = Math.max(Math.abs(cells.pip.y0 - CY), Math.abs(cells.pip.y1 - CY))
-    const expectedHw = RX * Math.sqrt(Math.max(0, 1 - (d / RY) ** 2))
-    expect(cells.pip.x1 - CX).toBeCloseTo(expectedHw, 9)
-    expect(CX - cells.pip.x0).toBeCloseTo(expectedHw, 9)
-  })
-
-  it('les quatre coins du pavé comédiens restent dans le disque sur toute la plage plausible du regard, glissement compris', () => {
+  // **Amendement 3 du contrat** : plus de corde inscrite, le pavé prend toute
+  // la largeur du disque quel que soit le regard mesuré — l'arc du cercle en
+  // masque les coins dans `args.ts`, jamais un rectangle rétréci.
+  it('occupe toute la largeur du disque, quel que soit le regard mesuré ou le glissement', () => {
     const plausible = [
       PIP.y0,
       PIP.y0 + 0.01,
@@ -128,7 +109,8 @@ describe('dubbingCellsFor', () => {
     ]
     for (const eyeLevel of plausible) {
       const cells = dubbingCellsFor(ANCHOR, eyeLevel)
-      for (const c of corners(cells.pip)) expect(insideDisc(c)).toBe(true)
+      expect(cells.pip.x0).toBe(PIP.x0)
+      expect(cells.pip.x1).toBe(PIP.x1)
     }
   })
 })

@@ -8,7 +8,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -20,6 +20,7 @@ import {
   DEFAULT_SCHEDULE_HOURS,
   FRAMING_SETTINGS_DEFAULTS,
   HOOK_DEFAULTS,
+  type PlanningPendingClip,
   type PlanningPoolClip,
   type PublicationDetail,
   type ScheduledEntry,
@@ -87,6 +88,7 @@ function clip(fields: Partial<PlanningPoolClip> = {}): PlanningPoolClip {
     description: '',
     outputs: { mp4Url: null, mp4Due: false, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
     statuses: {},
+    stale: false,
     ...fields,
   }
 }
@@ -115,6 +117,7 @@ function entry(fields: Partial<ScheduledEntry> = {}): ScheduledEntry {
 /** Un serveur réduit aux quatre routes du planning et à `/api/settings`. */
 function server(options: {
   pool?: PlanningPoolClip[]
+  pending?: PlanningPendingClip[]
   schedule?: ScheduledEntry[]
   settings?: Settings
   onSchedule?: (body: unknown) => ScheduledEntry[]
@@ -124,7 +127,9 @@ function server(options: {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ path: url, init })
     if (url === '/api/settings') return response(options.settings ?? SETTINGS)
-    if (url === '/api/planning/pool') return response({ clips: options.pool ?? [] })
+    if (url === '/api/planning/pool') {
+      return response({ clips: options.pool ?? [], pending: options.pending ?? [] })
+    }
     if (url.startsWith('/api/planning/schedule?')) {
       return response({ entries: options.schedule ?? [] })
     }
@@ -163,8 +168,28 @@ describe('PlanningScreen', () => {
     server({ pool: [] })
     render(<PlanningScreen />, { wrapper: wrapper() })
 
-    await waitFor(() => expect(screen.getByText(/Aucun clip à programmer/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Aucun clip exporté/)).toBeTruthy())
     expect(screen.getByText(/Exportez un clip/)).toBeTruthy()
+  })
+
+  // Le cas qui a produit ce bouton : une recette de rendu montée d'un cran
+  // périme tous les rendus d'un coup, et le vivier se vide sans rien dire de
+  // ce qu'il faut faire pour le remplir (28 août 2026).
+  it('vivier vide mais des clips en attente : le bloc dit quoi faire et propose de le faire', async () => {
+    server({
+      pool: [],
+      pending: [
+        { clipId: 'c1', projectId: '2026-06-15-cqlp', title: 'La chute', reason: 'stale' },
+        { clipId: 'c2', projectId: '2026-06-15-cqlp', title: 'Le silence', reason: 'missing' },
+      ],
+    })
+    render(<PlanningScreen />, { wrapper: wrapper() })
+
+    await waitFor(() => expect(screen.getByText(/Aucun clip exporté/)).toBeTruthy())
+    expect(screen.getByText(/Des clips gardés n’ont pas de rendu à jour/)).toBeTruthy()
+    expect(screen.queryByText(/Exportez un clip depuis son émission/)).toBeNull()
+    expect(screen.getByRole('button', { name: /Exporter les 2 clips manquants/ })).toBeTruthy()
+    expect(screen.getByText(/1 sans rendu, 1 rendu périmé/)).toBeTruthy()
   })
 
   it('coche deux clips et confirme une date : un seul appel, une échéance unique', async () => {
@@ -190,6 +215,53 @@ describe('PlanningScreen', () => {
     expect(body.clipIds.sort()).toEqual(['c1', 'c2'])
     expect(typeof body.scheduledAt).toBe('number')
     expect(calls.filter((c) => c.path === '/api/planning/schedule' && c.init?.method === 'POST')).toHaveLength(1)
+  })
+
+  /**
+   * La case disparaît d'un clip devenu non programmable, mais son identifiant
+   * restait dans la sélection : le formulaire annonçait un clip de plus qu'il
+   * ne pouvait honorer, et le `POST` finissait en 400 (relevé par Copilot).
+   */
+  it('laisse tomber un clip sélectionné devenu non programmable', async () => {
+    const user = userEvent.setup()
+    server({ pool: [clip({ clipId: 'c1', title: 'La chute' }), clip({ clipId: 'c2', title: 'Le silence' })] })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<PlanningScreen />, {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    })
+
+    await waitFor(() => expect(screen.getByText('La chute')).toBeTruthy())
+    await user.click(screen.getByRole('checkbox', { name: /La chute/ }))
+    await user.click(screen.getByRole('checkbox', { name: /Le silence/ }))
+    await waitFor(() => expect(screen.getByText('2 clips sélectionnés')).toBeTruthy())
+
+    // Les quatre lignes de « Le silence » partent : plus rien à y programmer.
+    // Un serveur neuf plutôt qu'un tableau muté : React Query partage sa
+    // structure, et la même référence ne rejouerait aucun rendu.
+    server({
+      pool: [
+        clip({ clipId: 'c1', title: 'La chute' }),
+        clip({
+          clipId: 'c2',
+          title: 'Le silence',
+          statuses: {
+            instagram: detail('in_progress'),
+            facebook: detail('in_progress'),
+            tiktok: detail('in_progress'),
+            youtube: detail('in_progress'),
+          },
+        }),
+      ],
+    })
+    // Tient lieu du sondage de `usePlanningPool`, sans piloter les minuteries.
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['planning-pool'] })
+    })
+
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: /Le silence/ })).toBeNull())
+    expect(screen.getByText('1 clip sélectionné')).toBeTruthy()
   })
 
   it('une échéance périmée signale, sans rien désactiver', async () => {

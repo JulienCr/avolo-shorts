@@ -4,10 +4,10 @@ import { ChevronDown, RotateCcw } from 'lucide-react'
 import { useCallback, useId, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { dubbingShotCount } from '@/components/clip/framing'
 import { useStyleWrites } from '@/components/clip/style-writes'
 import {
   FRAMING_BOUNDS,
@@ -16,19 +16,17 @@ import {
   type ClipPatch,
   type FramingSettings,
   type FramingStyleOverride,
+  type PublishedFraming,
 } from '@/lib/api'
 
 /**
- * La surcharge de cadrage du clip (issue #180, seconde moitié), sur le patron
- * de `hook-fields.tsx` : `clip.framingStyle` est un objet creux, chaque
- * contrôle dit s'il est hérité ou surchargé, et un bouton isolé le rend à
+ * La surcharge de cadrage du clip : `clip.framingStyle` est un objet creux,
+ * chaque contrôle dit s'il est hérité ou surchargé, un bouton isolé le rend à
  * l'héritage.
  *
- * **`splitScreen` et `dubbingLayout` restent visibles en permanence**, les
- * cinq réglages numériques repliés derrière « Personnaliser » — c'est ce que
- * le propriétaire du dépôt a demandé : comparer le cadrage normal et le
- * cadrage avancé sur un seul clip, sans republier tout le panneau Réglages
- * ici.
+ * **Montage doublage** ne s'affiche que là où il y a quelque chose à dire : un
+ * clip qui porte des plans de doublage, ou dont la composition a été
+ * désactivée. Le split-screen n'a plus de contrôle ici.
  */
 
 type OnWrite = (patch: ClipPatch) => Promise<unknown> | void
@@ -48,67 +46,64 @@ const NUMERIC_KEYS = Object.keys(NUMERIC_LABELS) as NumericKey[]
 export function FramingFields({
   clip,
   globals,
+  framing,
   onWrite,
 }: {
   clip: Clip
   /** Les réglages globaux du cadrage. `undefined` tant que `GET /api/settings` n'a pas répondu. */
   globals: FramingSettings | undefined
+  /** Le cadrage publié par le serveur, pour savoir si ce clip porte du doublage. */
+  framing: PublishedFraming
   onWrite: OnWrite
 }) {
-  const identifier = useId()
   const [open, setOpen] = useState(false)
 
   const loading = globals === undefined
   const resolved: FramingSettings = { ...(globals ?? FRAMING_SETTINGS_DEFAULTS), ...clip.framingStyle }
   const overrideCount = NUMERIC_KEYS.filter((field) => hasOverrideOf(clip, field)).length
   const hasOverride = Object.keys(clip.framingStyle).length > 0
-  const dubbingLayoutGloballyOn = (globals ?? FRAMING_SETTINGS_DEFAULTS).dubbingLayout
 
   const { setStyle, resetField, resetAll } = useStyleWrites(
     clip.framingStyle,
     useCallback((framingStyle: FramingStyleOverride) => onWrite({ framingStyle }), [onWrite]),
   )
 
+  const dubbingCount = dubbingShotCount(framing)
+  // La présence de la clé équivaut à `false` : `src/server/db.ts` la type en
+  // `z.literal(false)` et `FramingStyleOverride.dubbingLayout` en `false`.
+  const dubbingDisabledForClip = hasOverrideOf(clip, 'dubbingLayout')
+
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 text-[0.75rem]">
-        <Checkbox
-          id={`${identifier}-split`}
-          checked={resolved.splitScreen}
-          disabled={loading}
-          onCheckedChange={(value) => setStyle('splitScreen', value === true)}
-        />
-        <Label htmlFor={`${identifier}-split`} className="text-[0.75rem] font-normal">
-          Split-screen
-        </Label>
-        <FieldOrigin
-          field="Split-screen"
-          overridden={hasOverrideOf(clip, 'splitScreen')}
-          onReset={() => resetField('splitScreen')}
-        />
-      </div>
-
-      <div className="flex items-center gap-2 text-[0.75rem]">
-        <Checkbox
-          id={`${identifier}-dubbing`}
-          checked={resolved.dubbingLayout}
-          disabled={loading || !dubbingLayoutGloballyOn}
-          onCheckedChange={(value) =>
-            // La surcharge ne peut que désactiver (§1 du contrat) : cocher
-            // revient à l'héritage plutôt que d'écrire `true`, que le schéma
-            // du serveur rejetterait de toute façon (`z.literal(false)`).
-            value === true ? resetField('dubbingLayout') : setStyle('dubbingLayout', false)
-          }
-        />
-        <Label htmlFor={`${identifier}-dubbing`} className="text-[0.75rem] font-normal">
-          Montage doublage
-        </Label>
-        <FieldOrigin
-          field="Montage doublage"
-          overridden={hasOverrideOf(clip, 'dubbingLayout')}
-          onReset={() => resetField('dubbingLayout')}
-        />
-      </div>
+      {dubbingDisabledForClip ? (
+        <div className="flex items-center gap-2 text-[0.75rem] text-muted-foreground">
+          <span>Montage doublage — composition désactivée pour ce clip</span>
+          <button
+            type="button"
+            aria-label="Montage doublage : revenir à l’héritage"
+            onClick={() => resetField('dubbingLayout')}
+            className="flex items-center gap-1 hover:text-foreground"
+          >
+            <RotateCcw aria-hidden className="size-3" />
+            revenir à l’héritage
+          </button>
+        </div>
+      ) : (
+        dubbingCount > 0 && (
+          <div className="flex items-center gap-2 text-[0.75rem]">
+            <span>
+              Montage doublage — {dubbingCount} plan{dubbingCount > 1 ? 's' : ''}
+            </span>
+            <button
+              type="button"
+              onClick={() => setStyle('dubbingLayout', false)}
+              className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+            >
+              désactiver pour ce clip
+            </button>
+          </div>
+        )
+      )}
 
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger

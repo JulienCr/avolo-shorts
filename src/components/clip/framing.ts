@@ -75,6 +75,18 @@ export function anyShotSplit(framing: PublishedFraming): boolean {
 }
 
 /**
+ * Combien de plans portent une composition de doublage.
+ *
+ * Lu depuis les plans publiés, jamais depuis `clip.framingStyle` : c'est une
+ * détection, pas un réglage, et elle tombe à zéro dès que la composition est
+ * désactivée pour ce clip — voir `framing-fields.tsx`, qui garde alors la
+ * ligne visible en la lisant sur la surcharge plutôt que sur ce compte.
+ */
+export function dubbingShotCount(framing: PublishedFraming): number {
+  return framing.shots.filter((p) => p.dubbing !== undefined).length
+}
+
+/**
  * Le split est-il actif, compte tenu du ratio épinglé — jamais `shot.split` seul.
  *
  * Épingler `9:16` supprime la variante (le serveur n'en produit aucune quand

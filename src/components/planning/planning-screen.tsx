@@ -4,7 +4,8 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { CircleAlert, TriangleAlert } from 'lucide-react'
 
-import { composeScheduledAt, fiveWeekWindow } from '@/core/planning'
+import { composeScheduledAt, fiveWeekWindow, statusesOnly } from '@/core/planning'
+import { hasSchedulablePlatform } from '@/core/publication'
 import {
   usePlanningPool,
   usePlanningSchedule,
@@ -18,7 +19,9 @@ import { AppBar } from '@/components/navigation/app-bar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { FiveWeekBand } from '@/components/planning/five-week-band'
 import { PoolGrid } from '@/components/planning/pool-grid'
+import { poolViewSinceUrl, type PoolView } from '@/components/planning/pool-filter'
 import { PoolPreview, usePreviewUrl } from '@/components/planning/pool-preview'
+import { usePlanningUrlParam } from '@/components/planning/url-state'
 import { pushScheduleHour } from '@/components/planning/schedule-hours'
 import { ScheduleForm } from '@/components/planning/schedule-form'
 
@@ -45,12 +48,21 @@ export function PlanningScreen() {
 
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [previewId, setPreviewId] = usePreviewUrl()
+  const [viewParam, setViewParam] = usePlanningUrlParam('view')
+  // Un `?view=` inconnu retombe sur l'onglet par défaut plutôt que sur une
+  // page vide — même repli que `viewSinceUrl` (`review/template.ts`).
+  const view = poolViewSinceUrl(viewParam)
 
   // **Réconciliée avec le vivier, jamais lue seule** — même règle que
   // `ReviewFeed` (`feed.tsx:173-181`) : la sélection ne doit pas annoncer un
   // compte qu'elle ne peut plus honorer.
-  const poolClips = pool.data ?? []
-  const selectedClips = poolClips.filter((c) => selected.has(c.clipId))
+  const poolClips = pool.data?.clips ?? []
+  // Et réconciliée avec la programmabilité, pas seulement avec la présence :
+  // un clip dont les lignes `planned` passent à `in_progress` pendant le
+  // sondage perd sa case, et le `POST` sur lui rendrait 400.
+  const selectedClips = poolClips.filter(
+    (c) => selected.has(c.clipId) && hasSchedulablePlatform(statusesOnly(c.statuses)),
+  )
   // **Réconciliée avec le vivier, jamais lue seule dans l'URL** — même règle
   // que la sélection : un `?preview=` nommant un clip absent du vivier
   // n'ouvre rien.
@@ -113,7 +125,10 @@ export function PlanningScreen() {
           <h2 className="text-sm font-medium text-muted-foreground">Vivier</h2>
           <PoolGrid
             clips={poolClips}
+            pending={pool.data?.pending ?? []}
             loading={pool.isPending}
+            view={view}
+            onView={(next: PoolView) => setViewParam(next)}
             selected={selected}
             onToggle={toggle}
             onPreview={setPreviewId}

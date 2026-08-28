@@ -25,7 +25,7 @@
  * GET   /api/publication/availability        -> Record<Platform, PlatformAvailability>
  * POST  /api/clips/:id/publish { platforms, force? } -> { publications: PublicationRow[] }
  * GET   /api/clips/:id/publications         -> { publications: PublicationView[] }
- * GET   /api/planning/pool                  -> { clips: PlanningPoolClip[] }
+ * GET   /api/planning/pool                  -> PlanningPool
  * GET   /api/planning/schedule?from=<ms>&to=<ms>      -> { entries: ScheduledEntry[] }
  * POST  /api/planning/schedule { clipIds, scheduledAt } -> { entries: ScheduledEntry[] }
  * POST  /api/planning/unschedule { clipIds } -> { removed: number }
@@ -1394,28 +1394,38 @@ export function getPublications(clipId: string): Promise<{ publications: Publica
 // Le planning (spec du 26 août 2026)
 // ---------------------------------------------------------------------------
 
-/** Un clip du vivier : exporté, à jour, pas encore programmé. */
-export type PlanningPoolClip = {
+/**
+ * Un clip qui devrait être au vivier et n'y est pas, faute de vidéo à jour.
+ *
+ * Les mêmes gardes que l'**entrée au planning** s'y appliquent — ni échéance
+ * `planned`, ni plateformes toutes arrêtées : ce qui ne pourrait pas être
+ * programmé une fois rendu n'a rien à faire dans la liste de ce qui manque.
+ * Depuis les six onglets, un `stale` est **à la fois** dans `clips`, marqué
+ * « rendu périmé », et ici, où le bouton le propose au réencodage.
+ */
+export type PlanningPendingClip = {
   clipId: string
   projectId: string
   title: string
-  /** La durée du montage, en secondes. */
-  duration: number
-  /** La vignette tirée du proxy, `null` quand le proxy manque. */
-  thumbnailUrl: string | null
-  /** La description **composée** (`composeDescription`) : pied de page compris, comme ce qui sera envoyé. */
-  description: string
-  /** Ce que l'export a produit, et où le lire. */
-  outputs: ClipOutputs
-  /** Ce qui est déjà parti, par plateforme. */
-  statuses: Partial<Record<Platform, PublicationStatus>>
+  /**
+   * L'état du **rendu**, jamais l'histoire du clip : `stale`, un rendu qui ne
+   * décrit plus le montage ; `missing`, aucun rendu sur le disque. `kept` ne
+   * prouve pas qu'un clip n'a jamais été monté — `discardRenderStale` y fait
+   * redescendre un clip exporté qu'on rouvre (relevé par Copilot et Codex).
+   */
+  reason: 'missing' | 'stale'
+}
+
+/** Ce que rend `GET /api/planning/pool` : le vivier, et ce qui lui manque. */
+export type PlanningPool = {
+  clips: PlanningPoolClip[]
+  pending: PlanningPendingClip[]
 }
 
 /**
- * Ce que le planning affiche pour une plateforme d'une échéance : au-delà du
- * statut, ce qui vient nourrir le détail d'un échec sans dupliquer le
- * courriel d'abandon (`src/server/publication/scheduler.ts`), qui lit les
- * mêmes colonnes.
+ * Ce que le planning affiche pour une plateforme : au-delà du statut, ce qui
+ * vient nourrir le détail d'un échec sans dupliquer le courriel d'abandon
+ * (`src/server/publication/scheduler.ts`), qui lit les mêmes colonnes.
  */
 export type PublicationDetail = {
   status: PublicationStatus
@@ -1424,6 +1434,31 @@ export type PublicationDetail = {
   /** Le dernier essai, en ms depuis l'époque. */
   updatedAt: number
   remoteUrl: string | null
+}
+
+/**
+ * Un clip du vivier : **exporté, et rien de plus**.
+ *
+ * La fraîcheur du rendu et l'état des publications ne filtrent plus, ils se
+ * lisent — `stale` et `statuses` portent de quoi ranger le clip dans un des
+ * six onglets sans un aller-retour de plus.
+ */
+export type PlanningPoolClip = {
+  clipId: string
+  projectId: string
+  title: string
+  /** La durée du montage, en secondes. */
+  duration: number
+  /** La vignette : l'affiche du rendu s'il est à jour, sinon celle du proxy. `null` sans l'un ni l'autre. */
+  thumbnailUrl: string | null
+  /** La description **composée** (`composeDescription`) : pied de page compris, comme ce qui sera envoyé. */
+  description: string
+  /** Ce que l'export a produit, et où le lire. */
+  outputs: ClipOutputs
+  /** Ce qui est déjà parti, par plateforme — même forme que `ScheduledEntry`. */
+  statuses: Partial<Record<Platform, PublicationDetail>>
+  /** Le rendu sur le disque ne correspond plus au montage courant. */
+  stale: boolean
 }
 
 /** Une échéance posée, telle que le calendrier la lit. */
@@ -1438,9 +1473,9 @@ export type ScheduledEntry = {
   stale: boolean
 }
 
-/** Les clips exportés, à jour, pas encore programmés — `GET /api/planning/pool`. */
-export function listPlanningPool(): Promise<PlanningPoolClip[]> {
-  return lire<{ clips: PlanningPoolClip[] }>('/api/planning/pool').then((r) => r.clips)
+/** Tous les clips exportés, et ce qui manque au vivier — `GET /api/planning/pool`. */
+export function listPlanningPool(): Promise<PlanningPool> {
+  return lire<PlanningPool>('/api/planning/pool')
 }
 
 /** Le calendrier entre deux bornes (ms, `to` exclu) — `GET /api/planning/schedule`. */

@@ -1821,6 +1821,17 @@ export function listExportedClips(db: Database.Database): Clip[] {
 }
 
 /**
+ * Les clips gardés mais jamais rendus, toutes émissions confondues.
+ *
+ * Le pendant de `listExportedClips` pour ce qui **manque** au vivier : mêmes
+ * absence de filtre de projet et ordre, pour la même raison.
+ */
+export function listKeptClips(db: Database.Database): Clip[] {
+  const lines = db.prepare("SELECT * FROM clips WHERE status = 'kept' ORDER BY id").all() as LineClip[]
+  return lines.map(clipSinceLine)
+}
+
+/**
  * Les échéances entre `from` (inclus) et `to` (exclu), quel que soit leur
  * statut. **Ne regarde ni le statut du clip ni `deliveryToDay`** : le
  * calendrier lit les publications, jamais le vivier (spec planning §5.2) — un

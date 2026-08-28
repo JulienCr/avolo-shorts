@@ -45,21 +45,21 @@ export function shot(
   }
 }
 
+/** Un trio de cellules de doublage, comme `dubbingCellsFor` en poserait. */
+export function dubbingCells(): DubbingCells {
+  return {
+    film: { x0: 0, y0: 0, x1: 1, y1: 0.7 },
+    pip: { x0: 0.6, y0: 0.7, x1: 1, y1: 1 },
+    strip: { x0: 0, y0: 0.7, x1: 0.6, y1: 1 },
+  }
+}
+
 /** Une paire de cellules de test, comme `computeShotSplit` en poserait. */
 export function splitCells(): [Cell, Cell] {
   return [
     { x0: 0, y0: 0, x1: 0.5, y1: 1 },
     { x0: 0.5, y0: 0, x1: 1, y1: 1 },
   ]
-}
-
-/** Trois pavés de test, comme `dubbingCellsFor` en poserait. */
-export function dubbingCells(): DubbingCells {
-  return {
-    film: { x0: 0, y0: 0, x1: 1, y1: 0.9 },
-    pip: { x0: 0.773, y0: 0.022, x1: 0.988, y1: 0.222 },
-    strip: { x0: 0, y0: 0.9, x1: 1, y1: 1 },
-  }
 }
 
 /**

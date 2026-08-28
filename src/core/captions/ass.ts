@@ -305,11 +305,7 @@ export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure
   // plage 90 → 108 est douce à dessein — le 75 → 112 d'une version antérieure
   // partait de si bas qu'une image saisie en pleine animation se lisait comme un
   // défaut de dimensionnement plutôt que comme un temps fort.
-  //
-  // `ACTIVE_WORD_PEAK_SCALE` porte le même 108 que la balise `\fscx`/`\fscy` :
-  // une seule source, pour que la garantie anti-débordement de `measureAtPeak`
-  // ne se décale jamais en silence si l'animation est retouchée.
-  const ACTIVE_WORD_PEAK_SCALE = 1.08
+  const ACTIVE_WORD_PEAK_SCALE = 1.08 // seule source du 108 de la balise, pour ne jamais diverger
   const peakPercent = Math.round(ACTIVE_WORD_PEAK_SCALE * 100)
   const wordActive = `{\\c${highlight}\\fscx90\\fscy90\\t(0,110,\\fscx${peakPercent}\\fscy${peakPercent})}`
 

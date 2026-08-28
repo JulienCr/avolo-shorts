@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 
 import { aggregatePublicationStatus, PLANNING_AGGREGATE_LABELS, statusesOnly } from '@/core/planning'
-import { hasSchedulablePlatform } from '@/core/publication'
+import { hasSchedulablePlatform, PLATFORMS } from '@/core/publication'
 import type { PlanningPoolClip } from '@/lib/api'
 import { formatDuration } from '@/lib/format'
 import { linkClip } from '@/lib/navigation'
@@ -45,11 +45,13 @@ export function PoolCard({
   const tabIndex = current ? 0 : -1
   const statuses = statusesOnly(clip.statuses)
   const schedulable = hasSchedulablePlatform(statuses)
-  // `aggregatePublicationStatus({})` rend `'planned'` sur un objet vide
-  // (`core/planning.ts`) : sans cette garde, tout clip vierge s'annoncerait
-  // « programmé ».
-  const hasRows = Object.keys(clip.statuses).length > 0
-  const aggregate = hasRows ? aggregatePublicationStatus(statuses) : null
+  // `aggregatePublicationStatus` n'agrège que les lignes reçues : sur un objet
+  // vide il rend `'planned'`, et sur un clip parti vers une seule plateforme
+  // il rend `'published'`. Une plateforme sans ligne n'est pas partie.
+  const rows = Object.keys(clip.statuses).length
+  const reduced = rows > 0 ? aggregatePublicationStatus(statuses) : null
+  const claimsDone = reduced === 'published' || reduced === 'submitted'
+  const aggregate = claimsDone && rows < PLATFORMS.length ? 'partial' : reduced
 
   return (
     <article

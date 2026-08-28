@@ -193,6 +193,24 @@ describe('PoolCard — l’état de publication', () => {
     expect(screen.getByText('publié')).toBeTruthy()
   })
 
+  /**
+   * `aggregatePublicationStatus` n'agrège que les lignes reçues : sur un clip
+   * parti vers une seule des quatre plateformes il rend `'published'`, et la
+   * carte annonçait « publié » un clip que les onglets rangent en « Partiels »
+   * et qui reste programmable (relevé par Copilot).
+   */
+  it('un clip publié sur une seule plateforme se lit « partiel », pas « publié »', () => {
+    renderCard({ statuses: { instagram: detail('published') } })
+    expect(screen.queryByText('publié')).toBeNull()
+    expect(screen.getByText('partiel')).toBeTruthy()
+  })
+
+  it('un dépôt sur une seule plateforme ne s’annonce pas « déposé » non plus', () => {
+    renderCard({ statuses: { tiktok: detail('submitted') } })
+    expect(screen.queryByText('déposé')).toBeNull()
+    expect(screen.getByText('partiel')).toBeTruthy()
+  })
+
   it('un échec mêlé à un succès se lit « échec partiel », pas « échec »', () => {
     renderCard({ statuses: { instagram: detail('published'), tiktok: detail('failed') } })
     expect(screen.getByText('échec partiel')).toBeTruthy()

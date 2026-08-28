@@ -103,9 +103,9 @@ function response(body: unknown): Response {
 }
 
 /**
- * Le rail d'export (`PanelExport`) interroge ces deux routes de publication à
- * chaque montage, indépendamment du clip. `undefined` : l'appelant retombe
- * sur sa propre réponse.
+ * `ClipScreen` interroge ces deux routes de publication à chaque montage,
+ * indépendamment du clip. `undefined` : l'appelant retombe sur sa propre
+ * réponse.
  */
 function publicationResponse(url: string): Response | undefined {
   if (url.includes('/publication/availability')) return response(defaultPlatformAvailability())
@@ -752,5 +752,120 @@ describe('un texte resté non enregistré', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('la confirmation d’écrasement, depuis Exports', () => {
+  it('nomme les fichiers qu’elle va écraser, puis envoie force:true', async () => {
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'POST' && String(url).includes('/export')) {
+        return response({ mp4: null, variant9x16: 'c2-9x16.mp4', texts: 'c2.txt', skipped: false })
+      }
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    const d = detail('c2')
+    d.outputs = {
+      mp4Url: null,
+      mp4Due: false,
+      variant9x16Url: '/api/clips/c2/renders/c2-9x16.mp4',
+      variant9x16Due: true,
+      textsUrl: '/api/clips/c2/renders/c2.txt',
+    }
+    query = 'vue=exports'
+    await mount('c2', d)
+
+    const forcer = await screen.findByRole('button', { name: /forcer un nouvel export/i })
+    fireEvent.click(forcer)
+
+    const box = await screen.findByRole('alertdialog')
+    // Le natif est désactivé sur ce ratio (1:1, le défaut de `detail()`) :
+    // `c2.mp4` n'est jamais un fichier à écraser.
+    expect(box.textContent).not.toContain('c2.mp4')
+    expect(box.textContent).toContain('c2-9x16.mp4')
+    expect(box.textContent).toContain('c2.txt')
+    expect(fetch.mock.calls.some(([, o]) => (o as RequestInit | undefined)?.method === 'POST')).toBe(
+      false,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /écraser/i }))
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(
+          ([url, o]) => String(url).includes('/export') && (o as RequestInit | undefined)?.method === 'POST',
+        ),
+      ).toBe(true),
+    )
+  })
+})
+
+describe('le dialogue de publication, depuis le primaire', () => {
+  it('s’ouvre une fois le clip livré', async () => {
+    const d = detail('c2')
+    d.outputs = {
+      mp4Url: null,
+      mp4Due: false,
+      variant9x16Url: '/api/clips/c2/renders/c2-9x16.mp4',
+      variant9x16Due: true,
+      textsUrl: '/api/clips/c2/renders/c2.txt',
+    }
+    await mount('c2', d)
+
+    fireEvent.click(screen.getByRole('button', { name: /^publier$/i }))
+    expect(await screen.findByRole('heading', { name: 'Publier « La chute »' })).toBeTruthy()
+  })
+})
+
+describe('la publication, sans vidéo rendue', () => {
+  function outputsTextsOnly() {
+    return {
+      mp4Url: null,
+      mp4Due: true,
+      variant9x16Url: null,
+      variant9x16Due: true,
+      textsUrl: '/api/clips/c2/renders/c2.txt',
+    }
+  }
+
+  it('n’offre pas « Publier » quand seul le texte existe', async () => {
+    const d = detail('c2')
+    d.outputs = outputsTextsOnly()
+    await mount('c2', d)
+
+    expect(screen.queryByRole('button', { name: /^publier$/i })).toBeNull()
+  })
+
+  it('en dit la raison dans Exports', async () => {
+    const d = detail('c2')
+    d.outputs = outputsTextsOnly()
+    query = 'vue=exports'
+    await mount('c2', d)
+
+    expect(await screen.findByText(/exporter avant de publier/i)).toBeTruthy()
+  })
+})
+
+describe('l’état périmé', () => {
+  it('confirme toujours l’écrasement, même seul en primaire', async () => {
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      void options
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    const d = detail('c2')
+    d.clip.status = 'exported'
+    await mount('c2', d)
+
+    fireEvent.click(screen.getByRole('button', { name: /ré-exporter/i }))
+    expect(await screen.findByRole('alertdialog')).toBeTruthy()
+    expect(fetch.mock.calls.some(([, o]) => (o as RequestInit | undefined)?.method === 'POST')).toBe(
+      false,
+    )
   })
 })

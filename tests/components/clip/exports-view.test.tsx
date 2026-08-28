@@ -76,6 +76,19 @@ describe('ExportsView', () => {
     expect(screen.getByText(/split-screen/)).toBeTruthy()
   })
 
+  it('ne signale pas de split quand le natif est déjà 9:16', () => {
+    // Sans variante due (natif déjà 9:16), le split ne se rend jamais : rien
+    // ne le produit côté rendu. L'annoncer décrirait un fichier qui n'existe
+    // pas. (relevé par Aristarque, préexistant)
+    mount({
+      framing: framing({
+        ratio: '9:16',
+        shots: [shot(0, 20, '9:16', 0.5, 'auto', splitCells())],
+      }),
+    })
+    expect(screen.queryByText(/split-screen/)).toBeNull()
+  })
+
   it('avertit d’un titre vide', () => {
     mount({ clip: clipFixture({ title: '' }) })
     expect(screen.getByText(/le titre est vide/i)).toBeTruthy()
@@ -88,6 +101,11 @@ describe('ExportsView', () => {
       }),
     })
     expect(screen.getByText(/1 plan sans mesure/)).toBeTruthy()
+  })
+
+  it('n’en signale aucun quand tous les plans ont été mesurés', () => {
+    mount({ framing: framing() })
+    expect(screen.queryByText(/sans mesure/)).toBeNull()
   })
 
   it('dit pourquoi la publication n’est pas possible, quand le clip n’est pas livré', () => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { Check, Copy, Send } from 'lucide-react'
+import { Check, Copy, LoaderCircle, Send } from 'lucide-react'
 import { useState } from 'react'
 
 import type { Ratio } from '@/core/edl'
@@ -29,34 +29,54 @@ export function deriveDeliveryState(
 }
 
 /**
- * Le seul geste terminal de l'écran, posé dans la barre d'app.
+ * Le seul geste terminal de l'écran, posé dans la barre d'app. « Publier »
+ * disparaît plutôt que de rester grisé quand il n'y a rien à publier (spec
+ * du 23 août, §3.4).
  *
- * **« Publier » disparaît plutôt que de rester grisé quand il n'y a rien à
- * publier** (spec du 23 août, §3.4) : ce cas n'existe que hors de l'état
- * `delivered`, jamais atteint ici puisque la branche `delivered` est la seule
- * à rendre ce bouton.
+ * `describedBy` porte la raison, jamais devinée : `aria-disabled` laisse le
+ * bouton atteignable au clavier, et ce texte lié dit pourquoi.
  */
 export function ClipPrimaryAction({
   state,
   onExport,
   onPublish,
   disabled,
+  busy,
+  describedBy,
 }: {
   state: DeliveryState
   onExport: () => void
   onPublish: () => void
   disabled?: boolean
+  /** `exporter.isPending` : un rendu dure de dix secondes à une minute. */
+  busy?: boolean
+  /** L'identifiant du texte qui dit pourquoi le bouton est désactivé ou occupé. */
+  describedBy?: string
 }) {
+  const icon = busy ? <LoaderCircle className="animate-spin" aria-hidden /> : null
   if (state === 'delivered') {
     return (
-      <Button size="sm" onClick={onPublish} aria-disabled={disabled || undefined}>
-        <Send aria-hidden />
+      <Button
+        size="sm"
+        onClick={onPublish}
+        aria-disabled={disabled || undefined}
+        aria-busy={busy || undefined}
+        aria-describedby={describedBy}
+      >
+        {icon ?? <Send aria-hidden />}
         Publier
       </Button>
     )
   }
   return (
-    <Button size="sm" onClick={onExport} aria-disabled={disabled || undefined}>
+    <Button
+      size="sm"
+      onClick={onExport}
+      aria-disabled={disabled || undefined}
+      aria-busy={busy || undefined}
+      aria-describedby={describedBy}
+    >
+      {icon}
       {state === 'stale' ? 'Ré-exporter' : 'Exporter'}
     </Button>
   )
@@ -100,10 +120,9 @@ export function OutputsList({
       )}
 
       {names.variant9x16 === null ? (
-        // **`variant9x16Due` sépare deux `null` qui ne veulent pas dire la même
-        // chose.** Un clip dont le ratio natif est déjà 9:16 n'aura jamais de
-        // variante à fond flouté, et annoncer un rendu manquant ici le ferait sur
-        // le clip le mieux livré de la bibliothèque.
+        // `variant9x16Due` sépare deux `null` distincts : un clip déjà en
+        // 9:16 n'aura jamais de variante, et annoncer un rendu manquant ici
+        // le ferait sur le clip le mieux livré de la bibliothèque.
         <li className="text-[0.75rem] text-muted-foreground">
           Le ratio natif est déjà 9:16 : pas de variante à produire.
         </li>

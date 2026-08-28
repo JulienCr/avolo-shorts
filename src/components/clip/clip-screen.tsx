@@ -1,12 +1,13 @@
 'use client'
 
-import { ChevronDown, ChevronLeft, ChevronRight, Keyboard, RotateCw, Redo2, Undo2 } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Keyboard, RotateCw, Redo2, TriangleAlert, Undo2 } from 'lucide-react'
 import { useIsMutating } from '@tanstack/react-query'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 
 import { AppBar } from '@/components/navigation/app-bar'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { HookFields } from '@/components/clip/hook-fields'
 import { PreviewOutput } from '@/components/clip/output-preview'
 import { FieldsTexts } from '@/components/clip/text-fields'
@@ -44,7 +45,7 @@ import { resolveHook } from '@/core/hook'
 import { isGuard } from '@/core/phase'
 import { clipExportEligibility, composeDescription } from '@/core/publication'
 import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
-import { HOOK_DEFAULTS } from '@/lib/api'
+import { ApiError, HOOK_DEFAULTS } from '@/lib/api'
 import { LABELS_STATUS } from '@/lib/clip-status'
 import { indexTranscript, lineInitial } from '@/lib/editing'
 import { differences, useAutosave } from '@/lib/autosave'
@@ -229,6 +230,21 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const duration = clipDuration(segments)
   const selection = editor.selection
 
+  // Ce que décrivait le clip au moment du dernier export lancé : compare à
+  // `signatureRendered` pour savoir si « rendu terminé » décrit encore ce
+  // clip-ci, ou un montage qu'un `PATCH` a déjà écarté depuis.
+  const renderFingerprint = JSON.stringify([
+    clip.id,
+    segments,
+    editor.ratio,
+    editor.cropX,
+    framing,
+    clip.branding,
+    clip.captions,
+    clip.title,
+    clip.description,
+  ])
+
   // Calculée sur le clip **enregistré**, et la règle est dans `@/lib/editing`.
   // La surface, elle, ne s'en sert qu'une fois par clip (voir `key`).
   const firstLine = useMemo(() => lineInitial(lines, clip.segments), [lines, clip.segments])
@@ -245,10 +261,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     segments,
     ratio: editor.ratio,
     cropX: editor.cropX,
-    // **`mutateAsync` ici aussi**, et pour la raison écrite sur `write` plus
-    // bas : cet observateur-ci est celui que les champs de texte et les marques
-    // se partagent avec le montage, donc `mutate` aurait laissé la première
-    // frappe de titre emporter le sort de l'enregistrement en vol. (issue #55)
+    // `mutateAsync`, pour la même raison que `write` plus bas : partagé avec
+    // les champs de texte, `mutate` laisserait la première frappe de titre
+    // emporter le sort de l'enregistrement en vol. (issue #55)
     write: patch.mutateAsync,
     reconcile: editor.reconcile,
   })
@@ -304,10 +319,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     poserBound: (edge) => {
       if (selection) editor.poserBound(words, selection.head, edge)
     },
-    // **`Ctrl+F` ouvre le tiroir en même temps que la recherche.** Le transcript
-    // n'est plus visible en permanence : ouvrir une barre de recherche sur une
-    // surface fermée ne chercherait nulle part, et le raccourci passerait pour
-    // mort sur l'écran qui l'a inventé.
+    // `Ctrl+F` ouvre le tiroir avec la recherche : le transcript n'est plus
+    // visible en permanence, et une barre ouverte sur une surface fermée ne
+    // chercherait nulle part.
     find: () => {
       setSearch(true)
       setDrawerOpen(true)
@@ -327,6 +341,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const exporter = useExporter()
   const [confirmation, setConfirmation] = useState(false)
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
+  const [signatureRendered, setSignatureRendered] = useState<string | null>(null)
   const state = deriveDeliveryState(clip.status, outputs)
   const native = framing.ratio
   const names = outputNames(clip.id, native)
@@ -345,9 +360,24 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
             : null
   const exportDisabled = prevention !== null || exporter.isPending
   const publicationEligibility = clipExportEligibility(state === 'delivered')
+  const exportSignature = `${clip.id}|${renderFingerprint}`
+  // La raison se lit, elle ne se devine pas : ce que le geste terminal fait
+  // savoir, un seul état à la fois — bloqué, occupé, ou ce qu'il vient de
+  // faire.
+  const exportStatus = exporter.isPending
+    ? 'Rendu en cours — de dix secondes à une minute.'
+    : prevention !== null
+      ? prevention
+      : exporter.isSuccess && signatureRendered === exportSignature
+        ? exporter.data.skipped
+          ? 'Rien n’a été refait : les fichiers étaient déjà à jour.'
+          : 'Rendu terminé.'
+        : null
+  const exportStatusId = useId()
 
   function launch(force: boolean) {
     if (exportDisabled) return
+    setSignatureRendered(exportSignature)
     exporter.mutate({ clipId: clip.id, force })
   }
 
@@ -400,6 +430,12 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               ? 'enregistrement…'
               : 'enregistré'}
         </span>
+
+        {exportStatus !== null && (
+          <span id={exportStatusId} className="text-[0.75rem] text-muted-foreground" aria-live="polite">
+            {exportStatus}
+          </span>
+        )}
 
         {/* **Réessayer, plutôt qu'attendre un nouveau geste.** L'écriture
             différée retient la signature de la tentative ratée et ne la rejoue
@@ -478,13 +514,14 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
           </TabsList>
         </Tabs>
 
-        {exporter.isError && (
-          <span className="text-[0.75rem] text-destructive" aria-live="assertive">
-            échec de l’export
-          </span>
-        )}
-
-        <ClipPrimaryAction state={state} onExport={onExport} onPublish={onPublish} disabled={exportDisabled} />
+        <ClipPrimaryAction
+          state={state}
+          onExport={onExport}
+          onPublish={onPublish}
+          disabled={exportDisabled}
+          busy={exporter.isPending}
+          describedBy={exportStatus !== null ? exportStatusId : undefined}
+        />
       </AppBar>
 
       {/* **La boucle, en haut et d'un seul tenant** : la fresque des clips gardés
@@ -753,6 +790,21 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         recordsError={publications.isError}
         onLaunch={launchPublish}
       />
+
+      {/* **Le détail, pas un résumé** : le code et le message du serveur —
+          une raison qu'on ne peut pas diagnostiquer ne vaut guère mieux
+          qu'un échec silencieux. Hors de la barre, qui n'a pas la place
+          d'une alerte ; le geste qui l'a causée y reste visible. */}
+      {exporter.isError && (
+        <Alert variant="destructive" className="shrink-0 rounded-none border-x-0">
+          <TriangleAlert aria-hidden />
+          <AlertTitle>
+            L’export a échoué
+            {exporter.error instanceof ApiError ? ` (${exporter.error.status})` : ''}
+          </AlertTitle>
+          <AlertDescription>{exporter.error.message}</AlertDescription>
+        </Alert>
+      )}
 
       {/* **Une ligne persistante, jamais un `toast`** (spec publication §6.2) :
           la boîte se ferme dès la confirmation, avant que le `POST` ne

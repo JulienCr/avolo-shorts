@@ -362,11 +362,12 @@ export function PreviewOutput({
           occupe la part que le ratio lui laisse, et rien d'autre ne le dit.
 
           **`self-start` reste, et c'est mesuré, pas recopié de l'ancien
-          code.** La hauteur vient de `frame` (celle du volet, ou
-          `PREVIEW_FRAME`'s repli en dessous du seuil `workbench`), et
-          `aspect-ratio` en déduit la largeur — mais seulement si l'axe
-          transversal (la largeur, ici, puisque la figure est en colonne)
-          n'est pas étiré. Sans `self-start`, mesuré dans un vrai Chrome :
+          code.** La hauteur vient de `frame`, posé par l'appelant (le repli
+          fixe en dessous du seuil `workbench`, ou dérivé du volet
+          au-dessus), et `aspect-ratio` en déduit la largeur — mais seulement
+          si l'axe transversal (la largeur, ici, puisque la figure est en
+          colonne) n'est pas étiré. Sans `self-start`, mesuré dans un vrai
+          Chrome :
           `align-items: stretch` l'emportait sur `aspect-ratio`, la largeur
           valait la largeur du volet entier quelle que soit la hauteur, et
           `aspect-ratio` en déduisait la hauteur *depuis cette largeur-là* —

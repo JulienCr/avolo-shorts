@@ -13,13 +13,25 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ClipScreen } from '@/components/clip/clip-screen'
 import { framing, shot, splitCells } from '../../fixtures/framing'
 import { DUBBING_ANCHORS, dubbingCellsFor } from '@/core/dubbing'
 import { defaultPlatformAvailability } from '@/core/publication'
 import type { CandidateClip, ClipDetail } from '@/lib/api'
 import { useEditor } from '@/store/editor'
 import { usePlayback } from '@/components/clip/playback'
+
+// La vue (édition/exports) vit dans l'URL (`clip-view.ts`) : même mock que
+// `planning-screen.test.tsx`, une variable de module pour changer la requête
+// entre deux rendus.
+const replaceMock = vi.fn()
+let query = ''
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: replaceMock, push: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => '/clips/c2',
+  useSearchParams: () => new URLSearchParams(query),
+}))
+
+const { ClipScreen } = await import('@/components/clip/clip-screen')
 
 Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 600 })
 Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 800 })
@@ -91,9 +103,9 @@ function response(body: unknown): Response {
 }
 
 /**
- * Le rail d'export (`PanelExport`) interroge ces deux routes de publication à
- * chaque montage, indépendamment du clip. `undefined` : l'appelant retombe
- * sur sa propre réponse.
+ * `ClipScreen` interroge ces deux routes de publication à chaque montage,
+ * indépendamment du clip. `undefined` : l'appelant retombe sur sa propre
+ * réponse.
  */
 function publicationResponse(url: string): Response | undefined {
   if (url.includes('/publication/availability')) return response(defaultPlatformAvailability())
@@ -160,6 +172,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  replaceMock.mockClear()
+  query = ''
 })
 
 describe('la boucle de montage', () => {
@@ -194,13 +208,30 @@ describe('la boucle de montage', () => {
   })
 })
 
+/**
+ * L'aperçu de sortie, dans la zone Sortie — jamais la source, qui est un
+ * `<figure>` distinct. `role="figure"` n'apporte pas de nom accessible
+ * calculé depuis sa légende dans cet environnement de test (`figcaption` non
+ * pris en compte par `dom-accessibility-api` ici) : on distingue les deux
+ * figures sur leur contenu plutôt que sur un nom de rôle.
+ */
+function outputFigure(): HTMLElement {
+  const found = screen
+    .getAllByRole('figure')
+    .find((f) => /variante|fichier natif/.test(f.textContent ?? ''))
+  if (!found) throw new Error('figure de sortie introuvable')
+  return found
+}
+
+// Le cadre du plan se lit désormais dans la légende de la sortie 9:16
+// (`output-preview.tsx:353-359`), pas dans le `<dl>` disparu avec l'établi —
+// même distinction split/doublage/ratio.
 describe('le cadre du plan sous la lecture, splitté', () => {
   it('dit « split » plutôt qu’un ratio et un pourcentage qui n’y correspondent plus', async () => {
     const d = detail()
     d.framing = framing({ shots: [shot(0, 200, '16:9', 0.5, 'auto', splitCells())] })
     await mount('c2', d)
-    const label = await screen.findByText('Cadre (9:16)')
-    expect(label.nextElementSibling?.textContent).toContain('split')
+    expect(outputFigure().textContent).toContain('cadre split')
   })
 })
 
@@ -210,9 +241,9 @@ describe('le cadre du plan sous la lecture, en doublage', () => {
     const cells = dubbingCellsFor(DUBBING_ANCHORS[0], DUBBING_ANCHORS[0].pip.y0)
     d.framing = framing({ shots: [shot(0, 200, '4:5', 0.5, 'auto', undefined, cells)] })
     await mount('c2', d)
-    const label = await screen.findByText('Cadre (9:16)')
-    expect(label.nextElementSibling?.textContent).toContain('doublage')
-    expect(label.nextElementSibling?.textContent).not.toContain('4:5')
+    const text = outputFigure().textContent ?? ''
+    expect(text).toContain('cadre doublage')
+    expect(text).not.toContain('4:5')
   })
 })
 
@@ -222,9 +253,13 @@ describe('le libellé du cadre, quand le natif est déjà 9:16', () => {
     // n'est produite (`src/server/steps/render.ts`). (relevé par Copilot)
     const d = detail()
     d.framing = framing({ ratio: '9:16', shots: [shot(0, 200, '9:16', 0.5)] })
+    // `editor.ratio` part de `clip.ratio` (`charger`) : pour que le natif
+    // résolu soit bien 9:16, le client doit aussi laisser le cadrage décider.
+    d.clip.ratio = 'auto'
     await mount('c2', d)
-    expect(await screen.findByText('Cadre (9:16)')).toBeTruthy()
-    expect(screen.queryByText('Cadre (variante)')).toBeNull()
+    const text = outputFigure().textContent ?? ''
+    expect(text).toContain('fichier natif 9:16')
+    expect(text).not.toContain('variante')
   })
 })
 
@@ -440,6 +475,64 @@ describe('les raccourcis', () => {
     await mount('c2')
     fireEvent.keyDown(document.body, { key: '?', shiftKey: true })
     expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+})
+
+describe('la barre d’app, depuis la refonte du 28 août', () => {
+  it('pose les onglets et le primaire dans la barre, plus de rail en pied', async () => {
+    await mount('c2')
+
+    const bar = screen.getByRole('banner')
+    expect(within(bar).getByRole('tab', { name: 'Édition' }).getAttribute('aria-selected')).toBe(
+      'true',
+    )
+    expect(within(bar).getByRole('tab', { name: 'Exports' })).toBeTruthy()
+    expect(within(bar).getByRole('button', { name: 'Exporter' })).toBeTruthy()
+
+    expect(screen.queryByRole('button', { name: 'Détail' })).toBeNull()
+  })
+
+  it('n’offre qu’un seul geste terminal', async () => {
+    await mount('c2')
+
+    const primaries = screen
+      .getAllByRole('button')
+      .filter((b) => b.getAttribute('data-slot') === 'button' && b.className.includes('bg-primary'))
+    expect(primaries).toHaveLength(1)
+  })
+
+  it('demande la vue Exports dans l’URL au clic sur l’onglet', async () => {
+    await mount('c2')
+    fireEvent.click(screen.getByRole('tab', { name: 'Exports' }))
+    expect(replaceMock).toHaveBeenCalledWith('/clips/c2?vue=exports', { scroll: false })
+  })
+
+  it('rend la vue Exports quand l’URL la demande déjà', async () => {
+    query = 'vue=exports'
+    await mount('c2')
+    expect(await screen.findByRole('heading', { name: 'Livraison courante' })).toBeTruthy()
+  })
+})
+
+describe('la fiche éditoriale, à côté de la source', () => {
+  it('range Titre, Description et Hook dans la région Image', async () => {
+    await mount('c2')
+
+    const image = screen.getByRole('region', { name: 'Image' })
+    expect(within(image).getByLabelText('Titre')).toBeTruthy()
+    expect(within(image).getByLabelText('Description')).toBeTruthy()
+    expect(within(image).getByLabelText('Hook')).toBeTruthy()
+  })
+
+  it('ne partage plus une classe entre la source et la sortie', async () => {
+    await mount('c2')
+
+    const source = screen
+      .getAllByRole('figure')
+      .find((f) => /la source/i.test(f.textContent ?? ''))
+    if (!source) throw new Error('figure de la source introuvable')
+    const sortie = outputFigure()
+    expect(source.className).not.toBe(sortie.className)
   })
 })
 
@@ -659,5 +752,230 @@ describe('un texte resté non enregistré', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('la confirmation d’écrasement, depuis Exports', () => {
+  it('nomme les fichiers qu’elle va écraser, puis envoie force:true', async () => {
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'POST' && String(url).includes('/export')) {
+        return response({ mp4: null, variant9x16: 'c2-9x16.mp4', texts: 'c2.txt', skipped: false })
+      }
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    const d = detail('c2')
+    d.outputs = {
+      mp4Url: null,
+      mp4Due: false,
+      variant9x16Url: '/api/clips/c2/renders/c2-9x16.mp4',
+      variant9x16Due: true,
+      textsUrl: '/api/clips/c2/renders/c2.txt',
+    }
+    query = 'vue=exports'
+    await mount('c2', d)
+
+    const forcer = await screen.findByRole('button', { name: /forcer un nouvel export/i })
+    fireEvent.click(forcer)
+
+    const box = await screen.findByRole('alertdialog')
+    // Le natif est désactivé sur ce ratio (1:1, le défaut de `detail()`) :
+    // `c2.mp4` n'est jamais un fichier à écraser.
+    expect(box.textContent).not.toContain('c2.mp4')
+    expect(box.textContent).toContain('c2-9x16.mp4')
+    expect(box.textContent).toContain('c2.txt')
+    expect(fetch.mock.calls.some(([, o]) => (o as RequestInit | undefined)?.method === 'POST')).toBe(
+      false,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /écraser/i }))
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(
+          ([url, o]) => String(url).includes('/export') && (o as RequestInit | undefined)?.method === 'POST',
+        ),
+      ).toBe(true),
+    )
+  })
+})
+
+describe('le dialogue de publication, depuis le primaire', () => {
+  it('s’ouvre une fois le clip livré', async () => {
+    const d = detail('c2')
+    d.outputs = {
+      mp4Url: null,
+      mp4Due: false,
+      variant9x16Url: '/api/clips/c2/renders/c2-9x16.mp4',
+      variant9x16Due: true,
+      textsUrl: '/api/clips/c2/renders/c2.txt',
+    }
+    await mount('c2', d)
+
+    fireEvent.click(screen.getByRole('button', { name: /^publier$/i }))
+    expect(await screen.findByRole('heading', { name: 'Publier « La chute »' })).toBeTruthy()
+  })
+})
+
+describe('la publication, sans vidéo rendue', () => {
+  function outputsTextsOnly() {
+    return {
+      mp4Url: null,
+      mp4Due: true,
+      variant9x16Url: null,
+      variant9x16Due: true,
+      textsUrl: '/api/clips/c2/renders/c2.txt',
+    }
+  }
+
+  it('n’offre pas « Publier » quand seul le texte existe', async () => {
+    const d = detail('c2')
+    d.outputs = outputsTextsOnly()
+    await mount('c2', d)
+
+    expect(screen.queryByRole('button', { name: /^publier$/i })).toBeNull()
+  })
+
+  it('en dit la raison dans Exports', async () => {
+    const d = detail('c2')
+    d.outputs = outputsTextsOnly()
+    query = 'vue=exports'
+    await mount('c2', d)
+
+    expect(await screen.findByText(/exporter avant de publier/i)).toBeTruthy()
+  })
+})
+
+describe('l’état périmé', () => {
+  it('confirme toujours l’écrasement, même seul en primaire', async () => {
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      void options
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    const d = detail('c2')
+    d.clip.status = 'exported'
+    await mount('c2', d)
+
+    fireEvent.click(screen.getByRole('button', { name: /ré-exporter/i }))
+    expect(await screen.findByRole('alertdialog')).toBeTruthy()
+    expect(fetch.mock.calls.some(([, o]) => (o as RequestInit | undefined)?.method === 'POST')).toBe(
+      false,
+    )
+  })
+
+  it('ramène le viseur en Aperçu quand un nouveau `detail` périme le fichier affiché', async () => {
+    // `outputs` vient du prop `detail`, que la page (`useClip`) renouvelle
+    // après chaque écriture. Sans ce recours, un nouveau `detail` périmé
+    // laisse le viseur tenter un `<video>` sans `src`. (relevé par Copilot)
+    const delivered = detail('c2')
+    delivered.outputs = {
+      mp4Url: null,
+      mp4Due: false,
+      variant9x16Url: '/api/clips/c2/renders/c2-9x16.mp4',
+      variant9x16Due: true,
+      textsUrl: '/api/clips/c2/renders/c2.txt',
+    }
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const envelope = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    const view = render(<ClipScreen detail={delivered} />, { wrapper: envelope })
+    await screen.findByRole('link', { name: 'La scène du 15 juin' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+    expect(await screen.findByText('fichier livré')).toBeTruthy()
+
+    const stale = detail('c2')
+    view.rerender(<ClipScreen detail={stale} />)
+
+    await waitFor(() => expect(screen.queryByText('fichier livré')).toBeNull())
+    expect(screen.queryByRole('button', { name: 'Export' })).toBeNull()
+  })
+})
+
+describe('la raison d’un primaire désactivé', () => {
+  it('se lit dans la barre, et le bouton s’y lie par aria-describedby', async () => {
+    await mount('c2', detail('c2', []))
+
+    const button = screen.getByRole('button', { name: /exporter/i })
+    const describedBy = button.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+
+    const reason = document.getElementById(describedBy as string)
+    expect(reason?.textContent).toMatch(/rien à rendre/i)
+  })
+})
+
+describe('l’indicateur d’un export en cours', () => {
+  it('marque le primaire aria-busy pendant que le rendu tourne', async () => {
+    let release: (r: Response) => void = () => {}
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'POST' && String(url).includes('/export')) {
+        return new Promise<Response>((resolve) => {
+          release = resolve
+        })
+      }
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    await mount('c2')
+
+    fireEvent.click(screen.getByRole('button', { name: /exporter/i }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /exporter/i }).getAttribute('aria-busy')).toBe(
+        'true',
+      ),
+    )
+    expect(screen.getByText(/rendu en cours/i)).toBeTruthy()
+
+    release(response({ mp4: null, variant9x16: 'c2-9x16.mp4', texts: 'c2.txt', skipped: false }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /exporter/i }).getAttribute('aria-busy'),
+      ).toBeNull(),
+    )
+  })
+})
+
+describe('l’annonce de réussite', () => {
+  function exportFetch(skipped: boolean) {
+    return vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'POST' && String(url).includes('/export')) {
+        return response({ mp4: null, variant9x16: 'c2-9x16.mp4', texts: 'c2.txt', skipped })
+      }
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(detail('c2'))
+    })
+  }
+
+  it('dit qu’un rendu sauté est une réussite, pas un échec', async () => {
+    vi.stubGlobal('fetch', exportFetch(true))
+    await mount('c2')
+
+    fireEvent.click(screen.getByRole('button', { name: /exporter/i }))
+    expect(await screen.findByText(/rien n’a été refait/i)).toBeTruthy()
+    expect(screen.queryByText(/^rendu terminé\.$/i)).toBeNull()
+  })
+
+  it('distingue un rendu qui a vraiment eu lieu', async () => {
+    vi.stubGlobal('fetch', exportFetch(false))
+    await mount('c2')
+
+    fireEvent.click(screen.getByRole('button', { name: /exporter/i }))
+    expect(await screen.findByText(/^rendu terminé\.$/i)).toBeTruthy()
+    expect(screen.queryByText(/rien n’a été refait/i)).toBeNull()
   })
 })

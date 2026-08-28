@@ -3,16 +3,18 @@
 /**
  * La surcharge de cadrage en zone Image de l'écran Clip.
  *
- * Ce que ces tests fixent : `splitScreen` reste visible sans ouvrir le pli,
- * chaque champ dit s'il est hérité ou surchargé — même à valeur égale —, et
- * « Réinitialiser » n'apparaît que s'il y a de quoi défaire.
+ * Ce que ces tests fixent : le split-screen n'a plus de contrôle ici, la ligne
+ * « Montage doublage » n'apparaît que là où elle a quelque chose à dire — et
+ * dans son état « désactivé », elle se lit sur `clip.framingStyle`, jamais sur
+ * les plans, qui perdent leur `dubbing` dès que la composition est coupée.
  */
 
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { FramingFields } from '@/components/clip/framing-fields'
-import { FRAMING_SETTINGS_DEFAULTS, type Clip, type FramingSettings } from '@/lib/api'
+import { FRAMING_SETTINGS_DEFAULTS, type Clip, type FramingSettings, type PublishedFraming } from '@/lib/api'
+import { dubbingCells, framing, shot } from '../../fixtures/framing'
 import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
 
 installPointerEventPolyfill()
@@ -43,6 +45,7 @@ function mount(props: Partial<Parameters<typeof FramingFields>[0]> = {}) {
   const merged = {
     clip: clip(),
     globals: FRAMING_SETTINGS_DEFAULTS as FramingSettings | undefined,
+    framing: framing({ shots: [shot(0, 20, '1:1', 0.5)] }) as PublishedFraming,
     onWrite: vi.fn(),
     ...props,
   }
@@ -56,63 +59,81 @@ function openPersonalize() {
   fireEvent.click(screen.getByRole('button', { name: /Personnaliser/ }))
 }
 
-describe('le switch split-screen', () => {
-  it('montre la valeur globale sans qu’il faille ouvrir le pli', () => {
-    mount({ globals: { ...FRAMING_SETTINGS_DEFAULTS, splitScreen: true } })
-    expect(screen.getByRole('checkbox', { name: 'Split-screen' }).getAttribute('aria-checked')).toBe('true')
-  })
-
-  it('écrit une surcharge au clic', () => {
-    const onWrite = vi.fn()
-    mount({ globals: { ...FRAMING_SETTINGS_DEFAULTS, splitScreen: true }, onWrite })
-
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Split-screen' }))
-    expect(onWrite).toHaveBeenCalledWith({ framingStyle: { splitScreen: false } })
-  })
-
-  it('se dit hérité tant qu’aucune surcharge n’existe', () => {
-    mount({ clip: clip({ framingStyle: {} }) })
-    const row = within(screen.getByRole('checkbox', { name: 'Split-screen' }).parentElement!)
-    expect(row.getByText('— hérité')).toBeTruthy()
+describe('split-screen', () => {
+  it('n’a plus aucun contrôle sur cet écran', () => {
+    mount()
+    expect(screen.queryByText(/Split-screen/)).toBeNull()
   })
 })
 
-describe('le switch montage doublage', () => {
-  it('montre la valeur globale sans qu’il faille ouvrir le pli', () => {
-    mount({ globals: { ...FRAMING_SETTINGS_DEFAULTS, dubbingLayout: false } })
-    expect(screen.getByRole('checkbox', { name: 'Montage doublage' }).getAttribute('aria-checked')).toBe(
-      'false',
-    )
+describe('montage doublage — état 1 : rien à dire', () => {
+  it('ne rend aucune ligne sans plan de doublage ni surcharge', () => {
+    mount({
+      framing: framing({ shots: [shot(0, 20, '1:1', 0.5)] }),
+      clip: clip({ framingStyle: {} }),
+    })
+    expect(screen.queryByText(/Split-screen/)).toBeNull()
+    expect(screen.queryByText(/Montage doublage/)).toBeNull()
+  })
+})
+
+describe('montage doublage — état 2 : plans détectés', () => {
+  it('nomme le nombre de plans de doublage', () => {
+    mount({
+      framing: framing({
+        shots: [
+          shot(0, 5, '1:1', 0.5, 'auto', undefined, dubbingCells()),
+          shot(5, 10, '1:1', 0.5, 'auto', undefined, dubbingCells()),
+          shot(10, 20, '1:1', 0.5),
+        ],
+      }),
+    })
+    const row = within(screen.getByText(/Montage doublage/).parentElement!)
+    expect(row.getByText(/Montage doublage — 2 plans/)).toBeTruthy()
   })
 
-  it('écrit une surcharge au clic', () => {
+  it('désactiver pour ce clip écrit `{ dubbingLayout: false }`', () => {
     const onWrite = vi.fn()
-    mount({ globals: { ...FRAMING_SETTINGS_DEFAULTS, dubbingLayout: true }, onWrite })
+    mount({
+      framing: framing({ shots: [shot(0, 5, '1:1', 0.5, 'auto', undefined, dubbingCells())] }),
+      onWrite,
+    })
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Montage doublage' }))
+    fireEvent.click(screen.getByRole('button', { name: /désactiver pour ce clip/ }))
     expect(onWrite).toHaveBeenCalledWith({ framingStyle: { dubbingLayout: false } })
   })
+})
 
-  it('se dit hérité tant qu’aucune surcharge n’existe', () => {
-    mount({ clip: clip({ framingStyle: {} }) })
-    const row = within(screen.getByRole('checkbox', { name: 'Montage doublage' }).parentElement!)
-    expect(row.getByText('— hérité')).toBeTruthy()
+describe('montage doublage — état 3 : désactivé pour ce clip', () => {
+  /**
+   * Le cas central du contrat : désactiver la composition fait perdre le champ
+   * `dubbing` aux plans (`computeFraming` arrête de détecter), donc la ligne ne
+   * peut pas dépendre des plans pour rester visible — sinon l'opérateur perd
+   * tout moyen de revenir en arrière.
+   */
+  it('reste visible même sans aucun plan de doublage', () => {
+    mount({
+      framing: framing({ shots: [shot(0, 20, '1:1', 0.5)] }),
+      clip: clip({ framingStyle: { dubbingLayout: false } }),
+    })
+    const row = within(screen.getByText(/Montage doublage/).parentElement!)
+    expect(row.getByText(/composition désactivée pour ce clip/)).toBeTruthy()
+  })
+
+  it('« revenir à l’héritage » écrit `{ framingStyle: {} }`', () => {
+    const onWrite = vi.fn()
+    mount({
+      framing: framing({ shots: [shot(0, 20, '1:1', 0.5)] }),
+      clip: clip({ framingStyle: { dubbingLayout: false } }),
+      onWrite,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /revenir à l’héritage/ }))
+    expect(onWrite).toHaveBeenCalledWith({ framingStyle: {} })
   })
 })
 
-describe('hérité vs surchargé', () => {
-  it('un champ surchargé à la MÊME valeur que le global ne se dit plus hérité', () => {
-    // Le cas central du contrat (voir hook-fields.test.tsx) : `{ splitScreen:
-    // true }` sur un global déjà à `true` doit rester distinguable de `{}`.
-    mount({
-      clip: clip({ framingStyle: { splitScreen: true } }),
-      globals: { ...FRAMING_SETTINGS_DEFAULTS, splitScreen: true },
-    })
-    const row = within(screen.getByRole('checkbox', { name: 'Split-screen' }).parentElement!)
-    expect(row.queryByText('— hérité')).toBeNull()
-    expect(row.getByRole('button', { name: /revenir à l’héritage/ })).toBeTruthy()
-  })
-
+describe('Personnaliser', () => {
   it('un champ numérique non surchargé se dit hérité, une fois le pli ouvert', () => {
     mount({ clip: clip({ framingStyle: {} }) })
     openPersonalize()
@@ -128,6 +149,7 @@ describe('hérité vs surchargé', () => {
       <FramingFields
         clip={clip({ framingStyle: { sizeFloorPermille: 200 } })}
         globals={FRAMING_SETTINGS_DEFAULTS}
+        framing={framing({ shots: [shot(0, 20, '1:1', 0.5)] })}
         onWrite={vi.fn()}
       />,
     )
@@ -142,41 +164,39 @@ describe('hérité vs surchargé', () => {
     fireEvent.click(screen.getByText(/Réinitialiser avec les paramètres globaux/))
     expect(onWrite).toHaveBeenCalledWith({ framingStyle: {} })
   })
+
+  it('un champ surchargé à la MÊME valeur que le global ne se dit plus hérité', () => {
+    mount({
+      clip: clip({ framingStyle: { sizeFloorPermille: FRAMING_SETTINGS_DEFAULTS.sizeFloorPermille } }),
+    })
+    openPersonalize()
+    const row = within(screen.getByLabelText('Plancher de taille').closest('div')!)
+    expect(row.queryByText('— hérité')).toBeNull()
+    expect(row.getByRole('button', { name: /revenir à l’héritage/ })).toBeTruthy()
+  })
 })
 
 describe('deux écritures avant que la première ne se pose (issue #189)', () => {
-  it('surcharger le split-screen puis un champ numérique, sans attendre entre les deux, garde les deux surcharges', () => {
+  it('réinitialiser un champ pendant qu’un autre est en surcharge non posée garde la surcharge posée ensuite', () => {
     const onWrite = vi.fn()
-    mount({ clip: clip({ framingStyle: {} }), onWrite })
-    openPersonalize()
-
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Split-screen' }))
-    const input = screen.getByLabelText('Plancher de taille')
-    fireEvent.change(input, { target: { value: '250' } })
-    fireEvent.blur(input)
-
-    expect(onWrite).toHaveBeenLastCalledWith({
-      framingStyle: expect.objectContaining({ splitScreen: expect.any(Boolean), sizeFloorPermille: 250 }),
-    })
-  })
-
-  it('réinitialiser un champ pendant qu’un autre est en surcharge non posée ne le fait pas réapparaître', () => {
-    const onWrite = vi.fn()
-    mount({ clip: clip({ framingStyle: { splitScreen: true } }), onWrite })
+    mount({ clip: clip({ framingStyle: { sizeFloorPermille: 200 } }), onWrite })
     openPersonalize()
 
     fireEvent.click(screen.getByRole('button', { name: /revenir à l’héritage/ }))
-    const input = screen.getByLabelText('Plancher de taille')
+    const input = screen.getByLabelText('Durée minimale du plan')
     fireEvent.change(input, { target: { value: '250' } })
     fireEvent.blur(input)
 
     const last = onWrite.mock.calls.at(-1)?.[0]
-    expect(last).toEqual({ framingStyle: { sizeFloorPermille: 250 } })
+    expect(last).toEqual({ framingStyle: { splitMinShotMs: 250 } })
   })
 
   it('une réinitialisation complète suivie d’une nouvelle surcharge ne ressuscite pas les anciens champs', () => {
     const onWrite = vi.fn()
-    mount({ clip: clip({ framingStyle: { splitScreen: true, sizeFloorPermille: 300 } }), onWrite })
+    mount({
+      clip: clip({ framingStyle: { sizeFloorPermille: 300, splitMinShotMs: 400 } }),
+      onWrite,
+    })
     openPersonalize()
 
     fireEvent.click(screen.getByText(/Réinitialiser avec les paramètres globaux/))
@@ -191,8 +211,9 @@ describe('deux écritures avant que la première ne se pose (issue #189)', () =>
 describe('sans réglages globaux chargés', () => {
   it('reste inerte plutôt que de planter', () => {
     mount({ globals: undefined })
+    openPersonalize()
     expect(
-      screen.getByRole('checkbox', { name: 'Split-screen' }).getAttribute('aria-disabled'),
-    ).toBe('true')
+      screen.getByLabelText('Plancher de taille').getAttribute('disabled'),
+    ).not.toBeNull()
   })
 })

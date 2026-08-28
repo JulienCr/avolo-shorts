@@ -295,11 +295,9 @@ export function forwardAbort(
 ): () => void {
   const killGroup = options.killGroup === true
 
-  // Passe à `true` une fois qu'un `ESRCH` confirme qu'aucun processus ne porte
-  // plus ce PGID. C'est le seul signal fiable de recyclage possible du PID :
-  // `proc.exitCode`/`signalCode` ne parlent que du meneur, alors qu'un ffmpeg
-  // du même groupe peut lui survivre — le viser encore n'a rien de faux tant
-  // que le groupe existe (relevé par Codex et Copilot).
+  // Passe à `true` sur un `ESRCH`, seul signal fiable de recyclage : le
+  // meneur peut mourir avant un ffmpeg du même groupe (relevé par Codex et
+  // Copilot), donc son `exitCode` seul ne suffit pas à arrêter les envois.
   let groupGone = false
 
   let killTimer: NodeJS.Timeout | undefined
@@ -340,10 +338,9 @@ export function forwardAbort(
   else signal.addEventListener('abort', onAbort, { once: true })
 
   return () => {
-    // Le groupe peut survivre au meneur : `detect.py` peut mourir avant son
-    // ffmpeg. On ne coupe le SIGKILL différé qu'à la fin de l'appelant simple,
-    // où la mort du fils clôt tout ce qu'il y avait à tuer — pas ici, où le
-    // `close` du worker ne dit rien de ses descendants.
+    // Le groupe peut survivre au meneur : on ne coupe le SIGKILL différé qu'à
+    // la fin de l'appelant simple, où la mort du fils clôt tout ce qu'il y
+    // avait à tuer.
     if (!killGroup) clearTimeout(killTimer)
     signal.removeEventListener('abort', onAbort)
     cleanup()

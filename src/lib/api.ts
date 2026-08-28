@@ -1396,6 +1396,21 @@ export type PlanningPoolClip = {
   statuses: Partial<Record<Platform, PublicationStatus>>
 }
 
+/**
+ * Ce que le planning affiche pour une plateforme d'une échéance : au-delà du
+ * statut, ce qui vient nourrir le détail d'un échec sans dupliquer le
+ * courriel d'abandon (`src/server/publication/scheduler.ts`), qui lit les
+ * mêmes colonnes.
+ */
+export type PublicationDetail = {
+  status: PublicationStatus
+  /** Le message persistant, tel qu'un connecteur l'a laissé. `null` hors échec. */
+  error: string | null
+  /** Le dernier essai, en ms depuis l'époque. */
+  updatedAt: number
+  remoteUrl: string | null
+}
+
 /** Une échéance posée, telle que le calendrier la lit. */
 export type ScheduledEntry = {
   clipId: string
@@ -1403,7 +1418,7 @@ export type ScheduledEntry = {
   title: string
   /** L'échéance, en ms depuis l'époque. */
   scheduledAt: number
-  statuses: Partial<Record<Platform, PublicationStatus>>
+  statuses: Partial<Record<Platform, PublicationDetail>>
   /** Le rendu sur le disque ne correspond plus au montage courant. */
   stale: boolean
 }

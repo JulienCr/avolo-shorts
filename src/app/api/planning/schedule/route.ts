@@ -44,7 +44,14 @@ export const GET = route('GET /api/planning/schedule', async (request: Request) 
     // Toutes les lignes du clip, pas seulement celles dans la fenêtre : les
     // statuts affichés ne doivent pas dépendre de `from`/`to`.
     const statuses: ScheduledEntry['statuses'] = {}
-    for (const row of getPublications(db, clipId)) statuses[row.platform] = row.status
+    for (const row of getPublications(db, clipId)) {
+      statuses[row.platform] = {
+        status: row.status,
+        error: row.error,
+        updatedAt: row.updatedAt,
+        remoteUrl: row.remoteUrl,
+      }
+    }
     // Une plateforme déjà publiée garde l'échéance de son envoi, distincte
     // d'une reprogrammation ultérieure des lignes encore `planned` : l'écran
     // doit montrer la date qui reste à venir, pas celle d'un envoi passé.
@@ -102,7 +109,14 @@ export const POST = route('POST /api/planning/schedule', async (request: Request
     // Tous les statuts, comme le GET : filtrer sur `scheduledAt` faisait
     // disparaître une plateforme déjà publiée manuellement de la réponse.
     const statuses: ScheduledEntry['statuses'] = {}
-    for (const row of getPublications(db, clipId)) statuses[row.platform] = row.status
+    for (const row of getPublications(db, clipId)) {
+      statuses[row.platform] = {
+        status: row.status,
+        error: row.error,
+        updatedAt: row.updatedAt,
+        remoteUrl: row.remoteUrl,
+      }
+    }
     entries.push({
       clipId,
       projectId: clip.projectId,

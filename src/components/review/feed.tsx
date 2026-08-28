@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   clipEligibilityFromStatus,
+  composeDescription,
   type Platform,
   type PlatformAvailability,
   type PublicationRecord,
@@ -81,6 +82,7 @@ export function ReviewFeed({
   publicationRecords,
   publicationRecordsPending,
   publicationRecordsFailed,
+  descriptionFooter,
   publishError,
   onPublish,
 }: {
@@ -110,6 +112,11 @@ export function ReviewFeed({
   publicationRecordsPending?: ReadonlySet<string>
   /** Les clips dont l'enregistrement a échoué — voir `PublishDialog.recordsError`. */
   publicationRecordsFailed?: ReadonlySet<string>
+  /**
+   * `publication.descriptionFooter` — même source que `clip-screen.tsx`,
+   * `undefined` tant que non chargé (relevé par Copilot).
+   */
+  descriptionFooter?: string
   /** Ce qu'un envoi groupé a laissé en échec — la page l'attend avec `mutateAsync`. */
   publishError?: string | null
   /** Lance la publication en masse — la page en fait un `POST` par clip. */
@@ -186,6 +193,11 @@ export function ReviewFeed({
       title: c.title,
       eligibility: clipEligibilityFromStatus(c.status),
       records: publicationRecords?.[c.id],
+      // Même garde que `PanelExport` : absent tant que le réglage n'est pas
+      // connu, plutôt que de composer avec un pied de page supposé vide
+      // (relevé par Copilot).
+      composedDescription:
+        descriptionFooter === undefined ? undefined : composeDescription(c, { footer: descriptionFooter }),
     }))
   const selectedForPublishCount = clipsToPublish.length
   const publicationRecordsLoading = clipsToPublish.some((c) => publicationRecordsPending?.has(c.clipId))

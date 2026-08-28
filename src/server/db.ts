@@ -950,18 +950,9 @@ export function parseSetting(
       return COLOR_PATTERN.test(trimmed) ? trimmed.toUpperCase() : warnRejected(field, raw, seen)
     }
     case 'text': {
-      // **Les mêmes bornes que `validateSetting`, et c'est le contrat.** Une
-      // valeur stockée vide, blanche ou trop longue passait ici alors que
-      // l'écriture la refuse : le lecteur annonce qu'une valeur invalide est
-      // ignorée au profit du défaut, et il en laissait passer trois formes.
-      // Une table éditée à la main avec `sqlite3` est le seul chemin qui y mène,
-      // et c'est précisément le chemin qu'on ne contrôle pas.
-      // (relevé par Copilot)
-      //
-      // **`allowEmpty` est l'exception nommée, pas un relâchement général** :
-      // seuls les champs qui la portent explicitement (`ai.ollamaBaseUrl`,
-      // `publication.descriptionFooter`) y voient une valeur à part entière
-      // plutôt qu'un champ oublié.
+      // **Les mêmes bornes que `validateSetting`** (relevé par Copilot).
+      // `allowEmpty` est l'exception nommée — `ai.ollamaBaseUrl` et
+      // `publication.descriptionFooter` — pas un relâchement général.
       if (field.allowEmpty && raw === '') return raw
       if (raw.trim() === '' || raw.length > TEXT_MAX) return warnRejected(field, raw, seen)
       if (field.enum !== undefined && !field.enum.includes(raw))

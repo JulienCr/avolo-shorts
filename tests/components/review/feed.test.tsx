@@ -21,6 +21,7 @@ import { next } from '@/lib/navigation'
 import { ReviewFeed } from '@/components/review/feed'
 import type { SelectionReport, CandidateClip } from '@/lib/api'
 import type { View } from '@/components/review/template'
+import type { Platform, PlatformAvailability } from '@/core/publication'
 import { lireSessionReview, writeSessionReview } from '@/components/review/session'
 import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
 
@@ -68,11 +69,15 @@ function Harness({
   viewInitial = 'atrier',
   proxyReady = true,
   summary = null,
+  descriptionFooter,
+  publicationAvailability,
 }: {
   start: CandidateClip[]
   viewInitial?: View
   proxyReady?: boolean
   summary?: SelectionReport | null
+  descriptionFooter?: string
+  publicationAvailability?: Record<Platform, PlatformAvailability>
 }) {
   const [clips, setClips] = useState(start)
   const [view, setView] = useState<View>(viewInitial)
@@ -90,6 +95,8 @@ function Harness({
       proxyReady={proxyReady}
       summary={summary}
       next={issue}
+      descriptionFooter={descriptionFooter}
+      publicationAvailability={publicationAvailability}
       onStatus={(clipId, status) =>
         setClips((list) => list.map((c) => (c.id === clipId ? { ...c, status } : c)))
       }
@@ -777,6 +784,34 @@ describe('la sélection en masse pour la publication (retour d’usage §2.4)', 
     await user.click(screen.getByRole('button', { name: 'Publier 1 clip' }))
 
     expect(screen.getByRole('heading', { name: 'Publier « Extrait 2 »' })).toBeTruthy()
+  })
+
+  it('montre la description composée dans la confirmation groupée, comme celle du clip seul', async () => {
+    // La même primitive `PublishDialog` sert les deux parcours (retour d'usage
+    // §11) : sans `descriptionFooter` propagé jusqu'ici, la confirmation
+    // groupée n'affichait jamais « Description envoyée » (relevé par Copilot).
+    const onlyInstagram: Record<Platform, PlatformAvailability> = {
+      instagram: { available: true },
+      facebook: { available: false, reason: 'not_configured' },
+      tiktok: { available: false, reason: 'not_configured' },
+      youtube: { available: false, reason: 'not_configured' },
+    }
+    render(
+      <Harness
+        start={[{ ...candidate(1, 'exported'), title: 'La chute', description: 'Une scène.' }]}
+        viewInitial="gardes"
+        descriptionFooter="La Scène Avolo."
+        publicationAvailability={onlyInstagram}
+      />,
+    )
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('checkbox', { name: /Extrait 1|La chute/ }))
+    await user.click(screen.getByRole('button', { name: 'Publier 1 clip' }))
+    await user.click(screen.getByRole('button', { name: 'Suivant' }))
+
+    expect(screen.getByText('Description envoyée')).toBeTruthy()
+    expect(document.querySelector('pre')?.textContent).toBe('La chute\n\nUne scène.\n\nLa Scène Avolo.')
   })
 
   it('ne vole pas le clavier du tri après un clic sur une case', async () => {

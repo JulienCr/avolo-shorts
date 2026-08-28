@@ -4,7 +4,13 @@ import path from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { Database } from 'better-sqlite3'
-import { copiesSourceLocally, getDb, getProject, upsertProject } from '@/server/db'
+import {
+  copiesSourceLocally,
+  getDb,
+  getProject,
+  getProjectBySourcePath,
+  upsertProject,
+} from '@/server/db'
 import { pathTemporary, StopRequestedError } from '@/server/ffmpeg'
 import { probeDuration } from '@/server/ffprobe'
 import { projectIdFromSource, resolveSource, stageDir, stagedPath } from '@/server/paths'
@@ -891,7 +897,6 @@ export type Ingestion = {
  */
 export async function ingest(source: string, options: OptionsIngestion = {}): Promise<Ingestion> {
   const sourcePath = resolveSource(source)
-  const projectId = projectIdFromSource(source)
   const destination = stagedPath(source)
 
   const stat = await statWithDelay(sourcePath, options.statTimeoutMs ?? DELAY_STAT_MS)
@@ -937,6 +942,13 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
   const probed = copyWanted || decision === 'keep' ? destination : sourcePath
   const fingerprint = fingerprintSource(stat, await probeDuration(probed, undefined, options.signal))
 
+  const db = options.db === undefined ? getDb() : options.db
+  // **Le chemin nomme le projet, pas la dérivation** — comme dans
+  // `createProject`. Sans ça, une réingestion inscrit une seconde ligne sous
+  // l'identifiant replié pendant que l'exécution suit l'ancien. (Copilot)
+  const known = db === null ? undefined : getProjectBySourcePath(db, sourcePath)
+  const projectId = known?.id ?? projectIdFromSource(source)
+
   const ingestion: Ingestion = {
     projectId,
     sourcePath,
@@ -945,7 +957,6 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
     ...fingerprint,
   }
 
-  const db = options.db === undefined ? getDb() : options.db
   if (db !== null) {
     upsertProject(db, {
       ...fingerprint,

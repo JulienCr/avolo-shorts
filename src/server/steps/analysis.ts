@@ -583,8 +583,11 @@ function launchWorker(
       reject(new StopRequestedError("l'analyse d'image"))
       return
     }
-    const proc = spawn(python, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
-    const detach = forwardAbort(proc, signal)
+    // `detached: true` fait de ce worker le meneur de son propre groupe de
+    // processus : ses enfants Unix — les `ffmpeg` de `detect.py` — en héritent,
+    // et `killGroup` ci-dessous les vise tous d'un seul signal (issue #77).
+    const proc = spawn(python, args, { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+    const detach = forwardAbort(proc, signal, undefined, { killGroup: true })
 
     // Un découpage en lignes par flux : les deux arrivent par morceaux coupés
     // n'importe où, et un tampon partagé recollerait la fin de l'un au début de

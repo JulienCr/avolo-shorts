@@ -4,7 +4,8 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { CircleAlert, TriangleAlert } from 'lucide-react'
 
-import { composeScheduledAt, fiveWeekWindow } from '@/core/planning'
+import { composeScheduledAt, fiveWeekWindow, statusesOnly } from '@/core/planning'
+import { hasSchedulablePlatform } from '@/core/publication'
 import {
   usePlanningPool,
   usePlanningSchedule,
@@ -56,7 +57,12 @@ export function PlanningScreen() {
   // `ReviewFeed` (`feed.tsx:173-181`) : la sélection ne doit pas annoncer un
   // compte qu'elle ne peut plus honorer.
   const poolClips = pool.data ?? []
-  const selectedClips = poolClips.filter((c) => selected.has(c.clipId))
+  // Et réconciliée avec la programmabilité, pas seulement avec la présence :
+  // un clip dont les lignes `planned` passent à `in_progress` pendant le
+  // sondage perd sa case, et le `POST` sur lui rendrait 400.
+  const selectedClips = poolClips.filter(
+    (c) => selected.has(c.clipId) && hasSchedulablePlatform(statusesOnly(c.statuses)),
+  )
   // **Réconciliée avec le vivier, jamais lue seule dans l'URL** — même règle
   // que la sélection : un `?preview=` nommant un clip absent du vivier
   // n'ouvre rien.

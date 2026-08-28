@@ -8,7 +8,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -191,6 +191,53 @@ describe('PlanningScreen', () => {
     expect(body.clipIds.sort()).toEqual(['c1', 'c2'])
     expect(typeof body.scheduledAt).toBe('number')
     expect(calls.filter((c) => c.path === '/api/planning/schedule' && c.init?.method === 'POST')).toHaveLength(1)
+  })
+
+  /**
+   * La case disparaît d'un clip devenu non programmable, mais son identifiant
+   * restait dans la sélection : le formulaire annonçait un clip de plus qu'il
+   * ne pouvait honorer, et le `POST` finissait en 400 (relevé par Copilot).
+   */
+  it('laisse tomber un clip sélectionné devenu non programmable', async () => {
+    const user = userEvent.setup()
+    server({ pool: [clip({ clipId: 'c1', title: 'La chute' }), clip({ clipId: 'c2', title: 'Le silence' })] })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<PlanningScreen />, {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    })
+
+    await waitFor(() => expect(screen.getByText('La chute')).toBeTruthy())
+    await user.click(screen.getByRole('checkbox', { name: /La chute/ }))
+    await user.click(screen.getByRole('checkbox', { name: /Le silence/ }))
+    await waitFor(() => expect(screen.getByText('2 clips sélectionnés')).toBeTruthy())
+
+    // Les quatre lignes de « Le silence » partent : plus rien à y programmer.
+    // Un serveur neuf plutôt qu'un tableau muté : React Query partage sa
+    // structure, et la même référence ne rejouerait aucun rendu.
+    server({
+      pool: [
+        clip({ clipId: 'c1', title: 'La chute' }),
+        clip({
+          clipId: 'c2',
+          title: 'Le silence',
+          statuses: {
+            instagram: detail('in_progress'),
+            facebook: detail('in_progress'),
+            tiktok: detail('in_progress'),
+            youtube: detail('in_progress'),
+          },
+        }),
+      ],
+    })
+    // Tient lieu du sondage de `usePlanningPool`, sans piloter les minuteries.
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['planning-pool'] })
+    })
+
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: /Le silence/ })).toBeNull())
+    expect(screen.getByText('1 clip sélectionné')).toBeTruthy()
   })
 
   it('une échéance périmée signale, sans rien désactiver', async () => {

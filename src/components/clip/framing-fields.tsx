@@ -20,18 +20,13 @@ import {
 } from '@/lib/api'
 
 /**
- * La surcharge de cadrage du clip (issue #180, seconde moitié), sur le patron
- * de `hook-fields.tsx` : `clip.framingStyle` est un objet creux, chaque
- * contrôle dit s'il est hérité ou surchargé, et un bouton isolé le rend à
+ * La surcharge de cadrage du clip : `clip.framingStyle` est un objet creux,
+ * chaque contrôle dit s'il est hérité ou surchargé, un bouton isolé le rend à
  * l'héritage.
  *
- * **Le doublage est de l'information, pas un réglage** : verdict du
- * propriétaire du dépôt, qui a lu « Montage doublage ☑ — hérité » sur un clip
- * sans le moindre plan de doublage et l'a pris pour une case à cocher. La
- * ligne ne s'affiche donc que là où il y a quelque chose à dire — un clip qui
- * en porte, ou dont la composition a été désactivée — et **le split-screen
- * n'a plus de contrôle ici du tout**, le réglage global restant seul maître
- * depuis l'écran Réglages.
+ * **Montage doublage** ne s'affiche que là où il y a quelque chose à dire : un
+ * clip qui porte des plans de doublage, ou dont la composition a été
+ * désactivée. Le split-screen n'a plus de contrôle ici.
  */
 
 type OnWrite = (patch: ClipPatch) => Promise<unknown> | void

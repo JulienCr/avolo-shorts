@@ -513,10 +513,22 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
           }}
         >
           <TabsList variant="line">
-            <TabsTrigger id="tab-edition" value="edition" aria-controls="panel-edition">
+            {/* Un seul panneau est monté à la fois (relevé par le
+                coordinateur) : `aria-controls` ne pointe que vers celui qui
+                l'est vraiment, sinon l'autre référence un id qui n'existe pas
+                dans le DOM. */}
+            <TabsTrigger
+              id="tab-edition"
+              value="edition"
+              aria-controls={view === 'edition' ? 'panel-edition' : undefined}
+            >
               Édition
             </TabsTrigger>
-            <TabsTrigger id="tab-exports" value="exports" aria-controls="panel-exports">
+            <TabsTrigger
+              id="tab-exports"
+              value="exports"
+              aria-controls={view === 'exports' ? 'panel-exports' : undefined}
+            >
               Exports
             </TabsTrigger>
           </TabsList>

@@ -1,5 +1,6 @@
 import type { PublishedFraming, FramingOrigin, ShotFraming } from '@/lib/api'
 import type { Cell } from '@/core/framing'
+import type { DubbingCells } from '@/core/dubbing'
 import type { Ratio } from '@/core/edl'
 
 /**
@@ -28,6 +29,7 @@ export function shot(
   cropX: number,
   source: ShotFraming['source'] = 'auto',
   split?: [Cell, Cell],
+  dubbing?: DubbingCells,
 ): ShotFraming {
   return {
     shot: { start, end },
@@ -39,6 +41,7 @@ export function shot(
     cropXNative: cropX,
     source,
     split,
+    dubbing,
   }
 }
 
@@ -48,6 +51,15 @@ export function splitCells(): [Cell, Cell] {
     { x0: 0, y0: 0, x1: 0.5, y1: 1 },
     { x0: 0.5, y0: 0, x1: 1, y1: 1 },
   ]
+}
+
+/** Trois pavés de test, comme `dubbingCellsFor` en poserait. */
+export function dubbingCells(): DubbingCells {
+  return {
+    film: { x0: 0, y0: 0, x1: 1, y1: 0.9 },
+    pip: { x0: 0.773, y0: 0.022, x1: 0.988, y1: 0.222 },
+    strip: { x0: 0, y0: 0.9, x1: 1, y1: 1 },
+  }
 }
 
 /**

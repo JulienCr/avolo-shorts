@@ -146,6 +146,27 @@ describe('stillArgs : native contre verticale', () => {
     expect(nativeFilter).toContain(`crop=${expectedNative.w}:${expectedNative.h}:${expectedNative.x}:${expectedNative.y}`)
     expect(verticalFilter).toContain(`crop=${expectedVertical.w}:${expectedVertical.h}:${expectedVertical.x}:${expectedVertical.y}`)
   })
+
+  // Régression Copilot : `stillArgs` promet de construire les mêmes
+  // `FramedSegment[]` que `render.ts` ; sans `dubbing` propagé, une planche sur
+  // un plan de doublage montrerait le crop ordinaire au lieu de la composition.
+  it('la variante verticale propage `dubbing`, comme `split`', () => {
+    const cells = {
+      film: { x0: 0, y0: 0, x1: 1, y1: 0.9 },
+      pip: { x0: 0.773, y0: 0.022, x1: 0.988, y1: 0.222 },
+      strip: { x0: 0, y0: 0.9, x1: 1, y1: 1 },
+    }
+    const f = framing([shotFraming({ shot: SHOT, ratio: '1:1', dubbing: cells })])
+    const vertical = stillArgs({ input: decodedInput(), instant: 10, shotEnd: SHOT.end, framing: f, output: 'vertical', dst: 'a.mp4' })
+    const native = stillArgs({ input: decodedInput(), instant: 10, shotEnd: SHOT.end, framing: f, output: 'native', dst: 'a.mp4' })
+
+    const verticalFilter = vertical.args[vertical.args.indexOf('-filter_complex') + 1]
+    const nativeFilter = native.args[native.args.indexOf('-filter_complex') + 1]
+
+    expect(verticalFilter).toContain('geq=')
+    // Le natif ignore toujours `dubbing`, comme il ignore déjà `split`.
+    expect(nativeFilter).not.toContain('geq=')
+  })
 })
 
 describe('stillArgs : la fenêtre', () => {

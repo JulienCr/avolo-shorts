@@ -63,10 +63,17 @@ const RY = (PIP.y1 - PIP.y0) / 2
 const BAND_HEIGHT = DUBBING_PIP_BAND_HEIGHT * RY * 2
 
 describe('dubbingCellsFor', () => {
-  it('rend le film pleine largeur et la bande telle quelle', () => {
+  it('rend le film pleine largeur, arrêté où la bande commence', () => {
     const cells = dubbingCellsFor(ANCHOR, CY)
-    expect(cells.film).toEqual({ x0: 0, y0: 0, x1: DUBBING_FILM_WIDTH, y1: 1 })
+    expect(cells.film).toEqual({ x0: 0, y0: 0, x1: DUBBING_FILM_WIDTH, y1: ANCHOR.strip.y0 })
     expect(cells.strip).toEqual(ANCHOR.strip)
+  })
+
+  // Régression Codex (PR de rendu) : `y1: 1` faisait déborder le pavé film
+  // sur la bande, qu'`args.ts` rendait alors deux fois.
+  it('ne chevauche jamais la bande synchro', () => {
+    const cells = dubbingCellsFor(ANCHOR, CY)
+    expect(cells.film.y1).toBeLessThanOrEqual(cells.strip.y0)
   })
 
   it('place le bord haut du bandeau au tiers sous le regard mesuré, loin des bords du disque', () => {

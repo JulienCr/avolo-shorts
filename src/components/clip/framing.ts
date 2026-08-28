@@ -93,6 +93,21 @@ export function activeSplit(
 }
 
 /**
+ * Le doublage est-il actif, compte tenu du ratio épinglé — jamais
+ * `shot.dubbing` seul, même raisonnement qu'`activeSplit` : épingler `9:16`
+ * supprime la variante que `render.ts` compose, et `shot.dubbing` resterait
+ * pourtant posé le temps de l'écriture différée (relevé par Copilot).
+ */
+export function activeDubbing(
+  shot: ShotFraming | null,
+  framing: PublishedFraming,
+  ratio: Ratio | 'auto',
+): boolean {
+  const nativeRatio = ratio === 'auto' ? framing.ratio : ratio
+  return nativeRatio !== '9:16' && shot?.dubbing !== undefined
+}
+
+/**
  * Le cadrage est-il celui que la machine a calculé ?
  *
  * Faux quand l'analyse manque, ne se lit pas, ou ne recouvre pas le montage : le

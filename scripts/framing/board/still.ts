@@ -78,6 +78,14 @@ export function stillArgs(r: StillRequest & { dst: string }): { window: Segment;
           ratio: p.ratio,
           crop: cropRect(p.ratio, p.cropX, w, h),
           split: p.split !== undefined ? [splitCellRect(p.split[0], w, h), splitCellRect(p.split[1], w, h)] : undefined,
+          dubbing:
+            p.dubbing !== undefined
+              ? {
+                  film: splitCellRect(p.dubbing.film, w, h),
+                  pip: splitCellRect(p.dubbing.pip, w, h),
+                  strip: splitCellRect(p.dubbing.strip, w, h),
+                }
+              : undefined,
         }))
 
   const args =

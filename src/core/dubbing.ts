@@ -91,7 +91,10 @@ export function dubbingCellsFor(anchor: DubbingAnchor, eyeLevel: number): Dubbin
   }
 
   return {
-    film: { x0: 0, y0: 0, x1: DUBBING_FILM_WIDTH, y1: 1 },
+    // `y1` s'arrête où la bande commence — `anchor.strip.y0`, jamais `1` — sinon
+    // le pavé film contient déjà la bande et `args.ts` la rend deux fois
+    // (relevé par Codex sur la PR de rendu).
+    film: { x0: 0, y0: 0, x1: DUBBING_FILM_WIDTH, y1: anchor.strip.y0 },
     pip: { x0: pip.x0, x1: pip.x1, y0: top, y1: bottom },
     strip: anchor.strip,
   }

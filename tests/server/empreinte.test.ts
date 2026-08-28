@@ -18,6 +18,7 @@ import {
 } from '@/server/steps/render'
 import type { ResolvedFraming } from '@/server/clip-framing'
 import type { DubbingCells } from '@/core/dubbing'
+import { DUBBING_ANCHORS, dubbingCellsFor } from '@/core/dubbing'
 
 /**
  * L'empreinte de rendu (issue #48) : ce qui garde la valeur qu'avaient au rendu
@@ -1270,11 +1271,10 @@ describe('le texte des sous-titres (#87)', () => {
  * changé.
  */
 describe('la composition du doublage', () => {
-  const CELLS: DubbingCells = {
-    film: { x0: 0, y0: 0, x1: 1, y1: 1 },
-    pip: { x0: 0.773, y0: 0.022, x1: 0.988, y1: 0.222 },
-    strip: { x0: 0, y0: 0.9, x1: 1, y1: 1 },
-  }
+  // Dérivé de la vraie ancre par `dubbingCellsFor`, jamais recopié à la main :
+  // un fixture indépendant masquerait un écart entre ce que `dubbing.ts`
+  // produit réellement et ce que ce test suppose (relevé par Copilot).
+  const CELLS: DubbingCells = dubbingCellsFor(DUBBING_ANCHORS[0], DUBBING_ANCHORS[0].pip.y0)
 
   function withOneShot(dubbing?: DubbingCells): ResolvedFraming {
     return {
@@ -1325,5 +1325,14 @@ describe('la composition du doublage', () => {
     // prouverait rien : les deux rendus seraient simplement identiques.
     expect(variantWith).not.toEqual(variantWithout)
     expect(variantWith.join(' ')).toContain('geq=')
+
+    // Régression Codex : le pavé film ne doit jamais recouper la bande synchro
+    // dans le graphe **réellement construit** — source 1920x1080 mockée plus
+    // haut, cellules dérivées de la vraie ancre. `strip.y0` de l'ancre vaut
+    // 0,9, donc le crop du film doit s'arrêter à 972 (`1080 * 0,9`), jamais 1080.
+    const filter = variantWith[variantWith.indexOf('-filter_complex') + 1]
+    const expectedFilmHeight = Math.round((CELLS.film.y1 - CELLS.film.y0) * 1080)
+    expect(filter).toContain(`crop=1920:${expectedFilmHeight}:0:0`)
+    expect(filter).not.toContain('crop=1920:1080:0:0')
   })
 })

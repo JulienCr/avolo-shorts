@@ -13,7 +13,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CropOverlay, RatioPicker, frozenCropReason } from '@/components/clip/crop-picker'
-import { framing, manualFraming, shot, splitCells } from '../../fixtures/framing'
+import { framing, manualFraming, shot, splitCells, dubbingCells } from '../../fixtures/framing'
 
 afterEach(cleanup)
 
@@ -266,6 +266,31 @@ describe('frozenCropReason', () => {
   })
 })
 
+describe('doublage — porté par le ratio épinglé, comme le split', () => {
+  // Régression Copilot : le natif ignore `dubbing` (`render.ts`), donc épingler
+  // 9:16 doit faire taire la raison « doublage » comme `activeSplit` le fait
+  // déjà pour le split — jamais `shot.dubbing` seul.
+  it('ne cite plus le doublage quand le ratio épinglé supprime la variante', () => {
+    const withDubbing = framing({
+      ratio: '16:9',
+      origin: 'no-analysis',
+      shots: [shot(0, 100, '16:9', 0.5, 'manual', undefined, dubbingCells())],
+    })
+    render(<RatioPicker framing={withDubbing} ratio="9:16" onRatio={vi.fn()} />)
+    expect(screen.queryByText(/doublage improvisé/)).toBeNull()
+  })
+
+  it('cite le doublage quand la variante 9:16 existe bien', () => {
+    const withDubbing = framing({
+      ratio: '16:9',
+      origin: 'no-analysis',
+      shots: [shot(0, 100, '16:9', 0.5, 'manual', undefined, dubbingCells())],
+    })
+    render(<RatioPicker framing={withDubbing} ratio="16:9" onRatio={vi.fn()} />)
+    expect(screen.getByText(/doublage improvisé/)).toBeTruthy()
+  })
+})
+
 describe('CropOverlay', () => {
   it('reste atteignable au clavier tant qu’il a une raison à donner', () => {
     // `disabled` — ou un `tabIndex` à -1 — sort du parcours de tabulation : au
@@ -336,4 +361,5 @@ describe('CropOverlay', () => {
     expect(screen.queryByRole('group')).toBeNull()
     expect(screen.getByRole('slider')).toBeTruthy()
   })
+
 })

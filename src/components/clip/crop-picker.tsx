@@ -9,6 +9,7 @@ import {
   shotRatios,
   anyShotSplit,
   activeSplit,
+  activeDubbing,
   useCurrentShot,
 } from '@/components/clip/framing'
 import type { Ratio } from '@/core/edl'
@@ -141,7 +142,8 @@ export function CropOverlay({
   // La même énumération que celle qu'affiche `RatioPicker`, appelée plutôt que
   // recopiée : deux conditions parallèles finissent par diverger, et le jour où
   // elles divergent le rectangle décrit un texte qui n'est plus rendu.
-  const reason = frozenCropReason(framing, effective, split, shot?.dubbing !== undefined)
+  const dubbing = activeDubbing(shot, framing, ratio)
+  const reason = frozenCropReason(framing, effective, split, dubbing)
 
   function pointerFraction(clientX: number): number | null {
     const rect = frame.current?.getBoundingClientRect()
@@ -339,7 +341,8 @@ export function RatioPicker({
   const nativeRatio = ratio === 'auto' ? framing.ratio : ratio
   // La variante n'existe que si le natif n'est pas déjà vertical (spec §11).
   const variantDue = nativeRatio !== '9:16'
-  const cropReason = frozenCropReason(framing, effective, split, shot?.dubbing !== undefined)
+  const dubbing = activeDubbing(shot, framing, ratio)
+  const cropReason = frozenCropReason(framing, effective, split, dubbing)
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

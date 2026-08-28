@@ -1464,6 +1464,32 @@ describe('blurredVariantArgs', () => {
       )
       expect(g).toContain('scale=1080:261:flags=lanczos,format=yuva420p')
     })
+
+    // Régression Copilot/Codex : le masque était mesuré en pixels 1920x1080
+    // et ne suivait pas une source d'une autre résolution.
+    it('remet le masque à l’échelle sur une source 4K', () => {
+      const uhd = {
+        film: { w: 3840, h: 2000, x: 0, y: 0 },
+        pip: { w: 826, h: 400, x: 2968, y: 200 },
+        strip: { w: 3840, h: 160, x: 0, y: 2000 },
+      }
+      const g = graph(
+        blurredVariantArgs({
+          ...base,
+          segments: [entry(0, 10, FRAME_1_X_1, '1:1', undefined, uhd)],
+        }),
+      )
+      // La source double en x comme en y (3840/1920, 2160/1080) et le pavé
+      // comédiens double avec elle : ramené à l'échelle du canevas, le masque
+      // retombe **exactement** sur les mêmes coordonnées que le cas 1080p
+      // verrouillé plus haut — la preuve que l'ellipse suit la résolution.
+      // Sans le correctif, l'expression sortait en dehors du pavé
+      // (`x: -1669.005`, mesuré avant ce commit).
+      expect(g).toContain(
+        "geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lte((X-542.667)*(X-542.667)/" +
+          "(541.245*541.245)+(Y-349.941)*(Y-349.941)/(541.402*541.402),1),255,0)'",
+      )
+    })
   })
 })
 

@@ -208,10 +208,6 @@ describe('la boucle de montage', () => {
   })
 })
 
-// **Depuis la refonte du 28 août, le cadre du plan se lit dans la légende
-// de la sortie 9:16** (`output-preview.tsx:353-359`), pas dans un `<dl>` de
-// faits de montage — supprimé avec l'établi à deux volets. La légende porte
-// exactement la même distinction split/doublage/ratio.
 /**
  * L'aperçu de sortie, dans la zone Sortie — jamais la source, qui est un
  * `<figure>` distinct. `role="figure"` n'apporte pas de nom accessible
@@ -227,10 +223,9 @@ function outputFigure(): HTMLElement {
   return found
 }
 
-// **Depuis la refonte du 28 août, le cadre du plan se lit dans la légende
-// de la sortie 9:16** (`output-preview.tsx:353-359`), pas dans un `<dl>` de
-// faits de montage — supprimé avec l'établi à deux volets. La légende porte
-// exactement la même distinction split/doublage/ratio.
+// Le cadre du plan se lit désormais dans la légende de la sortie 9:16
+// (`output-preview.tsx:353-359`), pas dans le `<dl>` disparu avec l'établi —
+// même distinction split/doublage/ratio.
 describe('le cadre du plan sous la lecture, splitté', () => {
   it('dit « split » plutôt qu’un ratio et un pourcentage qui n’y correspondent plus', async () => {
     const d = detail()

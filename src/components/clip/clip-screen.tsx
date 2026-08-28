@@ -97,18 +97,13 @@ export function OutputSwitch({
 }
 
 /**
- * L'écran de clip, **hors de la page**.
- *
- * Un fichier de `src/app/` porte une route : ce qu'il rend, il ne le compose
- * pas. La page garde donc le chargement, l'erreur et `use(params)` ; tout le
- * montage vit ici, où il se monte dans un test sans passer par la résolution
- * d'une promesse de paramètres.
+ * L'écran de clip, **hors de la page** — `src/app/` garde le chargement et
+ * `use(params)`, tout le montage vit ici, testable sans promesse à résoudre.
  *
  * **Deux vues sous les mêmes onglets** (spec du 28 août) : Édition, où la
- * sortie 9:16 domine à côté de la source qu'on ajuste, et Exports, la
- * livraison courante. La vue vit dans l'URL (`clip-view.ts`), le geste
- * terminal unique dans la barre d'app — un seul, quelle que soit la vue,
- * puisque l'export et la publication marchent sans changer d'onglet.
+ * sortie 9:16 domine à côté de la source, et Exports, la livraison
+ * courante. La vue vit dans l'URL (`clip-view.ts`) ; le geste terminal
+ * unique vit dans la barre, un seul quelle que soit la vue.
  */
 export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const { clip, project, lines, proxyUrl, outputs, framing } = detail
@@ -123,10 +118,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const view: ClipView = readClipView(searchParams.toString())
   const [mode, setMode] = useState<'preview' | 'export'>('preview')
 
-  // **La liste des candidats, interrogée ici et pas supposée en cache.** Arriver
-  // par une URL partagée, un signet ou un rechargement est un parcours que la
-  // conception promet de rendre repreneur, et le cache est alors vide. Venant du
-  // tri, c'est un succès de cache et cela ne coûte rien.
+  // La liste des candidats est interrogée ici, pas supposée en cache : une
+  // URL partagée ou un rechargement arrivent sur un cache vide, et le tri
+  // n'y perd rien puisque c'est déjà un succès de cache pour lui.
   const candidates = useCandidates(clip.projectId)
 
   const publicationAvailability = usePublicationAvailability()
@@ -166,10 +160,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const hookGlobals = settings.data?.hook
   const framingGlobals = settings.data?.framing
   const resolvedHook = resolveHook(hookGlobals ?? HOOK_DEFAULTS, clip)
-  // `undefined` tant que les réglages n'ont pas répondu : distinct d'un pied
-  // de page réellement vide, mais `ExportsView` demande une chaîne définie —
-  // le pire cas est une composition sans pied de page pendant le court
-  // chargement des réglages, jamais un texte incomplet publié.
+  // `ExportsView` demande une chaîne définie ; le pire cas pendant le court
+  // chargement des réglages est une composition sans pied de page, jamais un
+  // texte incomplet publié.
   const descriptionFooter = settings.data?.publication?.descriptionFooter ?? ''
 
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
@@ -270,14 +263,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const inFailure = autosave === 'failed' || writeInFailure
   const lastRejection = patch.isError ? patch.variables : undefined
 
-  // **Toutes les écritures en vol sur ce clip, et pas seulement la dernière.**
-  // `isPending` décrit le dernier appel de l'observateur, que les champs de
-  // texte, les marques et l'enregistrement du montage partagent : une écriture
-  // récente qui aboutit le remet à faux alors qu'une plus ancienne est encore
-  // en vol, et l'export part contre un état que le serveur n'a pas encore.
-  // (relevé par Copilot)
-  // Ce que la barre sait renvoyer : l'écart de montage que l'écriture différée
-  // refuse de rejouer telle quelle, ou la dernière écriture directe refusée.
+  // Toutes les écritures en vol, pas la seule dernière : une récente qui
+  // aboutit remettrait `isPending` à faux pendant qu'une plus ancienne
+  // court encore, et l'export partirait contre un état pas encore reçu.
   const canReturn =
     differences(clip, segments, editor.ratio, editor.cropX) !== null ||
     (lastRejection !== undefined && lastRejection.clipId === clip.id)
@@ -333,11 +321,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const previous = rank > 0 ? guards[rank - 1] : null
   const next = clipNext(candidates.data ?? [], clip.id)
 
-  // ---------------------------------------------------------------------
-  // Le geste terminal unique : export et publication, quelle que soit la
-  // vue active. Monté ici plutôt que dans `ExportsView` — sinon le bouton de
-  // la barre d'app ne ferait rien tant que l'onglet Exports n'est pas ouvert.
-  // ---------------------------------------------------------------------
+  // Le geste terminal unique vit ici, pas dans `ExportsView` : sinon le
+  // bouton de la barre ne ferait rien tant que l'onglet Exports n'est pas
+  // ouvert, et le geste doit marcher depuis les deux vues.
   const exporter = useExporter()
   const [confirmation, setConfirmation] = useState(false)
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
@@ -553,10 +539,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 workbench:flex-row workbench:overflow-hidden">
           <section
             aria-labelledby="zone-image"
-            // **`container-type: inline-size` ici, pas sur la rangée qu'il
-            // borne** — même piège que documenté plus loin dans ce fichier
-            // avant ce lot : posé sur la rangée, `cqw` remonte à l'ancêtre
-            // suivant plutôt qu'à la section.
+            // **`container-type: inline-size` ici, pas sur la rangée** :
+            // posé sur la rangée, `cqw` remonte à l'ancêtre suivant plutôt
+            // qu'à la section (mesuré, voir la fiche plus bas).
             className="flex min-w-0 min-h-0 shrink-0 flex-col gap-3 workbench:min-h-0 workbench:min-w-0 workbench:flex-1 workbench:overflow-y-auto workbench:[container-type:inline-size]"
           >
             <h2 id="zone-image" className="shrink-0 text-sm font-medium">
@@ -612,13 +597,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                 proxyUrl={proxyUrl}
                 sourceDuration={project.durationSec}
                 onScrub={(time) => {
-                  // **La bande est en temps source, la lecture ne l'est pas.** Une
-                  // position tombée dans un passage retiré est légitime à regarder —
-                  // c'est tout l'intérêt d'une bande à coupes visibles — mais la
-                  // lecture, elle, saute les retraits (`playbackAction`). On confie
-                  // donc la position à `placePlayback`, qui la ramène dans le
-                  // montage : l'image montrait ce qu'il y a là, la lecture reprend
-                  // au segment suivant.
+                  // La bande est en temps source, la lecture saute les
+                  // retraits : `placePlayback` ramène la position dans le
+                  // montage plutôt que de lire un passage retiré.
                   placePlayback(video, segments, time)
                 }}
                 onBoundary={editor.setBoundaryAt}
@@ -680,14 +661,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
 
           <div
             aria-labelledby="zone-sortie"
-            // **Le volet qui domine.** Sa largeur se déduit de sa hauteur —
-            // `aspect-ratio: 9/16` posé sur la figure elle-même, pas sur cette
-            // enveloppe — plutôt que de la partager avec la source (spec §1,
-            // qui annule la règle « même hauteur » de `PREVIEW_FRAME`).
-            // `items-start` est ce qui laisse la figure se mesurer à sa propre
-            // largeur au lieu d'être étirée à celle de l'enveloppe, qu'aucune
-            // largeur ne fixe plus ici.
-            className="flex shrink-0 flex-col items-start gap-2 workbench:min-h-0"
+            // La dérivation vit ici, sur l'enfant flexible de `<main>` —
+            // pas sur une figure nichée : posée trop bas, le volet se
+            // mesurait sur son plus large enfant en ligne (214 px, mesuré).
+            className="flex shrink-0 flex-col gap-2 workbench:h-full workbench:min-h-0 workbench:[aspect-ratio:9/16]"
           >
             <h2 id="zone-sortie" className="sr-only">
               Sortie
@@ -699,14 +676,17 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                 framing={framing}
                 ratio={editor.ratio}
                 cropX={editor.cropX}
-                frame="h-72 w-auto workbench:h-auto workbench:min-h-0 workbench:flex-1"
-                figureClassName="workbench:min-h-0 workbench:flex-1"
+                // Largeur **et** hauteur explicites, jamais l'une déduite de
+                // l'autre ici : le volet est déjà 9:16, le canevas n'a plus
+                // qu'à le remplir plutôt que se mesurer lui-même.
+                frame="h-72 w-auto workbench:h-full workbench:min-h-0 workbench:w-full"
+                figureClassName="workbench:w-full workbench:min-h-0 workbench:flex-1"
                 captionCards={clip.captions ? captionCards : undefined}
                 captionStyle={DEFAULT_CAPTION_STYLE}
                 segments={segments}
               />
             ) : (
-              <figure className="flex min-h-0 flex-col gap-1.5 workbench:flex-1">
+              <figure className="flex min-h-0 flex-col gap-1.5 workbench:w-full workbench:flex-1">
                 <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
                   fichier livré
                 </figcaption>
@@ -714,7 +694,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                   src={outputs.variant9x16Url ?? outputs.mp4Url ?? undefined}
                   controls
                   preload="metadata"
-                  className="h-72 w-auto rounded-lg bg-zinc-950 workbench:h-auto workbench:min-h-0 workbench:flex-1"
+                  className="h-72 w-auto rounded-lg bg-zinc-950 workbench:h-full workbench:min-h-0 workbench:w-full"
                 />
               </figure>
             )}
@@ -789,24 +769,13 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
 }
 
 /**
- * « Réglages du rendu » : les marques et les sous-titres, repliés.
- *
- * **Les deux vivent dans la zone Image**, avec le ratio et le cadrage : ce
- * qu'ils décident est ce que l'image porte. Les marques ont vécu dans le
- * panneau d'export, à portée du bouton qui les consomme — mais la table des
- * zones les range ici, et les garder là-bas laissait l'écran contredire sa
- * propre description. (relevé par Copilot)
- *
- * **Repliés, parce que la valeur par défaut convient à chaque clip** (spec du
- * 23 août, §3.3, point 3) : les deux sont activés à la création, et ne se
- * règlent qu'en exception. Le badge sur le déclencheur compte les cases
- * décochées — le seul écart qui vaille la peine d'être su sans ouvrir le pli
- * — même vocabulaire que « Personnaliser » sur le hook (`hook-fields.tsx`).
+ * « Réglages du rendu » : les marques et les sous-titres, repliés par
+ * défaut (spec du 23 août, §3.3, point 3) — le badge compte les cases
+ * décochées, seul écart qui vaille d'être su sans ouvrir le pli.
  *
  * La phrase sous la case des marques n'est pas décorative : un clip qui
  * incruste refuse de se rendre quand aucune marque n'est exploitable, et
- * cette case est la seule échappatoire — elle n'était atteignable qu'en
- * `curl` avant d'exister.
+ * cette case est la seule échappatoire.
  */
 function RenderSettings({
   clip,

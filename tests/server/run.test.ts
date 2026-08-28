@@ -7,7 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { StepName } from '@/core/graph'
 import type { SummaryNotation } from '@/server/steps/candidates'
-import { applySettings, getProject, openDb, upsertProject, type Project } from '@/server/db'
+import {
+  applySettings,
+  getProject,
+  listProjects,
+  openDb,
+  upsertProject,
+  type Project,
+} from '@/server/db'
 import {
   cleanWorkCache,
   stopRun,
@@ -479,6 +486,35 @@ describe('createProject', () => {
     expect(plan).not.toEqual([])
     await wait(PROJECT)
     expect(calls.length).toBeGreaterThan(0)
+  })
+
+  /**
+   * **Un projet créé avant le repli des accents garde son identifiant**, que sa
+   * source ne donne plus. Sans la recherche par `sourcePath`, reposter le même
+   * fichier dérivait `mechante`, ne trouvait rien sous ce nom et insérait une
+   * seconde ligne — deux projets pour une vidéo, `sourcePath` n'étant pas
+   * unique. (relevé par Copilot et Codex)
+   */
+  it('reconnaît par son chemin un projet à l’identifiant accentué', async () => {
+    const source = '2026-01-11-méchante.mp4'
+    const sourcePath = path.join(root, 'replays', source)
+    fs.writeFileSync(sourcePath, '')
+    upsertProject(db, {
+      id: '2026-01-11-méchante',
+      sourcePath,
+      stagedPath: null,
+      durationSec: null,
+      sizeBytes: null,
+      mtimeMs: null,
+      createdAt: 42,
+    })
+
+    const { projectId } = await createProject(source, { db, steps: stepsFake() })
+
+    expect(projectId).toBe('2026-01-11-méchante')
+    expect(listProjects(db).filter((p) => p.sourcePath === sourcePath)).toHaveLength(1)
+    // Et la ligne d'origine n'a pas été refondée sous un autre nom.
+    expect(getProject(db, '2026-01-11-méchante')?.createdAt).toBe(42)
   })
 
   /**

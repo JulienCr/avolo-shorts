@@ -355,12 +355,12 @@ export function countsByFilter<S extends LibrarySource, P extends LibraryProject
 /**
  * Le nom de fichier sans son extension — la base du titre comme de l'identifiant.
  *
- * Titre client, titre serveur et `projectIdFromSource` passent tous par ici :
- * ils ne peuvent plus diverger sur le découpage.
+ * Titre client, titre serveur et `projectIdFromSource` passent tous par ici.
  *
  * @param name Un nom de fichier nu, sans dossier.
  * @returns Le nom sans sa **dernière** extension, et seulement si elle a
- *   quelque chose devant elle : `.env` sort entier, `deux.points.mp4` aussi.
+ *   quelque chose devant elle : `deux.points.mp4` donne `deux.points`, quand
+ *   `.env`, dont le point est en tête, sort entier.
  */
 export function withoutExtension(name: string): string {
   const point = name.lastIndexOf('.')

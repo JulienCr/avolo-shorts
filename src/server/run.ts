@@ -7,7 +7,14 @@ import { planSteps, type StepName } from '@/core/graph'
 import type { SelectionReport } from '@/lib/api'
 import { progressWorker } from '@/core/pipeline'
 import { isAAbsence } from '@/server/bytes'
-import { copiesSourceLocally, getDb, getProject, upsertProject, type Project } from '@/server/db'
+import {
+  copiesSourceLocally,
+  getDb,
+  getProject,
+  getProjectBySourcePath,
+  upsertProject,
+  type Project,
+} from '@/server/db'
 import { messageSafe } from '@/server/errors'
 import { pathTemporary } from '@/server/ffmpeg'
 import {
@@ -1421,10 +1428,15 @@ export async function createProject(
   options: OptionsLaunch & { launchNow?: boolean } = {},
 ): Promise<{ projectId: string; plan: StepName[] }> {
   const sourcePath = resolveSource(source)
-  const projectId = projectIdFromSource(source)
   const db = options.db ?? getDb()
 
-  const existant = getProject(db, projectId)
+  // **Par le chemin d'abord** : un projet créé avant le repli des accents ne
+  // répond plus à l'identifiant que sa source donne, et `sourcePath` n'étant
+  // pas unique, la reposter l'insérerait deux fois. (Copilot et Codex)
+  const knownBySource = getProjectBySourcePath(db, sourcePath)
+  const projectId = knownBySource?.id ?? projectIdFromSource(source)
+
+  const existant = knownBySource ?? getProject(db, projectId)
   // Un identifiant, une source. Voir `ProjectErrorCollision`.
   if (existant !== undefined && existant.sourcePath !== sourcePath) {
     throw new ProjectErrorCollision(projectId, existant.sourcePath, sourcePath)

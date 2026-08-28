@@ -4,6 +4,7 @@ import {
   buildLibrary,
   countsByFilter,
   filterEntries,
+  foldAccents,
   matchesFilter,
   normalizeForSearch,
   showState,
@@ -346,5 +347,41 @@ describe('countsByFilter', () => {
     const entries = buildLibrary([source('a.mp4'), source('b.mp4')], [])
     expect(countsByFilter(entries).all).toBe(2)
     expect(countsByFilter(filterEntries(entries, 'all', 'a')).all).toBe(1)
+  })
+})
+
+describe('foldAccents', () => {
+  it('déplie les accents français sans toucher au reste', () => {
+    expect(foldAccents('méchante')).toBe('mechante')
+    expect(foldAccents('Caró-MDLM')).toBe('Caro-MDLM')
+    expect(foldAccents('2026-01-11-méchante')).toBe('2026-01-11-mechante')
+  })
+
+  it('garde la casse, les chiffres et la ponctuation', () => {
+    // Le repli sert à faire un identifiant, pas une clé de comparaison : il ne
+    // se confond pas avec `normalizeForSearch`, qui met en minuscules et rogne.
+    expect(foldAccents(' ÉVE_matteo-PR ')).toBe(' EVE_matteo-PR ')
+  })
+
+  it('déplie les ligatures que NFD laisse entières', () => {
+    // `œ` et `æ` n'ont pas de décomposition canonique : sans cette carte, un
+    // titre comme « cœur » garderait un caractère non-ASCII dans l'identifiant.
+    expect(foldAccents('cœur')).toBe('coeur')
+    expect(foldAccents('CŒUR')).toBe('COEUR')
+    expect(foldAccents('ex æquo')).toBe('ex aequo')
+  })
+
+  it('rend tel quel ce qu’il ne sait pas déplier', () => {
+    expect(foldAccents('2026-05-31-nabla')).toBe('2026-05-31-nabla')
+    expect(foldAccents('')).toBe('')
+  })
+})
+
+describe('normalizeForSearch', () => {
+  it('déplie aussi les ligatures depuis qu’il passe par foldAccents', () => {
+    // Chercher « coeur » trouve « Cœur » : c'est un gain de permissivité, et il
+    // n'était couvert par rien avant. (relevé par Aristarque)
+    expect(normalizeForSearch('Cœur de Pirate.mp4')).toBe('coeur de pirate.mp4')
+    expect(normalizeForSearch('  Ex Æquo  ')).toBe('ex aequo')
   })
 })

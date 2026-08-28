@@ -17,7 +17,7 @@ import {
   workingInput,
 } from '@/server/steps/ingest'
 import { StopRequestedError } from '@/server/ffmpeg'
-import { applySettings, openDb } from '@/server/db'
+import { applySettings, getProject, listProjects, openDb, upsertProject } from '@/server/db'
 import type { Database as BaseSqlite } from 'better-sqlite3'
 
 /**
@@ -441,6 +441,39 @@ describe('ingest', () => {
       else process.env[key] = value
     }
     fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  /**
+   * **`ingest` dérivait son propre identifiant**, donc réingérer un projet créé
+   * avant le repli des accents inscrivait une seconde ligne sous le nom replié
+   * pendant que l'exécution continuait sur l'ancienne. C'est le cas courant :
+   * un projet sans durée passe forcément par là. (relevé par Copilot)
+   */
+  it('réingère sous l’identifiant déjà en base, pas sous le replié', async () => {
+    const accented = '2026-01-11-méchante.mp4'
+    const sourcePath = path.join(process.env.REPLAY_DIR as string, accented)
+    fs.writeFileSync(sourcePath, Buffer.alloc(1024, 7))
+
+    const db = openDb(':memory:')
+    try {
+      upsertProject(db, {
+        id: '2026-01-11-méchante',
+        sourcePath,
+        stagedPath: null,
+        durationSec: null,
+        sizeBytes: null,
+        mtimeMs: null,
+        createdAt: 42,
+      })
+
+      const ingestion = await ingest(accented, { db, copyLocally: false })
+
+      expect(ingestion.projectId).toBe('2026-01-11-méchante')
+      expect(listProjects(db).filter((p) => p.sourcePath === sourcePath)).toHaveLength(1)
+      expect(getProject(db, '2026-01-11-méchante')?.createdAt).toBe(42)
+    } finally {
+      db.close()
+    }
   })
 
   it('copie en gardant le nom du fichier d’origine', async () => {

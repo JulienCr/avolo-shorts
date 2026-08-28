@@ -1253,6 +1253,25 @@ export function getProject(db: Database.Database, id: string): Project | undefin
   return db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project | undefined
 }
 
+/**
+ * Le projet né de ce chemin, ou `undefined`.
+ *
+ * **Une source, un projet**, et c'est `sourcePath` qui le dit : l'identifiant,
+ * lui, se dérive du nom, et un projet créé avant le repli des accents ne
+ * répond plus à celui que sa source donne aujourd'hui.
+ *
+ * @param sourcePath Un chemin déjà passé par `resolveSource`, comme celui
+ *   qu'`upsertProject` a écrit.
+ */
+export function getProjectBySourcePath(
+  db: Database.Database,
+  sourcePath: string,
+): Project | undefined {
+  return db.prepare('SELECT * FROM projects WHERE sourcePath = ?').get(sourcePath) as
+    | Project
+    | undefined
+}
+
 export function listProjects(db: Database.Database): Project[] {
   return db.prepare('SELECT * FROM projects ORDER BY createdAt DESC').all() as Project[]
 }

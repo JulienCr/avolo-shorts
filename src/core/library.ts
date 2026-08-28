@@ -92,18 +92,12 @@ export type LibraryEntry<S extends LibrarySource, P extends LibraryProject> = {
   /**
    * Le titre affiché, **dérivé du nom de fichier par `titleProject`**.
    *
-   * Dans une bibliothèque d'émissions, `2025-06-15-cqlp.mp4` n'est pas un titre :
-   * c'est un nom de fichier. La date en tête sert à trier un dossier, elle ne se
-   * lit pas — `titleProject` la remet en français et la passe derrière, ce qui
-   * laisse en tête ce qui distingue une émission d'une autre.
+   * `2025-06-15-cqlp.mp4` n'est pas un titre : la date en tête trie un dossier,
+   * elle ne se lit pas.
    *
-   * **Et il ne bouge pas au moment de l'analyse.** `titleProject` est une fonction
-   * pure de l'identifiant, et l'identifiant est le nom de fichier sans son
-   * extension (`projectIdFromSource`) : la même chaîne entre, la même sort, avant
-   * comme après. Ce module dérive d'ailleurs toujours depuis `source.name`, même
-   * quand le projet est là et porte l'identifiant tout fait — lire `project.id`
-   * ferait dépendre l'affichage de l'accord entre deux dérivations, et le jour où
-   * elles divergeraient le titre changerait sous les yeux au pire moment.
+   * **Et il ne bouge pas au moment de l'analyse**, les deux côtés partant du nom
+   * de fichier — ici `source.name`, côté serveur `basename(sourcePath)`. Passer
+   * par `project.id`, qui a perdu ses accents, changerait le titre sous les yeux.
    */
   title: string
   /**
@@ -273,21 +267,35 @@ export function matchesFilter(state: ShowState, filter: LibraryFilter): boolean 
   }
 }
 
+/** `œ` et `æ` n'ont pas de décomposition canonique : NFD les laisse entiers. */
+const LIGATURES: Record<string, string> = { 'œ': 'oe', 'Œ': 'OE', 'æ': 'ae', 'Æ': 'AE' }
+
 /**
- * Un texte ramené à ce qui se compare : sans accents, sans casse, sans bords.
+ * Un texte sans ses signes diacritiques, **casse et ponctuation intactes**.
  *
- * **Sans la décomposition, chercher « entre » ne trouve pas « ENTRE-NOUS » et
- * chercher « caro » ne trouve pas « Caró »** — les noms de replays viennent de
- * titres d'émissions saisis à la main, et personne ne tape les accents dans une
- * boîte de recherche. `NFD` sépare la lettre de son signe, la plage `U+0300` à
- * `U+036F` retire les signes, et ce qui reste se compare en minuscules.
+ * Ce qui n'est ni une décomposition `NFD` ni une ligature ressort tel quel : un
+ * nom qui ne suit aucune convention n'est jamais deviné (spec §12).
+ *
+ * @param text N'importe quelle chaîne, y compris vide.
+ * @returns La même chaîne, dépliée.
  */
-export function normalizeForSearch(text: string): string {
+export function foldAccents(text: string): string {
   return text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/gu, '')
-    .toLowerCase()
-    .trim()
+    .replace(/[œŒæÆ]/gu, (c) => LIGATURES[c])
+}
+
+/**
+ * Un texte ramené à ce qui se compare : sans accents, sans casse, sans bords.
+ *
+ * **Sans le repli, chercher « entre » ne trouve pas « ENTRE-NOUS » et chercher
+ * « caro » ne trouve pas « Caró »** — les noms de replays viennent de titres
+ * d'émissions saisis à la main, et personne ne tape les accents dans une boîte
+ * de recherche.
+ */
+export function normalizeForSearch(text: string): string {
+  return foldAccents(text).toLowerCase().trim()
 }
 
 /**
@@ -345,25 +353,14 @@ export function countsByFilter<S extends LibrarySource, P extends LibraryProject
 }
 
 /**
- * Le nom de fichier sans son extension — l'identifiant qu'en tirera le serveur.
+ * Le nom de fichier sans son extension — la base du titre comme de l'identifiant.
  *
- * **C'est la moitié pure de `projectIdFromSource`** (`src/server/paths.ts`), qui
- * fait la même chose après avoir résolu le chemin. La recopier ici plutôt que de
- * l'importer est ce que la frontière de pureté impose : cette fonction-là passe
- * par `path` et par `resolveSource`, donc par le système de fichiers, et
- * `src/core/` n'y a pas accès.
+ * Titre client, titre serveur et `projectIdFromSource` passent tous par ici.
  *
- * La conséquence à connaître : les deux dérivations doivent rester d'accord, et
- * rien ne le vérifie mécaniquement. Ce qui limite le risque est ce que chacune
- * garantit de son côté — un nom qui ne suit aucune convention **ressort tel
- * quel** plutôt que d'être deviné (spec §12), donc un désaccord change au pire
- * un titre affiché, jamais une clé de liste ni une URL : la clé reste le nom de
- * fichier, et le lien vers le projet vient de `projectId`.
- *
- * Le point d'extension est le dernier de la chaîne, et il n'en est un que s'il
- * a quelque chose devant lui : `.env` n'a pas d'extension, `deux.points.mp4`
- * garde son premier point. Un nom qui ne serait plus qu'une chaîne vide après
- * découpe est rendu entier — c'est le `|| nom` de l'original.
+ * @param name Un nom de fichier nu, sans dossier.
+ * @returns Le nom sans sa **dernière** extension, et seulement si elle a
+ *   quelque chose devant elle : `deux.points.mp4` donne `deux.points`, quand
+ *   `.env`, dont le point est en tête, sort entier.
  */
 export function withoutExtension(name: string): string {
   const point = name.lastIndexOf('.')

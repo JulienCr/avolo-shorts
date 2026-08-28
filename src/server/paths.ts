@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { foldAccents, withoutExtension } from '@/core/library'
+
 /**
  * Où vivent les artefacts (spec §5).
  *
@@ -89,16 +91,21 @@ export function resolveSource(source: string): string {
 }
 
 /**
- * L'identifiant de projet, dérivé du nom de fichier sans son extension —
- * `2026-03-08-caro-mdlm.mp4` donne `2026-03-08-caro-mdlm`.
+ * L'identifiant de projet : le nom sans extension, **accents dépliés** —
+ * `2026-01-11-méchante.mp4` donne `2026-01-11-mechante`. Il devient un
+ * dossier, un préfixe de `clipId`, une URL, un nom de rendu. Or
+ * `é` a deux écritures Unicode qui s'affichent pareil et le montage décide
+ * laquelle : deux chaînes non égales pour un fichier, donc deux projets.
  *
- * Le nom d'origine est conservé tel quel, accents et espaces compris : le titre
- * du projet en dérive, et un identifiant haché renommerait toute la
- * bibliothèque en charabia (spec §12).
+ * @returns L'identifiant, **jamais vide**. Le reste passe tel quel, espaces
+ *   compris (spec §12) ; l'accent survit dans le titre (`summaryProject`).
  */
 export function projectIdFromSource(source: string): string {
-  const name = path.basename(resolveSource(source))
-  return name.slice(0, name.length - path.extname(name).length) || name
+  const name = withoutExtension(path.basename(resolveSource(source)))
+  // Un nom qui n'est fait que de signes se replierait sur rien, et `verifyId`
+  // refuserait ensuite tout accès à un projet déjà inscrit en base. C'est le
+  // `|| name` de `withoutExtension`, pour la même raison. (relevé par Aristarque)
+  return foldAccents(name) || name
 }
 
 /**
@@ -106,9 +113,9 @@ export function projectIdFromSource(source: string): string {
  * (`GET /api/projects/:id`). Sans ce garde-fou, `..%2F..%2Fetc` sortirait de
  * `PROJECTS_DIR` — la traversée de répertoire la plus classique qui soit.
  *
- * Le contrôle est volontairement permissif sur les caractères : les noms de
- * replays portent accents et espaces, et les refuser casserait la bibliothèque
- * existante. Il est strict sur la seule chose qui compte, la traversée.
+ * Le contrôle est permissif sur les caractères — espaces des noms de replays,
+ * accents des projets créés avant le repli — et strict sur la seule chose qui
+ * compte, la traversée.
  */
 function verifyId(projectId: string): string {
   const rejected =

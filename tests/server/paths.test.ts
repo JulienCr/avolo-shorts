@@ -66,6 +66,28 @@ describe('les chemins du projet', () => {
     expect(projectIdFromSource(path.join(replay, SOURCE))).toBe(ID)
   })
 
+  it('déplie les accents du nom de fichier', () => {
+    // `é` s'écrit de deux façons distinctes qui s'affichent pareil (`U+00E9`,
+    // ou `e` + `U+0301`), et le système de fichiers décide laquelle arrive : le
+    // repli enlève la question avant qu'elle n'atteigne un dossier ou une URL.
+    fs.writeFileSync(path.join(replay, '2026-01-11-méchante.mp4'), 'pas une vidéo')
+    expect(projectIdFromSource('2026-01-11-méchante.mp4')).toBe('2026-01-11-mechante')
+  })
+
+  it('rend le même identifiant pour les deux écritures d’un accent', () => {
+    const decomposed = '2026-01-11-méchante.mp4'.normalize('NFD')
+    fs.writeFileSync(path.join(replay, decomposed), 'pas une vidéo')
+    expect(projectIdFromSource(decomposed)).toBe('2026-01-11-mechante')
+  })
+
+  it('ne rend jamais un identifiant vide', () => {
+    // Un nom fait de signes seuls se replie sur rien. L'inscrire vide en base
+    // rendrait le projet inatteignable, `verifyId` refusant la chaîne vide.
+    const marks = '\u0301\u0308.mp4'
+    fs.writeFileSync(path.join(replay, marks), 'pas une vidéo')
+    expect(projectIdFromSource(marks)).toBe('\u0301\u0308')
+  })
+
   it('résout un nom nu contre REPLAY_DIR, chemin complet accepté', () => {
     expect(resolveSource(SOURCE)).toBe(path.join(replay, SOURCE))
     expect(resolveSource(path.join(replay, SOURCE))).toBe(path.join(replay, SOURCE))

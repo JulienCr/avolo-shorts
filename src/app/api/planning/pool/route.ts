@@ -1,5 +1,5 @@
 import { clipDuration } from '@/core/edl'
-import { hasSchedulablePlatform } from '@/core/publication'
+import { composeDescription, hasSchedulablePlatform } from '@/core/publication'
 import type { PlanningPoolClip } from '@/lib/api'
 import { clipFraming } from '@/server/clip-framing'
 import { effectiveSettings, getDb, getPublications, listExportedClips } from '@/server/db'
@@ -42,7 +42,7 @@ export const GET = route('GET /api/planning/pool', async () => {
       // `deliveryToDay` vient d'être vérifié (ligne au-dessus) : l'affiche du
       // rendu livré peut donc se servir même sans proxy.
       thumbnailUrl: urlVignette(clip, true),
-      description: clip.description,
+      description: composeDescription(clip, { footer: settings.publication.descriptionFooter }),
       outputs: clipOutputs(clip, framing, settings.hook),
       statuses,
     })

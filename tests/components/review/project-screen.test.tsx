@@ -77,6 +77,7 @@ function candidate(n: number): CandidateClip {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: `Extrait ${n}`,
     description: '',
     status: 'candidate',

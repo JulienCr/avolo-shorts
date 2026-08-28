@@ -159,6 +159,7 @@ function clip(overrides: Partial<Clip> = {}): Clip {
     // et les cas mesurés par ce fichier ne portent pas sur l'incrustation.
     captions: false,
     branding: true,
+    footer: true,
     title: 'Une vanne qui tient',
     description: 'La chute arrive au bon moment. #impro',
     status: 'kept',

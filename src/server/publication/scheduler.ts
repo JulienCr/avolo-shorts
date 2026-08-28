@@ -4,7 +4,15 @@ import path from 'node:path'
 
 import type Database from 'better-sqlite3'
 
-import { PLATFORM_LABELS, PLATFORMS, PUBLICATION_STATUS_LABELS, platformTexts, type Platform, type PublicationStatus } from '@/core/publication'
+import {
+  PLATFORM_LABELS,
+  PLATFORMS,
+  PUBLICATION_STATUS_LABELS,
+  platformTexts,
+  type DescriptionFooterOptions,
+  type Platform,
+  type PublicationStatus,
+} from '@/core/publication'
 import { formatErrorDetail } from '@/core/publication-errors'
 import { effectiveSettings, getClip, getPublications, nextDueSchedule, upsertPublication } from '@/server/db'
 import { messageSafe } from '@/server/errors'
@@ -457,7 +465,14 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
   // été abandonnée à côté. Réservé au connecteur direct (`tiktok`) : Upload
   // Post envoie déjà `job.description` comme légende (relevé en revue).
   if (tiktokWasOutstanding && statuses.tiktok === 'submitted' && adapterFor('tiktok')?.id === 'tiktok') {
-    await notifyTikTokDraft(sendMail, clipId, clip.title, scheduledAt, platformTexts(clip, 'tiktok').description)
+    const footerOptions: DescriptionFooterOptions = { footer: effectiveSettings(db).publication.descriptionFooter }
+    await notifyTikTokDraft(
+      sendMail,
+      clipId,
+      clip.title,
+      scheduledAt,
+      platformTexts(clip, 'tiktok', footerOptions).description,
+    )
   }
 
   if (outstanding.length === 0) return { kind: 'done', clipId, attempts, statuses }

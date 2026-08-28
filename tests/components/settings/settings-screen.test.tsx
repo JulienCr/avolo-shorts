@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SettingsScreen } from '@/components/settings/settings-screen'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
 import {
+  DEFAULT_DESCRIPTION_FOOTER,
   DEFAULT_SCHEDULE_HOURS,
   FRAMING_BOUNDS,
   FRAMING_SETTINGS_DEFAULTS,
@@ -79,6 +80,7 @@ const PUBLICATION_DEFAULTS: Settings['publication'] = {
   youtube: 'auto',
   scheduleHours: DEFAULT_SCHEDULE_HOURS,
   autoPublish: true,
+  descriptionFooter: DEFAULT_DESCRIPTION_FOOTER,
 }
 
 const DEFAULTS: Settings = {

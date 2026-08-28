@@ -122,6 +122,7 @@ function baseClip(overrides: Partial<Clip> = {}): Clip {
     cropX: 0.5,
     captions: false,
     branding: false,
+    footer: false,
     title: 'La chute',
     description: 'Une impro qui part en vrille',
     status: 'kept',
@@ -281,6 +282,37 @@ describe('POST /api/clips/:id/publish', () => {
     expect(rows).toEqual([
       expect.objectContaining({ platform: 'tiktok', status: 'submitted', remoteId: 'p1' }),
     ])
+  })
+
+  /**
+   * **Le job qui part réellement vers le connecteur porte le pied de page.**
+   * `platformTexts` compose le job (`service.ts`) : sans ce test, un footer
+   * pourrait s'afficher dans l'aperçu sans jamais atteindre l'envoi.
+   */
+  it('le job envoyé au connecteur porte le pied de page commun', async () => {
+    applySettings(getDb(), { publication: { descriptionFooter: 'Suivez La Scène Avolo sur Twitch.' } })
+    await exportClip({ footer: true, description: 'Une impro qui part en vrille' })
+
+    let received: PublicationJob | undefined
+    fakeAdapter = {
+      ...resolvedAdapter((platform) => ({
+        status: platform === 'tiktok' ? 'submitted' : 'published',
+        remoteId: 'p1',
+        remoteUrl: 'https://example.test/p1',
+      })),
+      publish: async (job: PublicationJob, platforms: readonly Platform[]) => {
+        received = job
+        const outcomes = {} as Record<Platform, PlatformOutcome>
+        for (const platform of platforms) outcomes[platform] = { status: 'published', remoteId: 'p1', remoteUrl: null }
+        return outcomes
+      },
+    }
+
+    const response = await publishRoute(postRequest({ platforms: ['instagram'] }), context(CLIP_ID))
+    expect(response.status).toBe(200)
+    expect(received?.description).toBe(
+      'La chute\n\nUne impro qui part en vrille\n\nSuivez La Scène Avolo sur Twitch.',
+    )
   })
 })
 

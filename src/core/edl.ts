@@ -64,6 +64,8 @@ export type Clip = {
   cropX: number
   captions: boolean
   branding: boolean
+  /** Le pied de page commun (`publication.descriptionFooter`) s'ajoute-t-il à la description de ce clip ? */
+  footer: boolean
   title: string
   description: string
   status: ClipStatus

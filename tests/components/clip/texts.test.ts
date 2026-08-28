@@ -31,6 +31,7 @@ function clip(fields: Partial<Clip> = {}): Clip {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: 'La chute',
     description: 'Une impro qui part en vrille #impro #avolo',
     status: 'kept',
@@ -54,7 +55,8 @@ describe('publicationText', () => {
     ['un mot-dièse dans le titre', clip({ title: 'La chute #avolo', description: '#avolo' })],
     ['des chiffres et des accents', clip({ description: '#saison2 #théâtre #impro_2026' })],
   ])('dit mot pour mot ce que le `.txt` porte — %s', (_scenarios, value) => {
-    expect(publicationText(value)).toBe(serverText(value))
+    const footerOptions = { footer: '' }
+    expect(publicationText(value, footerOptions)).toBe(serverText(value, footerOptions))
   })
 })
 

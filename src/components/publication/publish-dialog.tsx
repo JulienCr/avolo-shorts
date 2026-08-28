@@ -71,6 +71,13 @@ export type PublishClipTarget = {
    * d'empreinte côté client.
    */
   records?: Partial<Record<Platform, PublicationRecord>>
+  /**
+   * La description finale, telle que `composeDescription` (`@/core/publication`)
+   * la rend pour ce clip — pied de page compris. Absente, l'aperçu du
+   * récapitulatif ne s'affiche pas pour ce clip plutôt que de montrer un
+   * texte partiel.
+   */
+  composedDescription?: string
 }
 
 type Step = 'platforms' | 'confirm'
@@ -373,7 +380,7 @@ export function PublishDialog({
             alreadyPublished={alreadyPublished}
           />
         ) : (
-          <ConfirmStep targets={targets} />
+          <ConfirmStep targets={targets} eligible={eligible} />
         )}
 
         <DialogFooter>
@@ -584,14 +591,43 @@ function StatusBadge({ status }: { status: PublicationStatus }) {
 }
 
 /**
+ * L'aperçu réellement envoyé, par groupe de plateformes ciblées pour ce clip.
+ * YouTube reçoit le titre dans un champ séparé (`platformTexts`) ; les trois
+ * autres reçoivent une légende unique où le titre précède la description —
+ * l'aperçu doit donc le préfixer pour elles, sous peine de confirmer un envoi
+ * qu'il ne montre pas (relevé par Copilot et Codex).
+ */
+function previewSections(
+  clip: PublishClipTarget,
+  platforms: readonly Platform[],
+): { label: string; text: string }[] {
+  const description = clip.composedDescription ?? ''
+  const captionPlatforms = platforms.filter((p) => p !== 'youtube')
+  const sections: { label: string; text: string }[] = []
+  if (captionPlatforms.length > 0) {
+    const caption = [clip.title.trim(), description].filter((part) => part !== '').join('\n\n')
+    const label = platforms.includes('youtube')
+      ? captionPlatforms.map((p) => PLATFORM_LABELS[p]).join(', ')
+      : ''
+    sections.push({ label, text: caption })
+  }
+  if (platforms.includes('youtube')) {
+    sections.push({ label: captionPlatforms.length > 0 ? PLATFORM_LABELS.youtube : '', text: description })
+  }
+  return sections
+}
+
+/**
  * Le récapitulatif et la confirmation, sur le même écran — comme la boîte
  * « Refaire les rendus ? » du panneau d'export : une confirmation est une
  * seule question.
  */
 function ConfirmStep({
   targets,
+  eligible,
 }: {
   targets: readonly { clipId: string; platform: Platform }[]
+  eligible: readonly PublishClipTarget[]
 }) {
   if (targets.length === 0) {
     return (
@@ -606,16 +642,31 @@ function ConfirmStep({
     )
   }
 
-  // **Les plateformes réellement ciblées, pas celles cochées.** `selected`
-  // inclut une case cochée que `targets` a déjà retirée — clip déjà `published`
-  // sans confirmation explicite, plateforme redevenue indisponible pendant que
-  // la boîte était ouverte. Compter sur `selected` ici annoncerait un envoi qui
-  // n'a pas lieu. (relevé par Copilot)
+  // Les plateformes réellement ciblées, pas celles cochées : `selected` inclut
+  // une cible que `targets` a déjà retirée (clip déjà `published`, plateforme
+  // redevenue indisponible). (relevé par Copilot)
   const chosenPlatforms = PLATFORMS.filter((p) => targets.some((t) => t.platform === p))
-  const targetedClipsCount = new Set(targets.map((t) => t.clipId)).size
+  const targetedClipIds = new Set(targets.map((t) => t.clipId))
+  const targetedClipsCount = targetedClipIds.size
+
+  // `composedDescription` est optionnel (issue #239-like : un appelant qui ne
+  // l'a pas encore calculé ne doit pas afficher un aperçu partiel), donc filtré
+  // plutôt que supposé présent pour chaque cible.
+  const previewed = eligible.filter(
+    (clip) => targetedClipIds.has(clip.clipId) && clip.composedDescription !== undefined,
+  )
+
+  // Par clip, les plateformes réellement ciblées — nécessaire pour savoir si
+  // l'aperçu doit porter le titre en préfixe (relevé par Copilot et Codex).
+  const platformsByClip = new Map<string, Platform[]>()
+  for (const target of targets) {
+    const platforms = platformsByClip.get(target.clipId) ?? []
+    platforms.push(target.platform)
+    platformsByClip.set(target.clipId, platforms)
+  }
 
   return (
-    <div className="flex flex-col gap-2 text-sm">
+    <div className="flex flex-col gap-3 text-sm">
       <p>
         {targetedClipsCount === 1 ? 'Ce clip part vers' : `Ces ${targetedClipsCount} clips partent vers`}{' '}
         <span className="font-medium">
@@ -624,6 +675,29 @@ function ConfirmStep({
         {' — '}
         {targets.length === 1 ? '1 publication au total.' : `${targets.length} publications au total.`}
       </p>
+      {previewed.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-medium text-muted-foreground">Description envoyée</p>
+          {previewed.map((clip) =>
+            previewSections(clip, platformsByClip.get(clip.clipId) ?? []).map((section) => {
+              // Plusieurs clips à l'écran : le titre lève l'ambiguïté que le seul
+              // libellé de plateforme ne résout pas (relevé par Copilot).
+              const label =
+                previewed.length > 1
+                  ? [clip.title, section.label].filter((part) => part !== '').join(' — ')
+                  : section.label
+              return (
+                <div key={`${clip.clipId}-${section.label}`} className="flex flex-col gap-1">
+                  {label && <p className="text-[11px] text-muted-foreground">{label}</p>}
+                  <pre className="whitespace-pre-wrap rounded-lg border bg-muted/30 px-3 py-2 font-sans text-xs">
+                    {section.text}
+                  </pre>
+                </div>
+              )
+            }),
+          )}
+        </div>
+      )}
       <p className="text-muted-foreground">
         C’est un geste public et potentiellement irréversible. Confirmer déclenche l’envoi.
       </p>

@@ -17,6 +17,7 @@ import {
   upsertPublication,
 } from '@/server/db'
 import { proxyPath } from '@/server/paths'
+import { DEFAULT_DESCRIPTION_FOOTER } from '@/lib/api'
 
 /**
  * Les quatre routes `/api/planning/**`, appelées comme Next les appelle —
@@ -51,6 +52,7 @@ function baseClip(id: string, overrides: Partial<Clip> = {}): Clip {
     cropX: 0.5,
     captions: false,
     branding: false,
+    footer: false,
     title: `Titre ${id}`,
     description: '',
     status: 'exported',
@@ -179,6 +181,21 @@ describe('GET /api/planning/pool', () => {
     expect(clip.description).toBe('Une scène.')
     expect(clip.outputs.variant9x16Url).not.toBeNull()
     expect(clip.statuses).toEqual({ instagram: 'published' })
+  })
+
+  /**
+   * La description du vivier est **composée** (`composeDescription`), pas la
+   * colonne brute : c'est la même fonction que les connecteurs et l'aperçu du
+   * clip, pour que ce que le planning montre soit ce qui part vraiment.
+   */
+  it('ajoute le pied de page commun quand le clip le demande', async () => {
+    putClip(getDb(), baseClip('avec-pied', { description: 'Une scène.', footer: true }))
+    fresh.add('avec-pied')
+
+    const response = await poolRoute()
+    const payload = (await response.json()) as { clips: { clipId: string; description: string }[] }
+    const clip = payload.clips[0]
+    expect(clip.description).toBe('Une scène.\n\n' + DEFAULT_DESCRIPTION_FOOTER)
   })
 
   /**

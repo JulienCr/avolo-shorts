@@ -10,6 +10,7 @@ export type { PublicationRow } from '@/core/publication'
 import { DEFAULT_SELECTION_DIMENSIONS, type SelectionDimensions } from '@/core/transcript'
 import {
   DEFAULT_COPY_SOURCE_LOCALLY,
+  DEFAULT_DESCRIPTION_FOOTER,
   DEFAULT_PUBLICATION_PREFERENCE,
   DEFAULT_SCHEDULE_HOURS,
   FRAMING_BOUNDS,
@@ -141,7 +142,11 @@ CREATE TABLE IF NOT EXISTS clips (
   -- La surcharge de cadrage par clip (issue #180, seconde moitié). Même
   -- convention que \`hookStyle\` deux lignes plus haut : \`{}\` dit « aux
   -- valeurs globales » (famille \`framing\` du registre, plus bas).
-  framingStyle TEXT NOT NULL DEFAULT '{}'
+  framingStyle TEXT NOT NULL DEFAULT '{}',
+  -- Le pied de page commun s'ajoute-t-il à la description de ce clip ?
+  -- Défaut à 1 : un clip neuf porte le pied de page tant que personne ne
+  -- l'a retiré, comme \`branding\` et \`captions\` deux lignes plus haut.
+  footer      INTEGER NOT NULL DEFAULT 1
 );
 
 -- Composite, dans l'ordre exact de \`getClips\` : filtre sur \`projectId\`, tri
@@ -228,6 +233,10 @@ function migrate(db: Database.Database): void {
   // La surcharge de cadrage par clip (issue #180). Même défense.
   if (!columns.includes('framingStyle')) {
     db.exec(`ALTER TABLE clips ADD COLUMN framingStyle TEXT NOT NULL DEFAULT '{}'`)
+  }
+  // Le pied de page commun, par clip. Même défense.
+  if (!columns.includes('footer')) {
+    db.exec(`ALTER TABLE clips ADD COLUMN footer INTEGER NOT NULL DEFAULT 1`)
   }
   // `seq`, son prédécesseur par ligne, n'a jamais quitté cette branche : le
   // laisser derrière nous ferait une colonne morte au nom presque identique à
@@ -502,10 +511,10 @@ export type SettingField = {
   max?: number
   /**
    * Pour un champ `text`, autorise la chaîne vide comme valeur valide et
-   * significative — le seul cas aujourd'hui est `ai.ollamaBaseUrl`, où vide
-   * veut dire « résoudre la passerelle WSL à l'exécution » (`CLAUDE.md`).
-   * Absent ou faux, un texte vide reste refusé comme avant : un champ oublié,
-   * pas un réglage.
+   * significative — `ai.ollamaBaseUrl`, où vide veut dire « résoudre la
+   * passerelle WSL à l'exécution » (`CLAUDE.md`), et `publication.descriptionFooter`,
+   * où vide veut dire « pas de pied de page ». Absent ou faux, un texte vide
+   * reste refusé comme avant : un champ oublié, pas un réglage.
    */
   allowEmpty?: boolean
   /**
@@ -782,6 +791,10 @@ const PUBLICATION_FIELD_SHAPES = {
   // Pas d'`enum` ici : la forme `HH:MM[,HH:MM]*` n'est pas un ensemble fermé de
   // littéraux. `sanitizeScheduleHours` la valide à la lecture, plus bas.
   scheduleHours: { type: 'text', defaultValue: DEFAULT_SCHEDULE_HOURS },
+  // Le pied de page commun (composition — `composeDescription`, `@/core/publication`) :
+  // `allowEmpty` parce que vide est une valeur légitime (« pas de pied de page »),
+  // pas un champ oublié.
+  descriptionFooter: { type: 'text', defaultValue: DEFAULT_DESCRIPTION_FOOTER, allowEmpty: true },
   // `true` par défaut : la tâche planifiée existe pour publier. Un défaut à
   // `false` ferait d'une installation neuve un scheduler qui tourne sans
   // rien faire tout en paraissant installé — le silence que ce champ existe
@@ -940,17 +953,9 @@ export function parseSetting(
       return COLOR_PATTERN.test(trimmed) ? trimmed.toUpperCase() : warnRejected(field, raw, seen)
     }
     case 'text': {
-      // **Les mêmes bornes que `validateSetting`, et c'est le contrat.** Une
-      // valeur stockée vide, blanche ou trop longue passait ici alors que
-      // l'écriture la refuse : le lecteur annonce qu'une valeur invalide est
-      // ignorée au profit du défaut, et il en laissait passer trois formes.
-      // Une table éditée à la main avec `sqlite3` est le seul chemin qui y mène,
-      // et c'est précisément le chemin qu'on ne contrôle pas.
-      // (relevé par Copilot)
-      //
-      // **`allowEmpty` est l'exception nommée, pas un relâchement général** :
-      // `ai.ollamaBaseUrl` est le seul champ qui la porte, et vide y est une
-      // valeur à part entière plutôt qu'un champ oublié.
+      // **Les mêmes bornes que `validateSetting`** (relevé par Copilot).
+      // `allowEmpty` est l'exception nommée — `ai.ollamaBaseUrl` et
+      // `publication.descriptionFooter` — pas un relâchement général.
       if (field.allowEmpty && raw === '') return raw
       if (raw.trim() === '' || raw.length > TEXT_MAX) return warnRejected(field, raw, seen)
       if (field.enum !== undefined && !field.enum.includes(raw))
@@ -1402,6 +1407,7 @@ type LineClip = {
   cropX: number
   captions: number
   branding: number
+  footer: number
   title: string
   description: string
   status: ClipStatus
@@ -1461,6 +1467,7 @@ function clipSinceLine(line: LineClip): Clip {
     // un `JSON.stringify`, qui l'expose tel quel à l'interface.
     captions: line.captions !== 0,
     branding: line.branding !== 0,
+    footer: line.footer !== 0,
     title: line.title,
     description: line.description,
     status: valueAdmitted(STATUSES, line.status, 'status'),
@@ -1481,6 +1488,7 @@ function lineSinceClip(clip: Clip): LineClip {
     cropX: clip.cropX,
     captions: clip.captions ? 1 : 0,
     branding: clip.branding ? 1 : 0,
+    footer: clip.footer ? 1 : 0,
     title: clip.title,
     description: clip.description,
     status: clip.status,
@@ -1499,10 +1507,10 @@ function lineSinceClip(clip: Clip): LineClip {
 const INSERT_CLIP = `
   INSERT INTO clips (id, projectId, segments, ratio, cropX, captions, branding,
                      title, description, status, pass, hookText, hookBadge, hookStyle,
-                     framingStyle)
+                     framingStyle, footer)
   VALUES (@id, @projectId, @segments, @ratio, @cropX, @captions, @branding,
           @title, @description, @status, @pass, @hookText, @hookBadge, @hookStyle,
-          @framingStyle)
+          @framingStyle, @footer)
   ON CONFLICT(id) DO UPDATE SET
     segments     = excluded.segments,
     ratio        = excluded.ratio,
@@ -1516,7 +1524,8 @@ const INSERT_CLIP = `
     hookText     = excluded.hookText,
     hookBadge    = excluded.hookBadge,
     hookStyle    = excluded.hookStyle,
-    framingStyle = excluded.framingStyle`
+    framingStyle = excluded.framingStyle,
+    footer       = excluded.footer`
 
 /**
  * Refuse qu'un identifiant de clip change de projet.

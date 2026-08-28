@@ -272,6 +272,33 @@ export function platformFile(outputs: RenderedOutputs): string | null {
 /** Les textes qu'une plateforme reçoit — un couple titre/description dans les deux cas. */
 export type PlatformTexts = { title: string; description: string }
 
+/**
+ * Le pied de page commun, tel que le registre le porte
+ * (`publication.descriptionFooter`). Passé en paramètre plutôt que lu en base
+ * — `src/core/**` ne parle à rien (voir le docbloc en tête de ce fichier).
+ * L'interrupteur, lui, vient du clip (`Clip.footer`) : pas besoin de le
+ * répéter ici.
+ */
+export type DescriptionFooterOptions = { footer: string }
+
+/**
+ * Compose la description finale d'un clip : la sienne, puis le pied de page
+ * commun si `clip.footer` l'active et que le pied de page n'est pas vide —
+ * **l'unique fonction dont dérivent `platformTexts` et `publicationText`**,
+ * pour que l'aperçu, le planning et les connecteurs envoient tous le même
+ * texte (BACKLOG « pied de page commun »).
+ */
+export function composeDescription(
+  clip: Pick<Clip, 'description' | 'footer'>,
+  options: DescriptionFooterOptions,
+): string {
+  const description = clip.description.trim()
+  const footer = clip.footer ? options.footer.trim() : ''
+  if (footer === '') return description
+  if (description === '') return footer
+  return `${description}\n\n${footer}`
+}
+
 /** YouTube refuse un titre de plus de 100 caractères (spec §6.1). */
 const YOUTUBE_TITLE_MAX = 100
 
@@ -291,10 +318,15 @@ function truncateOnWordBoundary(text: string, max: number): string {
  * veulent une légende unique** — Reels et TikTok n'ont pas de champ titre — :
  * `title` sort vide et `description` porte le titre et la description du clip
  * réunis, comme le fait déjà `publicationText` pour le `.txt` de secours.
+ * La description est celle que rend `composeDescription`, pied de page compris.
  */
-export function platformTexts(clip: Pick<Clip, 'title' | 'description'>, platform: Platform): PlatformTexts {
+export function platformTexts(
+  clip: Pick<Clip, 'title' | 'description' | 'footer'>,
+  platform: Platform,
+  footerOptions: DescriptionFooterOptions,
+): PlatformTexts {
   const title = clip.title.trim()
-  const description = clip.description.trim()
+  const description = composeDescription(clip, footerOptions)
   if (platform === 'youtube') {
     return { title: truncateOnWordBoundary(title, YOUTUBE_TITLE_MAX), description }
   }
@@ -364,20 +396,19 @@ export function wordsHash(text: string): string[] {
 /**
  * Le `.txt` qui accompagne le MP4 : titre, description, mots-dièse.
  *
- * Fait pour être **copié**, pas analysé — trois sections nommées, dans l'ordre
- * où on les colle. Il servait à publier à la main avant que la publication
- * n'entre dans l'outil (18 août 2026) ; il reste pour les réseaux qu'on ne
- * branche pas et pour le rattrapage quand une plateforme refuse. **Il n'est
- * pas la source des textes publiés** : ceux-ci se dérivent du clip par
- * `platformTexts`, pas de ce rendu-ci.
+ * Fait pour être **copié**, pas analysé. Il reste pour les réseaux qu'on ne
+ * branche pas et le rattrapage manuel. **Pas une source à part** : sa
+ * description passe par `composeDescription`, comme `platformTexts`.
  *
  * Les mots-dièse ne sont pas retirés de la description, ils en sont extraits :
- * elle se colle telle quelle dans le formulaire d'Instagram, et la section du
- * bas n'existe que pour les reprendre ailleurs sans les retaper.
+ * elle se colle telle quelle, et la section du bas ne fait que les reprendre.
  */
-export function publicationText(clip: { title: string; description: string }): string {
+export function publicationText(
+  clip: Pick<Clip, 'title' | 'description' | 'footer'>,
+  footerOptions: DescriptionFooterOptions,
+): string {
   const title = clip.title.trim()
-  const description = clip.description.trim()
+  const description = composeDescription(clip, footerOptions)
   const hashes = wordsHash(`${title}\n${description}`)
   return [
     `Titre : ${title === '' ? '(sans titre)' : title}`,

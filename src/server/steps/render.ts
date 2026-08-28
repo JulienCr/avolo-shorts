@@ -1629,7 +1629,8 @@ export function publicationWriteText(
   fallback: Clip,
   filePath: string,
 ): void {
-  const content = publicationText(getClip(db, clipId) ?? fallback)
+  const footerOptions = { footer: effectiveSettings(db).publication.descriptionFooter }
+  const content = publicationText(getClip(db, clipId) ?? fallback, footerOptions)
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
   const temporary = pathTemporary(filePath)
   try {

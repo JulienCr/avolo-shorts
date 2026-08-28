@@ -107,6 +107,7 @@ function clip(overrides: Partial<Clip> = {}): Clip {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: 'Une vanne qui tient',
     description: 'La chute arrive au bon moment. #impro #avolo',
     status: 'kept',
@@ -1089,20 +1090,22 @@ describe('wordsHash', () => {
 })
 
 describe('publicationText', () => {
+  const noFooter = { footer: '' }
+
   it('porte les trois sections, dans l’ordre où on les colle', () => {
-    const text = publicationText(clip())
+    const text = publicationText(clip(), noFooter)
     expect(text).toContain('Titre : Une vanne qui tient')
     expect(text).toContain('La chute arrive au bon moment. #impro #avolo')
     expect(text).toContain('Mots-dièse : #impro #avolo')
   })
 
   it('laisse les mots-dièse dans la description, qui se colle telle quelle', () => {
-    const lines = publicationText(clip()).split('\n')
+    const lines = publicationText(clip(), noFooter).split('\n')
     expect(lines[lines.indexOf('Description :') + 1]).toContain('#impro')
   })
 
   it('reste lisible sur un clip sans titre ni description', () => {
-    const text = publicationText(clip({ title: '  ', description: '' }))
+    const text = publicationText(clip({ title: '  ', description: '' }), noFooter)
     expect(text).toContain('Titre : (sans titre)')
     expect(text).toContain('(sans description)')
     expect(text).toContain('Mots-dièse : (aucun)')

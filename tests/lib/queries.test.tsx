@@ -15,7 +15,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { DEFAULT_SCHEDULE_HOURS, FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
+import { DEFAULT_DESCRIPTION_FOOTER, DEFAULT_SCHEDULE_HOURS, FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
 import type { ClipDetail, ExportResult, PatchClipResult, RunPlan, Settings } from '@/lib/api'
 import {
   keys,
@@ -59,6 +59,7 @@ const exportComplete: ExportResult = {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: 'Un titre',
     description: '',
     status: 'exported',
@@ -170,6 +171,7 @@ describe('useRegenerateHook', () => {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: 'Un titre',
     description: '',
     status: 'kept',
@@ -238,6 +240,7 @@ describe('usePatchClip', () => {
     cropX: 0.5,
     captions: true,
     branding: true,
+    footer: true,
     title: 'Un titre',
     description: '',
     status: 'kept',
@@ -405,6 +408,7 @@ describe('les réglages', () => {
       youtube: 'auto',
       scheduleHours: DEFAULT_SCHEDULE_HOURS,
       autoPublish: true,
+      descriptionFooter: DEFAULT_DESCRIPTION_FOOTER,
     },
     framing: { ...FRAMING_SETTINGS_DEFAULTS },
   }

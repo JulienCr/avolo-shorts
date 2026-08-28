@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PublicationStatus } from '@/core/publication'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
 import {
+  DEFAULT_DESCRIPTION_FOOTER,
   DEFAULT_SCHEDULE_HOURS,
   FRAMING_SETTINGS_DEFAULTS,
   HOOK_DEFAULTS,
@@ -71,6 +72,7 @@ const SETTINGS: Settings = {
     youtube: 'auto',
     scheduleHours: DEFAULT_SCHEDULE_HOURS,
     autoPublish: true,
+    descriptionFooter: DEFAULT_DESCRIPTION_FOOTER,
   },
   framing: { ...FRAMING_SETTINGS_DEFAULTS },
 }

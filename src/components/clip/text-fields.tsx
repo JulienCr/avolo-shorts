@@ -90,6 +90,23 @@ export function FieldsTexts({
         <Failure field="La description" state={description} />
       </div>
 
+      <label className="flex items-start gap-2 text-[0.75rem]">
+        <input
+          type="checkbox"
+          className="mt-0.5 size-3.5 accent-stage"
+          checked={clip.footer}
+          onChange={(e) =>
+            void Promise.resolve(onWrite({ footer: e.target.checked })).catch(() => {})
+          }
+        />
+        <span>
+          Pied de page
+          <span className="block text-muted-foreground">
+            Ajoute le pied de page commun (réglages → Publication) à la description envoyée.
+          </span>
+        </span>
+      </label>
+
       {/* **Extraits, pas saisis** : `wordsHash` les lit dans le titre et la
           description, ils ne s'écrivent nulle part d'autre. Montrés ici, sous
           le champ qui les porte, plutôt qu'au moment de les copier (retour

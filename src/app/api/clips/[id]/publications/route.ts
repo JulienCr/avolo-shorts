@@ -1,5 +1,5 @@
-import { isPublicationStale, platformTexts, type PublicationView } from '@/core/publication'
-import { getClip, getDb, getPublications } from '@/server/db'
+import { isPublicationStale, platformTexts, type DescriptionFooterOptions, type PublicationView } from '@/core/publication'
+import { effectiveSettings, getClip, getDb, getPublications } from '@/server/db'
 import { notFound, json, route } from '@/server/http'
 import { publicationFingerprint, renderFingerprintForClip } from '@/server/publication/service'
 
@@ -24,9 +24,12 @@ export const GET = route(
     // Aristarque) : `clipFraming` et le fichier d'empreinte ne dépendent pas
     // de la plateforme, seul `platformTexts` en dépend.
     const renderFingerprint = renderFingerprintForClip(db, clip)
+    const footerOptions: DescriptionFooterOptions = { footer: effectiveSettings(db).publication.descriptionFooter }
     const publications: PublicationView[] = getPublications(db, id).map((row) => {
       const fingerprint =
-        renderFingerprint === null ? null : publicationFingerprint(renderFingerprint, platformTexts(clip, row.platform))
+        renderFingerprint === null
+          ? null
+          : publicationFingerprint(renderFingerprint, platformTexts(clip, row.platform, footerOptions))
       return { ...row, stale: fingerprint !== null && isPublicationStale(row, fingerprint) }
     })
     return json({ publications })

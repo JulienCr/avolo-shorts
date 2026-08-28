@@ -611,6 +611,7 @@ export type ClipPatch = Partial<
     | 'description'
     | 'captions'
     | 'branding'
+    | 'footer'
     | 'hookText'
     | 'hookBadge'
     | 'hookStyle'
@@ -1109,7 +1110,20 @@ export type PublicationSettings = {
   scheduleHours: string
   /** L'ordonnanceur publie-t-il ? La tâche planifiée tourne quand même et n'écrit rien si c'est faux. */
   autoPublish: boolean
+  /**
+   * Le pied de page commun, ajouté à la description de chaque clip qui le
+   * demande (`Clip.footer`). Vide accepté : « pas de pied de page ».
+   */
+  descriptionFooter: string
 }
+
+/**
+ * Le pied de page par défaut, validé avec le propriétaire du dépôt.
+ * `composeDescription` (`@/core/publication`) le compose avec la description
+ * du clip ; ce module-ci n'en connaît que le texte.
+ */
+export const DEFAULT_DESCRIPTION_FOOTER =
+  "———\nLa Scène Avolo, l'impro sous toutes ses formes.\nEn direct tous les dimanches à 19h sur Twitch.\nhttps://twitch.tv/la_scene_avolo"
 
 /** Le défaut de `publication.scheduleHours` — jamais un autre littéral `'19:00'` récrit à côté. */
 export const DEFAULT_SCHEDULE_HOURS = '19:00'
@@ -1389,6 +1403,7 @@ export type PlanningPoolClip = {
   duration: number
   /** La vignette tirée du proxy, `null` quand le proxy manque. */
   thumbnailUrl: string | null
+  /** La description **composée** (`composeDescription`) : pied de page compris, comme ce qui sera envoyé. */
   description: string
   /** Ce que l'export a produit, et où le lire. */
   outputs: ClipOutputs

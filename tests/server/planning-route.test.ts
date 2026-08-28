@@ -307,7 +307,7 @@ describe('GET /api/planning/schedule', () => {
       platform: 'tiktok',
       status: 'failed',
       remoteId: null,
-      remoteUrl: null,
+      remoteUrl: 'https://tiktok.com/@avolo/video/1',
       requestId: 'req-1',
       error: 'Le débit TikTok est atteint.',
       publishedFingerprint: null,
@@ -327,7 +327,7 @@ describe('GET /api/planning/schedule', () => {
       status: 'failed',
       error: 'Le débit TikTok est atteint.',
       updatedAt: 4242,
-      remoteUrl: null,
+      remoteUrl: 'https://tiktok.com/@avolo/video/1',
     })
   })
 

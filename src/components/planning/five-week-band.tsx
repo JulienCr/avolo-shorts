@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ExternalLink } from 'lucide-react'
 
@@ -39,6 +39,21 @@ export function FiveWeekBand({
   // Initialiseur paresseux : `Date.now()` pendant le rendu rendrait le
   // composant impur (même règle que `PlanningScreen`).
   const [today] = useState(() => dayKeyFor(Date.now()))
+  const client = useQueryClient()
+  // `usePlanningSchedule` ne sonde pas comme `usePublications` le fait — le
+  // sondage vit donc ici, au lieu de toucher `src/lib/queries.ts` (gelé par
+  // la PR #150 en cours). Même cadence (2 s) tant qu'une plateforme reste
+  // `in_progress` après une relance.
+  const hasInProgress = entries.some((entry) =>
+    PLATFORMS.some((platform) => entry.statuses[platform]?.status === 'in_progress'),
+  )
+  useEffect(() => {
+    if (!hasInProgress) return
+    const id = setInterval(() => {
+      void client.invalidateQueries({ queryKey: ['planning-schedule'] })
+    }, 2_000)
+    return () => clearInterval(id)
+  }, [hasInProgress, client])
   const byDay = new Map<string, ScheduledEntry[]>()
   for (const entry of entries) {
     const key = dayKeyFor(entry.scheduledAt)
@@ -220,7 +235,7 @@ function PlatformDetailRow({
             className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-foreground hover:underline"
           >
             <ExternalLink className="size-3" aria-hidden />
-            <span className="sr-only">voir en ligne</span>
+            <span className="sr-only">voir en ligne sur {PLATFORM_LABELS[platform]}</span>
           </a>
         )}
         <span className="ml-auto font-mono tabular-nums text-muted-foreground">
@@ -248,6 +263,14 @@ function PlatformDetailRow({
         >
           Relancer
         </Button>
+      )}
+
+      {/* Sans ça, un rendu périmé ou un connecteur indisponible réactive le
+          bouton sans un mot : la relance semble n'avoir rien fait. */}
+      {retry.isError && (
+        <p role="alert" className="text-[0.7rem] text-destructive">
+          {retry.error instanceof Error ? retry.error.message : 'La relance a échoué.'}
+        </p>
       )}
     </div>
   )

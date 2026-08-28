@@ -83,7 +83,7 @@ describe('FRAMING_CASES', () => {
     }
   })
 
-  it('les seize identifiants attendus sont tous présents — retirer un cas ne le retire pas d\'ici', () => {
+  it('les dix-sept identifiants attendus sont tous présents — retirer un cas ne le retire pas d\'ici', () => {
     const expected = [
       'entre-nous-2973000',
       'caro-mdlm-7250000',
@@ -102,6 +102,8 @@ describe('FRAMING_CASES', () => {
       'entre-nous-6390000',
       'caro-mdlm-5476000',
       'nabla-7814000',
+      // Une frontière, pas un cadre : la coupe que l'éclairage LED cachait.
+      'eve-matteo-3625267',
     ]
     const ids = new Set(FRAMING_CASES.map((c) => c.id))
     for (const id of expected) {

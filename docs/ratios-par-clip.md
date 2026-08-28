@@ -646,8 +646,111 @@ ffmpeg -hide_banner -nostdin -loglevel error -i projects/<id>/proxy.mp4 -an -sn 
 python worker/detect.py --replay projects/<id>/analysis.json \
   --scene-scores /tmp/<id>-scene.txt --out /tmp/<id>-essai.json
 
-pnpm tsx scripts/mesure-ratios.ts --analyse <id>=/tmp/<id>-essai.json <id>
+pnpm tsx scripts/measure-ratios.ts --analyse <id>=/tmp/<id>-essai.json <id>
 ```
+
+## Résolu le 28 août 2026 : les coupes qui changent la composition
+
+Signalé par Julien sur `2026-02-08-eve-matteo-pr_003616406-003646133`, sorti
+illisible. Le clip ne souffrait pas de son cadrage : **ses cinq changements de
+caméra n'avaient pas été détectés**. Il tombait entier dans un plan de 325,8 s
+(3 505,033 → 3 830,833 s), qui recevait donc un ratio unique — le 16:9, le plus
+large que cinq minutes réclament — **et un split-screen figé**, calé sur une
+composition à deux corps et appliqué par-dessus des plans à un corps puis à
+quatre. Sur les quatorze clips de l'émission, **cinq** tenaient entièrement dans
+un plan de plus de 60 s.
+
+### Le signal était là, et les deux détecteurs le laissaient passer
+
+Passe ffmpeg sur 3 610–3 652 s : **sept coupes, notées de 0,2389 à 0,2840**,
+quand le premier non-évènement de la fenêtre vaut 0,0336 — un facteur 8 de
+séparation. Chacune tombe exactement sur un changement d'effectif des boîtes.
+
+| t (s) | score | effectif |
+|---|---|---|
+| 3 614,067 | 0,2389 | 1 → 2 |
+| 3 617,467 | 0,2456 | 2 → 1 |
+| 3 625,267 | 0,2818 | 1 → 3 |
+| 3 631,633 | 0,2840 | 4 → 1 |
+| 3 634,433 | 0,2466 | 1 → 2 |
+| 3 645,133 | 0,2602 | 2 → 1 |
+| 3 647,600 | 0,2750 | 1 → 4 |
+
+**Vérifié à l'image** : à 3 625,1 s un gros plan sur une personne en fauteuil,
+à 3 625,4 s un plan large à trois personnes depuis une autre caméra ; le retour
+à 3 631,5 → 3 631,8 s.
+
+**Et l'image donne la cause.** Le plateau est baigné d'un éclairage LED magenta
+saturé, identique d'une caméra à l'autre : deux cadres entièrement différents
+n'ont presque pas d'écart d'histogramme. La §2 de la conception prévient que ce
+n'est pas le mouvement qui fait monter le score de scène mais la lumière ; ici
+la lumière l'**écrase**. C'est donc reproductible, et c'est l'argument de fond
+pour faire porter le signal par les boîtes plutôt que par l'histogramme.
+
+Le seuil de rétention (0,40) jetait les sept. Et `composition_switches` ne
+pouvait pas les rattraper : il exige deux personnes appariées **et** une
+translation commune, or l'effectif et l'échelle changent — sur 1 h 50 il
+n'émettait que 57 candidats.
+
+### Le second déclencheur : la rupture de composition
+
+Entre deux images consécutives de l'analyse, sur les boîtes à `score >= 0,5` —
+le seuil que `framing.ts` applique déjà, et ce qui tient les boîtes fantômes
+hors de la mesure :
+
+```
+rupture = max( |w2 - w1| / max(w1, w2) ,  |y2 - y1| )
+```
+
+`w` la **médiane des largeurs** de l'image, `y` la **médiane des `y0`**. Des
+médianes et jamais l'effectif : YOLO ajoute et retire des boîtes d'une image à
+l'autre, un compte battrait avec elles. `refine_switch` confirme ensuite sur le
+score de scène, comme pour la translation — le principe des deux signaux
+indépendants ne bouge pas, seul le premier s'élargit.
+
+Les sept coupes sont attrapées, **chacune à 0,467 au moins**. La distribution
+est remarquablement stable sur les sept émissions, ce qui autorise un seuil
+global :
+
+| émission | p90 | p95 | p98 |
+|---|---|---|---|
+| `2025-06-15-cqlp` | 0,213 | 0,296 | 0,396 |
+| `2026-01-25-muriel-thomas` | 0,155 | 0,240 | 0,394 |
+| `2026-02-08-eve-matteo-pr` | 0,173 | 0,261 | 0,419 |
+| `2026-03-08-caro-mdlm` | 0,161 | 0,251 | 0,380 |
+| `2026-04-24-fmr` | 0,221 | 0,308 | 0,423 |
+| `2026-05-31-nabla` | 0,154 | 0,255 | 0,394 |
+| `2026-22-02-entre-nous` | 0,181 | 0,294 | 0,421 |
+
+### Le piège 7 se referme, parce qu'il le fallait
+
+Le déclencheur fait passer le détecteur de 57 à ~245 fenêtres candidates. Le
+défaut résiduel décrit plus haut — `refine_switch` confirme sur le score
+**maximal** de sa fenêtre sans jamais vérifier qu'il est grand — cesse alors
+d'être borné par la coïncidence de proximité. `refine_switch` prend donc un
+`min_score`, dont le défaut de 0,0 reproduit exactement le comportement
+antérieur ; seul le nouveau déclencheur le passe non nul.
+
+**Et les deux déclencheurs se recouvrent pour de bon** : 24 fenêtres sur 57 sur
+`eve-matteo-pr`, 17 sur 60 sur `cqlp`. Sans retrait, une fenêtre commune serait
+raffinée deux fois et comptée deux fois — dans le journal dont le balayage lit
+les nombres. Les frontières, elles, ne changeaient pas : `_spaced_boundaries`
+écarte déjà un instant répété.
+
+### Une chose à savoir avant de rejouer quoi que ce soit
+
+**Les `analysis.json` du disque ne sont pas tous produits par le code en
+service.** Celui de `2026-03-08-caro-mdlm` est daté du 19 août 2026 et porte
+1 482 frontières — exactement le résultat « scène seule ». Il est antérieur au
+détecteur de bascules, qui en ajoute 33. Comparer un balayage à ce fichier
+attribuerait donc au changement mesuré l'effet d'un chantier précédent.
+
+**La référence d'un balayage est un rejeu au code courant, déclencheur
+neutralisé** (`--rupture-threshold 1`), jamais le fichier sur disque. Le contrôle
+qui le dit — rejouer aux seuils du jour et retrouver les mêmes plans — se fait
+par émission, avant tout le reste : une capture de scores faite au mauvais
+plancher produit sinon des frontières fausses d'une façon parfaitement
+plausible.
 
 ## Le tronc, mesuré le 19 août 2026 au soir
 

@@ -84,7 +84,7 @@ export type { ClipFraming, ShotFraming }
  * exactement le cycle que la frontière de pureté interdit.
  */
 export { FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS } from '@/core/framing'
-export type { FramingSettings } from '@/core/framing'
+export type { FramingSettings, FramingStyleOverride } from '@/core/framing'
 
 /**
  * Le hook, **importé de `@/core/hook` plutôt que redit ici**, pour la même

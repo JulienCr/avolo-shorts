@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   FRAMING_DEFAULTS,
+  FRAMING_SETTINGS_DEFAULTS,
   MIN_PIECE_SEC,
   ORIENTATION_DEFAULTS,
   RATIOS,
@@ -2871,6 +2872,12 @@ describe('le doublage improvisé dans computeFraming', () => {
  * porte que du calcul pur. Aucun champ neuf n'est donc nécessaire : les six
  * passent déjà par l'un de ces quatre.
  */
+describe('FRAMING_SETTINGS_DEFAULTS', () => {
+  it('`dubbingLayout` est dérivé de `FRAMING_DEFAULTS`, jamais recopié en littéral', () => {
+    expect(FRAMING_SETTINGS_DEFAULTS.dubbingLayout).toBe(FRAMING_DEFAULTS.dubbingLayout)
+  })
+})
+
 describe('les six réglages de la famille `framing` bougent RenderedFraming', () => {
   it('`splitScreen` : présence de `split`', () => {
     const request = {

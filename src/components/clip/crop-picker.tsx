@@ -35,6 +35,12 @@ const NOT_FAST = 0.05
  * §9.4) ; ou le cadre couvre toute la source (16:9, rien à déplacer).
  * `CropOverlay` et `RatioPicker` l'appellent tous deux, pour ne jamais rendre
  * deux textes différents pour la même cause.
+ *
+ * **Pas de cause « montage doublage » ici** : le rendu ignore encore
+ * `shot.dubbing` (§9 du parcours, pas encore raccordé) et continue de
+ * produire sa sortie depuis ce même crop. Le figer donnerait un texte qui
+ * contredit ce que l'export fait réellement — à réintroduire quand le
+ * raccord du renderer livre, pas avant (revue Copilot, PR #254).
  */
 export function frozenCropReason(
   framing: PublishedFraming,

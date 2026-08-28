@@ -28,6 +28,7 @@ afterEach(() => {
 const DEFAULTS: FramingSettings = { ...FRAMING_SETTINGS_DEFAULTS }
 
 const box = () => screen.getByRole('checkbox', { name: /Split-screen activé par défaut/ })
+const dubbingBox = () => screen.getByRole('checkbox', { name: /Montage doublage activé par défaut/ })
 const minShotInput = () => screen.getByRole('spinbutton', { name: /Durée minimale du plan/ })
 
 it('affiche les défauts pendant le chargement, tout inerte', () => {
@@ -70,6 +71,14 @@ it('ne propose de revenir au défaut que si on s’en est écarté', () => {
   rerender(<FramingSection values={{ ...DEFAULTS, splitMinShotMs: 6000 }} onChange={onChange} />)
   fireEvent.click(screen.getByRole('button', { name: `Revenir à ${DEFAULTS.splitMinShotMs}` }))
   expect(onChange).toHaveBeenCalledExactlyOnceWith({ splitMinShotMs: DEFAULTS.splitMinShotMs })
+})
+
+it('expose le switch du montage doublage, et n’envoie que ce champ au clic', () => {
+  const onChange = vi.fn()
+  render(<FramingSection values={DEFAULTS} onChange={onChange} />)
+  expect(dubbingBox().getAttribute('data-checked')).not.toBeNull()
+  fireEvent.click(dubbingBox())
+  expect(onChange).toHaveBeenCalledExactlyOnceWith({ dubbingLayout: false })
 })
 
 it('se laisse désactiver le temps d’une écriture en vol', () => {

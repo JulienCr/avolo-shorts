@@ -8,17 +8,23 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render as renderRaw, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PoolPreview } from '@/components/planning/pool-preview'
 import type { PlanningPoolClip, PublicationDetail } from '@/lib/api'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 /** `PlatformDetailRow` porte la relance, donc une mutation : il lui faut un client. */
 function render(ui: ReactNode) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return renderRaw(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const invalid = vi.spyOn(client, 'invalidateQueries')
+  return { ...renderRaw(<QueryClientProvider client={client}>{ui}</QueryClientProvider>), invalid }
 }
 
 function detail(status: PublicationDetail['status'], fields: Partial<PublicationDetail> = {}): PublicationDetail {
@@ -89,6 +95,30 @@ describe('PoolPreview', () => {
     )
     expect(screen.getByText('jeton expiré')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Relancer TikTok' })).toBeTruthy()
+  })
+
+  /**
+   * La relance réussie invalide **aussi** `planning-pool` : sans cette clé, la
+   * carte du vivier garde son badge « échec » jusqu'au prochain
+   * rafraîchissement, et rien dans la suite ne le disait (relevé par Copilot).
+   */
+  it('une relance réussie invalide le vivier, pas seulement le calendrier', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, statusText: '', json: async () => ({ publications: [] }) }) as Response),
+    )
+    const { invalid } = render(
+      <PoolPreview clip={clip({ statuses: { tiktok: detail('failed', { error: 'jeton expiré' }) } })} onClose={vi.fn()} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Relancer TikTok' }))
+
+    await waitFor(() => {
+      const keys = invalid.mock.calls.map(([arg]) => JSON.stringify((arg as { queryKey: unknown }).queryKey))
+      expect(keys).toContain(JSON.stringify(['planning-pool']))
+      expect(keys).toContain(JSON.stringify(['publications', 'c1']))
+    })
   })
 
   it('un rendu périmé se signale dans l’aperçu', () => {

@@ -87,7 +87,7 @@ export const keys = {
   publicationAvailability: ['publication-availability'] as const,
   /** Les publications d'un clip — voir `usePublications`. */
   publications: (clipId: string) => ['publications', clipId] as const,
-  /** Le vivier du planning : clips exportés, à jour, pas encore programmés. */
+  /** Le vivier du planning : tous les clips exportés — voir `usePlanningPool`. */
   planningPool: ['planning-pool'] as const,
   /** Le calendrier du planning entre deux bornes — voir `usePlanningSchedule`. */
   planningSchedule: (from: number, to: number) => ['planning-schedule', from, to] as const,
@@ -956,14 +956,24 @@ export function usePublisher() {
 }
 
 /**
- * Le vivier du planning — clips exportés, à jour, pas encore programmés — et
- * `pending`, ceux qui n'y sont pas faute de vidéo à jour.
+ * Le vivier du planning — tous les clips exportés, publications comprises —
+ * et `pending`, ceux qui n'y sont pas faute de vidéo à jour.
  *
- * **Pas de sondage** : rien ici ne change sans un geste de l'utilisateur,
- * contrairement à `usePublications` qui suit un envoi détaché.
+ * **Sonde tant qu'un envoi tourne**, même cadence que `usePublications` :
+ * `POST /api/clips/:id/publish` rend sur `in_progress` et téléverse détaché,
+ * donc sans ce sondage la carte reste « en cours » jusqu'au rechargement.
  */
 export function usePlanningPool() {
-  return useQuery({ queryKey: keys.planningPool, queryFn: listPlanningPool })
+  return useQuery({
+    queryKey: keys.planningPool,
+    queryFn: listPlanningPool,
+    refetchInterval: (query) =>
+      query.state.data?.clips.some((clip) =>
+        Object.values(clip.statuses).some((detail) => detail?.status === 'in_progress'),
+      )
+        ? 2_000
+        : false,
+  })
 }
 
 /** Le calendrier entre deux bornes (ms, `to` exclu). */

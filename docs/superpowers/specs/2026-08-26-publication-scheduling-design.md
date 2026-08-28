@@ -123,6 +123,7 @@ pas par réflexe.
 | **On rattrape toujours, sans fenêtre de grâce** | abandonner une échéance trop en retard |
 | Une date à l'écran, **quatre lignes** en base | une colonne `scheduledAt` sur `clips` |
 | Le vivier est une condition **d'entrée**, pas de sortie | retirer du calendrier un clip redevenu `kept` |
+| Le vivier **montre** ce qui est parti, il ne le range pas dehors | un vivier réduit à ce qui est programmable |
 | Une tâche de l'OS, **pas un démon** | un processus qui veille |
 | Un clip **par passage**, pas tous d'un coup | vider la file au premier réveil |
 
@@ -216,6 +217,33 @@ lignes `publications` : un clip réédité qui retombe en `kept` **reste
 programmé** et **part quand même** (§3). Le calendrier lit les publications,
 pas le vivier. Implémenter l'inverse — retirer du calendrier ce qui sort du
 vivier — serait une régression silencieuse.
+
+**Mise à jour du 28 août 2026 : entrer au planning et s'afficher au vivier ne
+sont plus la même question.** `GET /api/planning/pool` rendait les seuls clips
+programmables, et un clip publié sur ses quatre plateformes quittait donc
+l'écran — au-delà des cinq semaines du bandeau, plus rien ne disait ce qui
+était sorti. La route rend désormais **tous les clips `exported`**, avec
+`stale` et le détail de leurs publications, et six onglets les rangent : « À
+publier », « Programmés », « Publié », « Partiels », « Erreurs », « Tout ».
+Ils **se recoupent** — deux plateformes publiées, une en échec et une vierge
+donnent un clip présent dans trois d'entre eux —, et « déposé » y compte
+comme abouti, faute de quoi le brouillon TikTok interdirait à tout clip
+d'entrer dans « Publié ».
+
+La condition d'entrée, elle, n'a pas bougé d'un mot : elle vit dans
+`hasSchedulablePlatform` et dans le refus de `POST /api/planning/schedule`.
+Ce que la carte du vivier en montre, c'est l'absence de case à cocher sur un
+clip qui n'a plus rien à programmer. **Le prix du périmètre retenu** : un clip
+publié puis réédité repasse à `kept` (`src/server/steps/render.ts`) et quitte
+l'écran, son historique de publication avec lui.
+
+**Ce que devient `pending` (#263).** La liste de ce qui manque au vivier garde
+ses deux gardes — ni échéance `planned`, ni plateformes toutes arrêtées — mais
+sa raison `stale` recouvre désormais des clips **présents** à l'écran : un rendu
+périmé est à la fois dans `clips`, marqué « rendu périmé », et dans `pending`,
+où le bouton propose de le réencoder. Le doublon est voulu : voir l'état d'un
+clip n'est pas le réparer, et retirer les périmés de `pending` priverait le
+bouton du cas qui l'a motivé — une montée de `VERSION_FINGERPRINT`.
 
 **Ce scénario tient parce que `discardRenderStale` épargne les sorties d'un
 clip qui porte encore une échéance `planned`** (`keepScheduledOutputs`,

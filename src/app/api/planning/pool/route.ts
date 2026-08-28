@@ -1,7 +1,7 @@
 import type { Clip } from '@/core/edl'
 import { clipDuration } from '@/core/edl'
 import { composeDescription, hasSchedulablePlatform } from '@/core/publication'
-import type { PlanningPendingClip, PlanningPoolClip } from '@/lib/api'
+import type { PlanningPendingClip, PlanningPoolClip, PublicationDetail } from '@/lib/api'
 import { clipFraming } from '@/server/clip-framing'
 import { effectiveSettings, getDb, getPublications, listExportedClips, listKeptClips } from '@/server/db'
 import { json, route } from '@/server/http'
@@ -9,14 +9,14 @@ import { clipOutputs, deliveryToDay } from '@/server/renders'
 import { urlVignette } from '@/server/views'
 
 /**
- * `GET /api/planning/pool` — le vivier (spec §5.2), et ce qui lui manque.
+ * `GET /api/planning/pool` — tous les clips exportés, et ce qui manque au
+ * vivier (spec planning §5.2).
  *
- * **Entrée, pas sortie** : `exported`, rendu à jour, pas d'échéance `planned`,
- * une plateforme programmable au moins — sinon `schedulePublications` rendrait
- * un succès sans échéance (§5.1). Programmé, le clip passe au calendrier.
- *
- * **`pending` porte les deux mêmes gardes** : sans elles le bouton proposerait
- * un export sans effet visible, ce qui se lit comme une panne.
+ * **Le vivier ne filtre plus, il range** : `stale` et `statuses` partent aux
+ * six onglets du client ; l'entrée au planning ne bouge pas
+ * (`hasSchedulablePlatform`, et le refus du `POST`). **`pending` garde ses
+ * deux gardes** (#263), et un rendu périmé y est en plus de `clips` — le
+ * voir n'est pas le réparer.
  */
 export const GET = route('GET /api/planning/pool', async () => {
   const db = getDb()
@@ -25,33 +25,39 @@ export const GET = route('GET /api/planning/pool', async () => {
   const pending: PlanningPendingClip[] = []
 
   for (const clip of listExportedClips(db)) {
-    const statuses = schedulableStatuses(clip)
-    if (statuses === null) continue
     // Le même `framing` va à `deliveryToDay` et `clipOutputs` : un calcul
     // divergent leur ferait chercher les fichiers sous un autre ratio, et
     // `clipOutputs` rendrait des `null` sans lever la moindre erreur.
     const framing = clipFraming(clip, settings.framing)
-    if (!deliveryToDay(clip, framing, settings.hook)) {
-      pushWaiting(clip, 'stale')
-      continue
+    const fresh = deliveryToDay(clip, framing, settings.hook)
+    const statuses: PlanningPoolClip['statuses'] = {}
+    for (const row of getPublications(db, clip.id)) {
+      statuses[row.platform] = {
+        status: row.status,
+        error: row.error,
+        updatedAt: row.updatedAt,
+        remoteUrl: row.remoteUrl,
+      } satisfies PublicationDetail
     }
     clips.push({
       clipId: clip.id,
       projectId: clip.projectId,
       title: clip.title,
       duration: clipDuration(clip.segments),
-      // `deliveryToDay` vient d'être vérifié (ligne au-dessus) : l'affiche du
-      // rendu livré peut donc se servir même sans proxy.
-      thumbnailUrl: urlVignette(clip, true),
+      // `urlVignette(clip, true)` publie l'URL sur la seule foi de la
+      // livraison : sur un rendu périmé elle mène à un 404, là où le repli sur
+      // le proxy donne une affiche qui existe.
+      thumbnailUrl: urlVignette(clip, fresh),
       description: composeDescription(clip, { footer: settings.publication.descriptionFooter }),
       outputs: clipOutputs(clip, framing, settings.hook),
       statuses,
+      stale: !fresh,
     })
+    if (!fresh && schedulable(clip)) pushWaiting(clip, 'stale')
   }
 
   for (const clip of listKeptClips(db)) {
-    if (schedulableStatuses(clip) === null) continue
-    pushWaiting(clip, 'missing')
+    if (schedulable(clip)) pushWaiting(clip, 'missing')
   }
 
   // Les deux listes se concatènent, donc l'ordre lexicographique que chaque
@@ -65,12 +71,11 @@ export const GET = route('GET /api/planning/pool', async () => {
     if (entry !== null) pending.push(entry)
   }
 
-  /** Les statuts du clip, ou `null` si plus rien n'est programmable pour lui. */
-  function schedulableStatuses(clip: Clip): PlanningPoolClip['statuses'] | null {
+  /** Reste-t-il quelque chose à programmer pour ce clip ? */
+  function schedulable(clip: Clip): boolean {
     const rows = getPublications(db, clip.id)
-    if (rows.some((row) => row.status === 'planned')) return null
-    const statuses = Object.fromEntries(rows.map((row) => [row.platform, row.status]))
-    return hasSchedulablePlatform(statuses) ? statuses : null
+    if (rows.some((row) => row.status === 'planned')) return false
+    return hasSchedulablePlatform(Object.fromEntries(rows.map((row) => [row.platform, row.status])))
   }
 })
 

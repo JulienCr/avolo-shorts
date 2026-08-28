@@ -4,21 +4,27 @@ import { Film, Play } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
 
+import { aggregatePublicationStatus, PLANNING_AGGREGATE_LABELS, statusesOnly } from '@/core/planning'
+import { hasSchedulablePlatform, PLATFORMS } from '@/core/publication'
 import type { PlanningPoolClip } from '@/lib/api'
 import { formatDuration } from '@/lib/format'
 import { linkClip } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { AGGREGATE_BADGE_VARIANT, StaleRenderBadge } from '@/components/planning/publication-detail'
 import { formatShowOrigin } from '@/components/planning/texts'
 
 /**
- * Une carte du vivier : vignette, case de sélection, et deux actions.
+ * Une carte du vivier : vignette, état de publication, et deux actions.
  *
  * **Les deux boutons restent dans le DOM et focusables sans survol** — « une
  * bulle qui n'apparaît qu'au survol est invisible au clavier »
- * (`candidate-card.tsx`). Seule leur opacité suit le survol, le focus dans la
- * carte, et l'absence de survol (tactile, `hoverless:`).
+ * (`candidate-card.tsx`). Seule leur opacité suit le survol et le focus.
+ *
+ * **La case ne s'affiche que sur un clip programmable** : sans plateforme
+ * libre, `POST /api/planning/schedule` rend 400.
  */
 export function PoolCard({
   clip,
@@ -37,6 +43,15 @@ export function PoolCard({
   onFocus: () => void
 }) {
   const tabIndex = current ? 0 : -1
+  const statuses = statusesOnly(clip.statuses)
+  const schedulable = hasSchedulablePlatform(statuses)
+  // `aggregatePublicationStatus` n'agrège que les lignes reçues : sur un objet
+  // vide il rend `'planned'`, et sur un clip parti vers une seule plateforme
+  // il rend `'published'`. Une plateforme sans ligne n'est pas partie.
+  const rows = Object.keys(clip.statuses).length
+  const reduced = rows > 0 ? aggregatePublicationStatus(statuses) : null
+  const claimsDone = reduced === 'published' || reduced === 'submitted'
+  const aggregate = claimsDone && rows < PLATFORMS.length ? 'partial' : reduced
 
   return (
     <article
@@ -60,17 +75,19 @@ export function PoolCard({
           </span>
         </div>
 
-        <div className="absolute top-2 left-2 z-10">
-          <Checkbox
-            checked={selected}
-            tabIndex={tabIndex}
-            onCheckedChange={() => {
-              onToggle()
-              onFocus()
-            }}
-            aria-label={`Sélectionner « ${clip.title || clip.clipId} »`}
-          />
-        </div>
+        {schedulable && (
+          <div className="absolute top-2 left-2 z-10">
+            <Checkbox
+              checked={selected}
+              tabIndex={tabIndex}
+              onCheckedChange={() => {
+                onToggle()
+                onFocus()
+              }}
+              aria-label={`Sélectionner « ${clip.title || clip.clipId} »`}
+            />
+          </div>
+        )}
 
         {/* Centré, pas ancré à un coin : à sept colonnes le bandeau ancré à
             droite chevauchait la case (mesuré : −54 px). `pointer-events-none`
@@ -101,8 +118,18 @@ export function PoolCard({
         </div>
       </div>
 
-      <div className="p-3">
+      <div className="flex flex-col gap-1.5 p-3">
         <p className="line-clamp-2 text-sm font-medium">{clip.title || clip.clipId}</p>
+        {(aggregate !== null || clip.stale) && (
+          <div className="flex flex-wrap gap-1.5">
+            {aggregate !== null && (
+              <Badge variant={AGGREGATE_BADGE_VARIANT[aggregate]} className="w-fit">
+                {PLANNING_AGGREGATE_LABELS[aggregate]}
+              </Badge>
+            )}
+            {clip.stale && <StaleRenderBadge />}
+          </div>
+        )}
       </div>
     </article>
   )

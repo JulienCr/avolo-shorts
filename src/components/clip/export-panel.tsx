@@ -138,7 +138,12 @@ export function OutputsList({
 
       <li className="flex flex-wrap items-baseline gap-x-2">
         <span className="font-mono text-[0.75rem]">{names.texts}</span>
-        <span className="text-[0.75rem] text-muted-foreground">titre, description, mots-dièse</span>
+        <span className="text-[0.75rem] text-muted-foreground">
+          titre, description, mots-dièse
+          {/* Pas de `textsDue` : un export écrit ce fichier à chaque passage,
+              donc `textsUrl === null` seul veut dire « pas encore produit ». */}
+          {outputs.textsUrl === null && ' — pas encore produit'}
+        </span>
       </li>
     </ul>
   )

@@ -139,6 +139,33 @@ describe('OutputsList', () => {
     )
     expect(screen.queryByText(/pas encore produite/i)).toBeNull()
   })
+
+  /** La ligne des textes, scopée par le nom du fichier — sinon la ligne de
+   *  la variante (« … pas encore produite ») fausse la recherche. */
+  function textsRow(): string {
+    return screen.getByText('c1.txt').nextElementSibling?.textContent ?? ''
+  }
+
+  it('dit que le fichier de textes manque encore, sans `textsDue` — il est toujours dû', () => {
+    // Contrairement au natif et à la variante, rien ne garde un `textsDue` :
+    // l'export écrit ce fichier à chaque passage, donc `textsUrl === null`
+    // seul dit qu'il n'est pas encore produit.
+    const names = outputNames('c1', '1:1')
+    render(<OutputsList names={names} native="1:1" outputs={{ ...nothingIsProduced, textsUrl: null }} />)
+    expect(textsRow()).toContain('pas encore produit')
+  })
+
+  it('ne dit rien de plus une fois le fichier de textes livré', () => {
+    const names = outputNames('c1', '1:1')
+    render(
+      <OutputsList
+        names={names}
+        native="1:1"
+        outputs={{ ...nothingIsProduced, textsUrl: '/api/clips/c1/renders/c1.txt' }}
+      />,
+    )
+    expect(textsRow()).not.toContain('pas encore produit')
+  })
 })
 
 describe('FieldCopyable', () => {

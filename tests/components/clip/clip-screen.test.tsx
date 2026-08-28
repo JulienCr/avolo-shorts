@@ -869,3 +869,82 @@ describe('l’état périmé', () => {
     )
   })
 })
+
+describe('la raison d’un primaire désactivé', () => {
+  it('se lit dans la barre, et le bouton s’y lie par aria-describedby', async () => {
+    await mount('c2', detail('c2', []))
+
+    const button = screen.getByRole('button', { name: /exporter/i })
+    const describedBy = button.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+
+    const reason = document.getElementById(describedBy as string)
+    expect(reason?.textContent).toMatch(/rien à rendre/i)
+  })
+})
+
+describe('l’indicateur d’un export en cours', () => {
+  it('marque le primaire aria-busy pendant que le rendu tourne', async () => {
+    let release: (r: Response) => void = () => {}
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'POST' && String(url).includes('/export')) {
+        return new Promise<Response>((resolve) => {
+          release = resolve
+        })
+      }
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    await mount('c2')
+
+    fireEvent.click(screen.getByRole('button', { name: /exporter/i }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /exporter/i }).getAttribute('aria-busy')).toBe(
+        'true',
+      ),
+    )
+    expect(screen.getByText(/rendu en cours/i)).toBeTruthy()
+
+    release(response({ mp4: null, variant9x16: 'c2-9x16.mp4', texts: 'c2.txt', skipped: false }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /exporter/i }).getAttribute('aria-busy'),
+      ).toBeNull(),
+    )
+  })
+})
+
+describe('l’annonce de réussite', () => {
+  function exportFetch(skipped: boolean) {
+    return vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'POST' && String(url).includes('/export')) {
+        return response({ mp4: null, variant9x16: 'c2-9x16.mp4', texts: 'c2.txt', skipped })
+      }
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(detail('c2'))
+    })
+  }
+
+  it('dit qu’un rendu sauté est une réussite, pas un échec', async () => {
+    vi.stubGlobal('fetch', exportFetch(true))
+    await mount('c2')
+
+    fireEvent.click(screen.getByRole('button', { name: /exporter/i }))
+    expect(await screen.findByText(/rien n’a été refait/i)).toBeTruthy()
+    expect(screen.queryByText(/^rendu terminé\.$/i)).toBeNull()
+  })
+
+  it('distingue un rendu qui a vraiment eu lieu', async () => {
+    vi.stubGlobal('fetch', exportFetch(false))
+    await mount('c2')
+
+    fireEvent.click(screen.getByRole('button', { name: /exporter/i }))
+    expect(await screen.findByText(/^rendu terminé\.$/i)).toBeTruthy()
+    expect(screen.queryByText(/rien n’a été refait/i)).toBeNull()
+  })
+})

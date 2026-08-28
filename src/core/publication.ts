@@ -396,16 +396,12 @@ export function wordsHash(text: string): string[] {
 /**
  * Le `.txt` qui accompagne le MP4 : titre, description, mots-dièse.
  *
- * Fait pour être **copié**, pas analysé — trois sections nommées, dans l'ordre
- * où on les colle. Il servait à publier à la main avant que la publication
- * n'entre dans l'outil (18 août 2026) ; il reste pour les réseaux qu'on ne
- * branche pas et pour le rattrapage quand une plateforme refuse. **Il n'est
- * pas une source à part** : sa description passe par `composeDescription`,
- * la même fonction que `platformTexts`, pied de page compris.
+ * Fait pour être **copié**, pas analysé. Il reste pour les réseaux qu'on ne
+ * branche pas et le rattrapage manuel. **Pas une source à part** : sa
+ * description passe par `composeDescription`, comme `platformTexts`.
  *
  * Les mots-dièse ne sont pas retirés de la description, ils en sont extraits :
- * elle se colle telle quelle dans le formulaire d'Instagram, et la section du
- * bas n'existe que pour les reprendre ailleurs sans les retaper.
+ * elle se colle telle quelle, et la section du bas ne fait que les reprendre.
  */
 export function publicationText(
   clip: Pick<Clip, 'title' | 'description' | 'footer'>,

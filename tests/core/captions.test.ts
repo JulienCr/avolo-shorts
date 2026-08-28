@@ -477,10 +477,11 @@ describe('la coupure de ligne stable au sein d’un carton', () => {
     { word: 'three', start: 1.0, end: 1.4 },
     { word: 'four', start: 1.5, end: 1.9 },
   ]
-  // Choisie pour placer le carton pile à la frontière : "ONE TWO THREE" tient
-  // sous `maxWidth`, "ONE TWO THREE FOUR" la dépasse de peu.
+  // Choisie pour placer le carton pile à la frontière une fois `renderAss`
+  // passé par `CANVAS_TO_REAL_WIDTH_FACTOR` et les marges de pic : "ONE TWO
+  // THREE" tient sous `maxWidth`, "ONE TWO THREE FOUR" la dépasse de peu.
   const maxWidth = PLAYRES_X - 2 * MARGIN_SIDE
-  const boundaryMeasure: Measure = (text) => (text.length * maxWidth) / 17
+  const boundaryMeasure: Measure = (text) => (text.length * maxWidth) / 23
 
   /** Le texte d'un événement, débarrassé de ses balises ASS, en lignes de mots. */
   function partition(dialogue: string): string[][] {
@@ -536,6 +537,22 @@ describe('la coupure de ligne stable au sein d’un carton', () => {
     const ass = renderAss([card], DEFAULT_CAPTION_STYLE, byLength)
     const events = dialogues(ass)
     for (const e of events) expect(textOf(e)).toContain('\\N')
+  })
+
+  // `ctx.measureText` (Anton) sous-estime la largeur réellement rendue par
+  // libass d'environ 37 %, mesuré sur `scripts/measure-caption-wrap-stability.ts`
+  // (débordement réel observé et corrigé). Une ligne que le calcul brut
+  // laisserait passer déborderait donc en pratique sans `CANVAS_TO_REAL_WIDTH_FACTOR`.
+  it('coupe une ligne que la seule mesure canvas laisserait passer sous le seuil réel', () => {
+    const card = [
+      { word: 'aaaa', start: 0, end: 0.4 },
+      { word: 'bbbb', start: 0.5, end: 0.9 },
+    ]
+    // Mesure brute volontairement sous le seuil (0,83×maxWidth) : sans la
+    // calibration, aucune coupure n'aurait lieu.
+    const rawMeasure: Measure = (text) => (text.length * maxWidth) / (9 / 0.833)
+    const ass = renderAss([card], DEFAULT_CAPTION_STYLE, rawMeasure)
+    expect(textOf(dialogues(ass)[0])).toContain('\\N')
   })
 })
 

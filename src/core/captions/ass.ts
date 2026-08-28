@@ -133,6 +133,18 @@ export const PLAYRES_Y = 288
 export const PLAYRES_X = 384
 
 /**
+ * `ctx.measureText` (Anton, `@napi-rs/canvas`) sous-estime systématiquement
+ * la largeur que le ffmpeg statique de production rend réellement (Copilot,
+ * PR #249). Mesuré le 28 août 2026 sur trois textes de longueurs différentes,
+ * en comparant la mesure canvas à l'étendue horizontale réelle d'un rendu
+ * ffmpeg+libass sur fond noir (bord actif hors ligne, coordonnées non
+ * ambiguës) : écart de 35 à 37 %, stable — d'où 1,4, arrondi au-dessus par
+ * prudence plutôt qu'à la valeur mesurée. Non revérifié à d'autres tailles de
+ * police que le défaut (22, `sizeUnits` 18) ; suivi en #257.
+ */
+const CANVAS_TO_REAL_WIDTH_FACTOR = 1.4
+
+/**
  * Taille de police, marge basse et épaisseur de contour dans les unités
  * `PlayResY` que `renderAss` écrit telles quelles.
  *
@@ -348,11 +360,17 @@ export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure
     // libass trace — pas le mot brut du transcript.
     const displayWords = card.map((w) => (style.uppercase ? escape(w.word).toUpperCase() : escape(w.word)))
 
+    // `calibrated` corrige le sous-comptage canvas-vs-libass avant toute autre
+    // marge — voir `CANVAS_TO_REAL_WIDTH_FACTOR`.
+    const calibrated: Measure = (text) => measure(text) * CANVAS_TO_REAL_WIDTH_FACTOR
+
     // Marge anti-débordement pour le pic `ACTIVE_WORD_PEAK_SCALE` de `wordActive` :
     // prise sur `displayWords` tel quel, jamais rescindé sur l'espace — un `Word`
     // peut en porter un interne (`cards.ts`), et l'entrée entière grossit d'un bloc.
-    const activeWordMargin = Math.max(...displayWords.map(measure)) * (ACTIVE_WORD_PEAK_SCALE - 1)
-    const measureAtPeak: Measure = (text) => measure(text) + activeWordMargin
+    const activeWordMargin = Math.max(...displayWords.map(calibrated)) * (ACTIVE_WORD_PEAK_SCALE - 1)
+    // `ctx.measureText` ne rend que l'avance du glyphe, pas le contour que
+    // `thickness` (`Outline:`) fait dessiner de chaque côté de la ligne.
+    const measureAtPeak: Measure = (text) => calibrated(text) + activeWordMargin + 2 * thickness
     const breakAfter = wrapCard(displayWords, measureAtPeak, maxWidth)
 
     for (let i = 0; i < card.length; i++) {

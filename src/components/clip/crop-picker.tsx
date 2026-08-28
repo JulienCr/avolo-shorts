@@ -29,25 +29,26 @@ const NOT_FAST = 0.05
 /**
  * Pourquoi le curseur de cadrage ne déplace rien, ou `null` quand il déplace.
  *
- * Quatre causes cumulables, dans l'ordre où elles priment : le plan est
- * splitté (deux cellules, pas de crop unique) ; le plan est un montage
- * doublage (film et incrustation, pas de crop unique non plus) ; le cadrage
- * est calculé (la dérogation par plan qui rendrait le curseur utile n'existe
- * pas encore, §9.4) ; ou le cadre couvre toute la source (16:9, rien à
- * déplacer). `CropOverlay` et `RatioPicker` l'appellent tous deux, pour ne
- * jamais rendre deux textes différents pour la même cause.
+ * Trois causes cumulables, dans l'ordre où elles priment : le plan est
+ * splitté (deux cellules, pas de crop unique) ; le cadrage est calculé (la
+ * dérogation par plan qui rendrait le curseur utile n'existe pas encore,
+ * §9.4) ; ou le cadre couvre toute la source (16:9, rien à déplacer).
+ * `CropOverlay` et `RatioPicker` l'appellent tous deux, pour ne jamais rendre
+ * deux textes différents pour la même cause.
+ *
+ * **Pas de cause « montage doublage » ici** : le rendu ignore encore
+ * `shot.dubbing` (§9 du parcours, pas encore raccordé) et continue de
+ * produire sa sortie depuis ce même crop. Le figer donnerait un texte qui
+ * contredit ce que l'export fait réellement — à réintroduire quand le
+ * raccord du renderer livre, pas avant (revue Copilot, PR #254).
  */
 export function frozenCropReason(
   framing: PublishedFraming,
   effective: Ratio,
   split = false,
-  dubbing = false,
 ): string | null {
   if (split) {
     return 'Ce plan pose deux personnes en deux cellules empilées (split-screen) : il n’y a pas un seul crop à déplacer.'
-  }
-  if (dubbing) {
-    return 'Ce plan pose un montage doublage (film et incrustation) : il n’y a pas un seul crop à déplacer.'
   }
   const computed = isComputedFraming(framing)
   const fullWidth = cropWidthFraction(effective) >= 1
@@ -131,7 +132,6 @@ export function CropOverlay({
 
   const effective = effectiveRatio(shot, ratio)
   const split = activeSplit(shot, framing, ratio)
-  const dubbing = shot?.dubbing !== undefined
   const position = automatic ? (shot?.cropX ?? 0.5) : cropX
   const width = cropWidthFraction(effective)
   const left = cropLeftFraction(position, width)
@@ -143,7 +143,7 @@ export function CropOverlay({
   // La même énumération que celle qu'affiche `RatioPicker`, appelée plutôt que
   // recopiée : deux conditions parallèles finissent par diverger, et le jour où
   // elles divergent le rectangle décrit un texte qui n'est plus rendu.
-  const reason = frozenCropReason(framing, effective, split, dubbing)
+  const reason = frozenCropReason(framing, effective, split)
 
   function pointerFraction(clientX: number): number | null {
     const rect = frame.current?.getBoundingClientRect()
@@ -324,7 +324,6 @@ export function RatioPicker({
   const shot = useCurrentShot(framing)
   const effective = effectiveRatio(shot, ratio)
   const split = activeSplit(shot, framing, ratio)
-  const dubbing = shot?.dubbing !== undefined
   const anySplit = anyShotSplit(framing)
   const origin = originMessage(framing)
   const varied = ratio === 'auto' ? shotRatios(framing) : []
@@ -342,7 +341,7 @@ export function RatioPicker({
   const nativeRatio = ratio === 'auto' ? framing.ratio : ratio
   // La variante n'existe que si le natif n'est pas déjà vertical (spec §11).
   const variantDue = nativeRatio !== '9:16'
-  const cropReason = frozenCropReason(framing, effective, split, dubbing)
+  const cropReason = frozenCropReason(framing, effective, split)
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

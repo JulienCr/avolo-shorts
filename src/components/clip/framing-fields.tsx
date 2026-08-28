@@ -61,6 +61,7 @@ export function FramingFields({
   const resolved: FramingSettings = { ...(globals ?? FRAMING_SETTINGS_DEFAULTS), ...clip.framingStyle }
   const overrideCount = NUMERIC_KEYS.filter((field) => hasOverrideOf(clip, field)).length
   const hasOverride = Object.keys(clip.framingStyle).length > 0
+  const dubbingLayoutGloballyOn = (globals ?? FRAMING_SETTINGS_DEFAULTS).dubbingLayout
 
   const { setStyle, resetField, resetAll } = useStyleWrites(
     clip.framingStyle,
@@ -90,8 +91,13 @@ export function FramingFields({
         <Checkbox
           id={`${identifier}-dubbing`}
           checked={resolved.dubbingLayout}
-          disabled={loading}
-          onCheckedChange={(value) => setStyle('dubbingLayout', value === true)}
+          disabled={loading || !dubbingLayoutGloballyOn}
+          onCheckedChange={(value) =>
+            // La surcharge ne peut que désactiver (§1 du contrat) : cocher
+            // revient à l'héritage plutôt que d'écrire `true`, que le schéma
+            // du serveur rejetterait de toute façon (`z.literal(false)`).
+            value === true ? resetField('dubbingLayout') : setStyle('dubbingLayout', false)
+          }
         />
         <Label htmlFor={`${identifier}-dubbing`} className="text-[0.75rem] font-normal">
           Montage doublage

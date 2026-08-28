@@ -1342,7 +1342,10 @@ function readHookStyle(raw: string, clipId: string): Partial<HookSettings> {
  */
 export const FRAMING_STYLE_SHAPE = {
   splitScreen: z.boolean(),
-  dubbingLayout: z.boolean(),
+  // Littéral, pas `z.boolean()` : la surcharge par clip ne peut que
+  // désactiver (§1 du contrat), jamais réactiver là où le défaut global
+  // est éteint — `true` violerait cette asymétrie au niveau de l'API.
+  dubbingLayout: z.literal(false),
   splitMinShotMs: z
     .number()
     .int()

@@ -1790,9 +1790,9 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   // Calculé une seule fois pour tout le passage : la décision de saut s'en
   // sert ici, et l'écriture du `.ass` plus bas réutilise le même document
   // plutôt que de relire le transcript une seconde fois.
-  // Même repère que `Style:` dans le fichier ASS : `fontName` et
-  // `captionUnits(...).sizeUnits`. Construite seulement ici : un clip sans
-  // sous-titres n'a pas besoin de relire ni d'enregistrer la police.
+
+  // `createCaptionMeasure` construite seulement ici, jamais pour un clip sans
+  // sous-titres, avec le même repère que `Style:` (`fontName`, `sizeUnits`).
   const textCurrent: string | null = clip.captions
     ? await currentCaptionsDocument(
         clip,

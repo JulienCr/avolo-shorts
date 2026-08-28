@@ -519,19 +519,15 @@ describe('la coupure de ligne stable au sein d’un carton', () => {
   })
 
   // `splitIntoCards` (`cards.ts`) laisse un `Word` porter un espace interne —
-  // « TWO THREE » ci-dessous est **une** entrée de `card`, pas deux. Une marge
-  // de pic calculée en rescindant le texte sur l'espace sous-estime la largeur
-  // de ce bloc, qui grossit pourtant d'un seul tenant sous `wordActive` : elle
-  // laisserait passer une ligne que la marge correcte, elle, coupe (Copilot).
+  // « TWO THREE » est **une** entrée, pas deux. Rescinder sur l'espace pour la
+  // marge de pic sous-estimerait ce bloc, qui grossit d'un seul tenant (Copilot).
   it('prend la marge de pic sur le mot entier, espace interne compris', () => {
     const card = [
       { word: 'one', start: 0, end: 0.4 },
       { word: 'two three', start: 0.5, end: 0.9 },
     ]
-    // Échelle choisie pour que « ONE TWO THREE » (13) plus la marge du bloc
-    // entier « TWO THREE » (9 × 0,08) dépasse `maxWidth`, alors que la marge
-    // sous-estimée sur « THREE » seul (5 × 0,08) non — la même arithmétique
-    // que documentée sur `activeWordMargin`.
+    // « ONE TWO THREE » (13) + la marge du bloc entier « TWO THREE » (9 × 0,08)
+    // dépasse `maxWidth` ; la marge sous-estimée sur « THREE » seul (5 × 0,08) non.
     const scale = maxWidth / 13.5
     const byLength: Measure = (text) => text.length * scale
     const ass = renderAss([card], DEFAULT_CAPTION_STYLE, byLength)
@@ -539,10 +535,8 @@ describe('la coupure de ligne stable au sein d’un carton', () => {
     for (const e of events) expect(textOf(e)).toContain('\\N')
   })
 
-  // `ctx.measureText` (Anton) sous-estime la largeur réellement rendue par
-  // libass d'environ 37 %, mesuré sur `scripts/measure-caption-wrap-stability.ts`
-  // (débordement réel observé et corrigé). Une ligne que le calcul brut
-  // laisserait passer déborderait donc en pratique sans `CANVAS_TO_REAL_WIDTH_FACTOR`.
+  // `ctx.measureText` sous-estime d'~37 % la largeur réelle rendue par libass
+  // (débordement mesuré et corrigé, voir `CANVAS_TO_REAL_WIDTH_FACTOR`).
   it('coupe une ligne que la seule mesure canvas laisserait passer sous le seuil réel', () => {
     const card = [
       { word: 'aaaa', start: 0, end: 0.4 },

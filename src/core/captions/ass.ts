@@ -20,12 +20,7 @@
  * (`src/server/hook-image.ts`), pas par un second document ASS — un fond plein
  * à coins arrondis n'était pas atteignable avec `BorderStyle: 3`. Ces dix
  * symboles redeviennent internes à ce module, `renderAss` restant seul export
- * de rendu.
- *
- * **Exception : `fontName` est réexportée**, pour `src/server/caption-measure.ts`
- * — elle doit nettoyer le même nom que celui écrit dans `Style:` avant de le
- * passer à `ctx.font`, sous peine de mesurer une police que libass ne chargera
- * jamais.
+ * de rendu — sauf `fontName`, réexportée pour `src/server/caption-measure.ts`.
  */
 
 import type { Word } from '@/core/transcript'
@@ -133,14 +128,9 @@ export const PLAYRES_Y = 288
 export const PLAYRES_X = 384
 
 /**
- * `ctx.measureText` (Anton, `@napi-rs/canvas`) sous-estime systématiquement
- * la largeur que le ffmpeg statique de production rend réellement (Copilot,
- * PR #249). Mesuré le 28 août 2026 sur trois textes de longueurs différentes,
- * en comparant la mesure canvas à l'étendue horizontale réelle d'un rendu
- * ffmpeg+libass sur fond noir (bord actif hors ligne, coordonnées non
- * ambiguës) : écart de 35 à 37 %, stable — d'où 1,4, arrondi au-dessus par
- * prudence plutôt qu'à la valeur mesurée. Non revérifié à d'autres tailles de
- * police que le défaut (22, `sizeUnits` 18) ; suivi en #257.
+ * `ctx.measureText` (Anton) sous-estime de 35-37 % la largeur réellement
+ * rendue par libass — mesuré le 28 août 2026 sur trois textes (Copilot,
+ * PR #249). 1,4 arrondit au-dessus par prudence. Suivi (autres tailles) : #260.
  */
 const CANVAS_TO_REAL_WIDTH_FACTOR = 1.4
 
@@ -265,7 +255,8 @@ function escape(text: string): string {
  *
  * Une virgule y ajouterait des champs à la ligne `Style:`, donc réécrirait la
  * taille, les couleurs et la marge qui la suivent ; une accolade ou un antislash
- * y ouvriraient des balises.
+ * y ouvriraient des balises. Réexportée pour `caption-measure.ts`, qui doit
+ * nettoyer le même nom avant de le passer à `ctx.font`.
  */
 export function fontName(name: string): string {
   const clean = String(name ?? '')

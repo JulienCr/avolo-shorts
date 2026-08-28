@@ -62,9 +62,9 @@ export function PoolGrid({
   const visible = filterPool(clips, filter)
   const restricting = restriction.projectId !== null || restriction.search.trim() !== ''
   const active = visible.some((c) => c.clipId === current) ? current : (visible[0]?.clipId ?? null)
-  // Un id sélectionné qui a quitté `clips` (planning programmé, rendu périmé
-  // exclu) n'est pas « masqué par le filtre » : ne compter que ceux encore
-  // présents dans le vivier (relevé par Copilot).
+  // Un id sélectionné qui a quitté `clips` (clip réédité, redevenu `kept`)
+  // n'est pas « masqué par le filtre » : ne compter que ceux encore présents
+  // dans le vivier (relevé par Copilot).
   const hiddenSelectedCount = [...selected].filter(
     (id) => clips.some((c) => c.clipId === id) && !visible.some((c) => c.clipId === id),
   ).length

@@ -131,7 +131,7 @@ describe('matchesPoolView', () => {
    * trouve aucun ne disparaît pas avec un message, il disparaît en silence :
    * c'est le défaut que cet exhaustif attrape.
    */
-  it('couvre toutes les combinaisons de statuts sur deux plateformes', () => {
+  it('couvre les 1296 combinaisons de statuts sur les quatre plateformes', () => {
     const named = POOL_VIEWS.filter((v) => v.value !== 'all')
     const values: (PublicationStatus | undefined)[] = [
       undefined,
@@ -141,18 +141,27 @@ describe('matchesPoolView', () => {
       'published',
       'failed',
     ]
+    // Les quatre, pas trois : `youtube` toujours absent laissait
+    // `hasSchedulablePlatform` vrai, donc « à publier » attrapait tout —
+    // le cas où les quatre portent un statut n'était jamais éprouvé.
+    let cases = 0
     for (const first of values) {
       for (const second of values) {
         for (const third of values) {
-          const map: Partial<Record<Platform, PublicationStatus>> = {}
-          if (first !== undefined) map.instagram = first
-          if (second !== undefined) map.facebook = second
-          if (third !== undefined) map.tiktok = third
-          const hit = named.filter(({ value }) => matchesPoolView(map, value))
-          expect(hit.length, JSON.stringify(map)).toBeGreaterThan(0)
+          for (const fourth of values) {
+            const map: Partial<Record<Platform, PublicationStatus>> = {}
+            if (first !== undefined) map.instagram = first
+            if (second !== undefined) map.facebook = second
+            if (third !== undefined) map.tiktok = third
+            if (fourth !== undefined) map.youtube = fourth
+            const hit = named.filter(({ value }) => matchesPoolView(map, value))
+            expect(hit.length, JSON.stringify(map)).toBeGreaterThan(0)
+            cases += 1
+          }
         }
       }
     }
+    expect(cases).toBe(values.length ** PLATFORMS.length)
   })
 })
 

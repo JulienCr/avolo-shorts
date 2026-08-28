@@ -3,7 +3,8 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 
 import type { Clip } from '@/core/edl'
-import { posterArgs, thumbArgs } from '@/core/ffmpeg/args'
+import { filmstripArgs, posterArgs, thumbArgs } from '@/core/ffmpeg/args'
+import { clipBounds } from '@/lib/editing'
 import type { PublishedFraming } from '@/lib/api'
 import { isAAbsence } from '@/server/bytes'
 import { getClip, getDb } from '@/server/db'
@@ -55,6 +56,14 @@ export function posterPath(projectId: string, clipId: string): string {
   return path.join(projectDir(projectId), 'thumbs', `${verifyIdClip(clipId)}.render.jpg`)
 }
 
+/** Le nombre de vues d'une planche. Douze : 43 Ko et 0,44 s, mesurés le 28 août 2026. */
+export const FILMSTRIP_COUNT = 12
+
+/** `projects/<projet>/thumbs/<clip>.strip.jpg`. */
+export function filmstripPath(projectId: string, clipId: string): string {
+  return path.join(projectDir(projectId), 'thumbs', `${verifyIdClip(clipId)}.strip.jpg`)
+}
+
 /**
  * L'instant où prendre l'image : le début du premier segment.
  *
@@ -100,6 +109,51 @@ export async function vignette(clip: Clip): Promise<string | null> {
     })
     const toDay = getClip(getDb(), clip.id)
     if (toDay !== undefined && momentVignette(toDay) !== moment) {
+      await fsp.rm(temporary, { force: true }).catch(() => {})
+      return null
+    }
+    await fsp.rename(temporary, destination)
+  } catch (cause) {
+    await fsp.rm(temporary, { force: true }).catch(() => {})
+    throw cause
+  }
+  return destination
+}
+
+/**
+ * La planche d'un clip : douze vues tuilées sur toute sa durée, gardée sur
+ * disque comme `vignette` ci-dessus — même garde-fou, même relecture avant
+ * renommage (relevé par Copilot).
+ *
+ * `null` sans proxy, ou quand `clipBounds` n'a rien à couvrir : un clip vidé de
+ * ses segments n'a pas de durée à tuiler.
+ */
+export async function filmstrip(clip: Clip): Promise<string | null> {
+  const proxy = proxyPath(clip.projectId)
+  if (!fs.existsSync(proxy)) return null
+
+  const bounds = clipBounds(clip.segments)
+  if (bounds === null) return null
+
+  const destination = filmstripPath(clip.projectId, clip.id)
+  if (fs.existsSync(destination)) return destination
+
+  await fsp.mkdir(path.dirname(destination), { recursive: true })
+  const temporary = pathTemporary(destination)
+  try {
+    await runFfmpeg(
+      filmstripArgs({
+        src: proxy,
+        dst: temporary,
+        at: bounds.start,
+        duration: bounds.end - bounds.start,
+        count: FILMSTRIP_COUNT,
+      }),
+      { what: `planche de ${clip.id}` },
+    )
+    const toDay = getClip(getDb(), clip.id)
+    const boundsToDay = toDay === undefined ? null : clipBounds(toDay.segments)
+    if (boundsToDay === null || boundsToDay.start !== bounds.start || boundsToDay.end !== bounds.end) {
       await fsp.rm(temporary, { force: true }).catch(() => {})
       return null
     }

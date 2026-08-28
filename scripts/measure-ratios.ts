@@ -2,7 +2,7 @@
  * Le ratio que le cadrage automatique choisit, clip par clip, sur plusieurs
  * émissions — et ce que ses deux réglages d'empan lui coûtent.
  *
- *     pnpm tsx scripts/mesure-ratios.ts 2025-06-15-cqlp 2026-03-08-caro-mdlm
+ *     pnpm tsx scripts/measure-ratios.ts 2025-06-15-cqlp 2026-03-08-caro-mdlm
  *
  * **La question à laquelle ce script répond.** Sur `2025-06-15-cqlp`, les dix
  * clips réels sortent tous en 16:9, avant comme après le filtre du public au
@@ -13,7 +13,7 @@
  * se déclenche jamais. Départager demande la répartition des ratios sur une
  * émission sans chat incrusté, et personne ne l'avait mesurée.
  *
- * `scripts/mesure-premier-plan.ts` répond à une autre question — *ce que le
+ * `scripts/measure-foreground.ts` répond à une autre question — *ce que le
  * filtre écarte* — et compare pour ça trois réglages du filtre sur une seule
  * émission. Celui-ci laisse le filtre à son défaut et compare des **émissions**,
  * puis des **marges**. Les deux se recoupent sur une ligne, la répartition des
@@ -71,7 +71,7 @@
  * Et `--instants N` imprime, par clip, les N images qui **font monter le ratio** :
  * les plus larges après filtrage, une par plan au plus, parce que le crop est
  * fixe à l'intérieur d'un plan et que deux images du même plan ont le même
- * cadrage à expliquer. La ligne à passer à `vignettes-premier-plan.ts` est
+ * cadrage à expliquer. La ligne à passer à `foreground-thumbnails.ts` est
  * imprimée avec — un chiffre ne dit pas si les comédiens sont *vraiment* aux deux
  * bords, et sur ce sujet le dépôt s'est déjà trompé une fois en ne regardant que
  * des histogrammes.
@@ -1005,7 +1005,7 @@ function sweepTorsoPadding(
  *
  * Une image par plan au plus, parce que les images voisines partagent le même
  * crop et racontent donc la même chose ; même règle que `--large` de
- * `vignettes-premier-plan.ts`, pour la même raison.
+ * `foreground-thumbnails.ts`, pour la même raison.
  */
 function momentsWhichWiden(cut: Cut, analysis: Analysis, n: number): number[] {
   const segments = normalizeSegments(cut.segments)
@@ -1062,7 +1062,7 @@ function momentsWhichWiden(cut: Cut, analysis: Analysis, n: number): number[] {
       if (span === undefined || kept.length === 0) return undefined
       const required = kept.map((b) => personBounds(b, opts()))
       // Bornées des deux côtés, comme `measurements` de `framing.ts` et `extent` de
-      // `vignettes-cadrage.ts`. C'est le troisième exemplaire du même défaut, et
+      // `framing-thumbnails.ts`. C'est le troisième exemplaire du même défaut, et
       // le seul que les deux premiers correctifs avaient laissé : un tronc
       // entièrement hors cadre donnait `g = 0` avec `d < 0`, donc un
       // `output` inventé qui remontait l'image en tête du classement — dans la
@@ -1107,7 +1107,7 @@ function whereRegarder(show: Show, n: number): void {
   }
   if (all.length === 0) return
   console.log(
-    `\n    pnpm tsx scripts/vignettes-premier-plan.ts ${show.id} ` +
+    `\n    pnpm tsx scripts/foreground-thumbnails.ts ${show.id} ` +
       `${all.map((t) => t.toFixed(1)).join(' ')} --out <dossier>`,
   )
 }
@@ -1640,7 +1640,7 @@ async function main(): Promise<number> {
 
   if (finalIds.length === 0) {
     console.error(
-      'Usage : pnpm tsx scripts/mesure-ratios.ts <projectId…> [--instants N] ' +
+      'Usage : pnpm tsx scripts/measure-ratios.ts <projectId…> [--instants N] ' +
         '[--tronc <nom|off>] [--analyse <projet>=<fichier>]… [--cas <sélecteur>]',
     )
     return 1
@@ -1681,7 +1681,7 @@ async function main(): Promise<number> {
   // Un tronc inconnu est **refusé**, pas remplacé par le défaut : une faute de
   // frappe qui mesurerait silencieusement le tronc par défaut est exactement la
   // sortie dont on tirerait une conclusion fausse — même règle que `--marge` et
-  // `--trim` de `vignettes-cadrage.ts`.
+  // `--trim` de `framing-thumbnails.ts`.
   const iTronc = arguments_.indexOf('--tronc')
   if (iTronc >= 0) {
     const raw = arguments_[iTronc + 1]

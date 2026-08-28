@@ -1,8 +1,8 @@
 /**
  * Ce que le filtre du premier plan écarte, et ce que ça change au ratio.
  *
- *     pnpm tsx scripts/mesure-premier-plan.ts 2025-06-15-cqlp
- *     pnpm tsx scripts/mesure-premier-plan.ts --analyse /chemin/vers/analysis.json
+ *     pnpm tsx scripts/measure-foreground.ts 2025-06-15-cqlp
+ *     pnpm tsx scripts/measure-foreground.ts --analyse /chemin/vers/analysis.json
  *
  * **Ce n'est pas un contrôle, c'est une mesure.** Rien n'échoue ici : le script
  * imprime des chiffres, et c'est en les lisant qu'on décide. Il existe parce que
@@ -287,7 +287,7 @@ async function main(): Promise<number> {
 
   if (file === undefined) {
     console.error(
-      'Usage : pnpm tsx scripts/mesure-premier-plan.ts <projectId> | --analyse <analysis.json>',
+      'Usage : pnpm tsx scripts/measure-foreground.ts <projectId> | --analyse <analysis.json>',
     )
     return 1
   }

@@ -385,6 +385,21 @@ describe('detect.py — le refus, étendu à --min-shot et aux bascules de compo
     expect(typeof extended('rupture_min_score', "float('inf')")).toBe('string')
   })
 
+  /**
+   * **Sous le plancher de collecte, le réglage est accepté et ne fait rien** —
+   * la famille de défauts que ce refus existe pour fermer. ffmpeg ne rapporte
+   * aucun score sous `--scene-floor`, donc un plancher de confirmation en
+   * dessous se comporte exactement comme 0. Zéro reste valide : c'est la
+   * sentinelle explicite, pas un intervalle vide. (relevé par Codex et Copilot)
+   */
+  it('refuse un --rupture-min-score non nul sous le plancher de collecte', () => {
+    // `extended` passe seuil 0,4 et plancher 0,05.
+    expect(typeof extended('rupture_min_score', '0.02')).toBe('string')
+    expect(typeof extended('rupture_min_score', '0.049')).toBe('string')
+    // Au niveau du plancher, l'intervalle demandé existe : accepté.
+    expect(extended('rupture_min_score', '0.05')).toBeNull()
+  })
+
   it('refuse un --rupture-box-score hors de ]0, 1] ou non fini', () => {
     // À zéro les boîtes fantômes entrent dans la médiane ; au-dessus de 1
     // aucune image n'a de profil et le déclencheur se tait sans le dire.

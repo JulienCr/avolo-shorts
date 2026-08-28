@@ -1,8 +1,8 @@
 # Le ratio par clip, sur trois émissions
 
 Mesuré le 18 août 2026, sur `2025-06-15-cqlp`, `2026-03-08-caro-mdlm` et
-`2026-22-02-entre-nous`. Reproductible par `scripts/mesure-ratios.ts`,
-`scripts/vignettes-premier-plan.ts` et `scripts/vignettes-cadrage.ts`.
+`2026-22-02-entre-nous`. Reproductible par `scripts/measure-ratios.ts`,
+`scripts/foreground-thumbnails.ts` et `scripts/framing-thumbnails.ts`.
 
 `2026-22-02-entre-nous` **porte bien un mois 22**, et ce n'est pas une faute de
 frappe de cette page : le fichier s'appelle ainsi sur le Drive, l'identifiant de
@@ -51,7 +51,7 @@ incrusté.** Et le résultat va plus loin que ça : `cqlp`, l'émission qu'on cr
 | boîtes de premier plan | 33,8 % | 1,8 % | 0,1 % |
 
 **Trois clips de la base de `cqlp` sont écartés de ce tableau, et il faut dire
-lesquels**, sinon le compte de `scripts/mesure-ratios.ts` — qui en affiche dix —
+lesquels**, sinon le compte de `scripts/measure-ratios.ts` — qui en affiche dix —
 paraît contredire celui-ci :
 
 - deux **vestiges de vérification** (`clip_verif_1to1`, `clip_verif_auto`, voir
@@ -97,7 +97,7 @@ Le seuil du 1:1 est à 0,5625. `cqlp` passe juste dessous en médiane, les deux
 autres sont loin au-dessus — et `caro-mdlm` sature : à p90, l'empan vaut **toute
 la largeur de l'image**.
 
-Par image et sur l'émission entière, filtre actif (`scripts/mesure-premier-plan.ts`),
+Par image et sur l'émission entière, filtre actif (`scripts/measure-foreground.ts`),
 la part qui tient dans chaque ratio confirme l'ordre :
 
 | | `cqlp` | `caro-mdlm` | `entre-nous` |
@@ -170,8 +170,8 @@ décide sur toutes les images du plan et pas sur la plus large.
 Reproduction :
 
 ```bash
-pnpm tsx scripts/mesure-ratios.ts 2026-03-08-caro-mdlm --instants 3
-pnpm tsx scripts/vignettes-premier-plan.ts 2026-03-08-caro-mdlm 1225.5 5476.5 8141.5
+pnpm tsx scripts/measure-ratios.ts 2026-03-08-caro-mdlm --instants 3
+pnpm tsx scripts/foreground-thumbnails.ts 2026-03-08-caro-mdlm 1225.5 5476.5 8141.5
 ```
 
 Les vignettes ne sont pas versionnées : elles montrent des visages identifiables
@@ -213,7 +213,7 @@ qui compte :
    les trois — et perd tout l'air. 0,01 de la source fait 19 px sur une sortie de
    1 080 : c'est mince, ce n'est pas nul.
 3. **Ce que la marge protège tient encore à 0,01, et c'est vérifié à l'image.**
-   Sur les deux clips qui basculent, `scripts/vignettes-cadrage.ts` dessine le
+   Sur les deux clips qui basculent, `scripts/framing-thumbnails.ts` dessine le
    rectangle que le rendu découperait, et compte les images du plan qui en
    sortent. Les trois plans concernés :
 
@@ -237,7 +237,7 @@ commence vers `0,72`. C'est le cas unique documenté en §10, pas une propriét�
 fonds.
 
 ```bash
-pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_003089230-003148633
+pnpm tsx scripts/framing-thumbnails.ts 2025-06-15-cqlp 2025-06-15-cqlp_003089230-003148633
 ```
 
 ## Ce que ça dit de la suite de l'itération 1
@@ -388,7 +388,7 @@ ne montre. Une image vaut une demi-seconde.
 | temps où quelqu'un perd > 1/2 | 0 s → 2,5 s | 0 s → 0 s | 0 s → 7,5 s |
 
 **Les deux lignes de temps sont à relire à la baisse, et le script a été corrigé
-depuis.** Elles ont été relevées quand `mesure-ratios.ts` comptait des
+depuis.** Elles ont été relevées quand `measure-ratios.ts` comptait des
 *personnes-images* et les multipliait par le pas d'échantillonnage : deux
 comédiens amputés sur la même image de 0,5 s donnaient « 1,0 s ». Le script
 agrège désormais par image — la pire perte de chacune — avant de convertir, donc
@@ -448,7 +448,7 @@ plan serré sur les deux comédiens, à 2 954,0 s un plan large depuis une autre
 caméra. La coupe est réelle, elle tombe à **2 953,2 s**, et son score de scène
 vaut **0,366** — sous le seuil de 0,40 du détecteur.
 
-Le compte, par `scripts/mesure-ratios.ts` (section 5) :
+Le compte, par `scripts/measure-ratios.ts` (section 5) :
 
 | | plans bornés par la position | temps de montage concerné |
 |---|---|---|
@@ -476,9 +476,9 @@ pour le faire, parce qu'il nomme les plans à réparer au lieu de compter des pi
 ### Reproduction
 
 ```bash
-pnpm tsx scripts/mesure-ratios.ts 2025-06-15-cqlp 2026-03-08-caro-mdlm 2026-22-02-entre-nous
-pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-002143228 --images 3
-pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-002143228 --trim 0
+pnpm tsx scripts/measure-ratios.ts 2025-06-15-cqlp 2026-03-08-caro-mdlm 2026-22-02-entre-nous
+pnpm tsx scripts/framing-thumbnails.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-002143228 --images 3
+pnpm tsx scripts/framing-thumbnails.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-002143228 --trim 0
 ```
 
 ### Résolu depuis le 19 août 2026 au soir : les bascules de composition
@@ -519,7 +519,7 @@ de `min_shift=0,08`, `cqlp` et `nabla` régressent. Ce n'est pas un échec du
 chantier, c'est la mesure de ce qu'un détecteur à deux signaux peut fermer
 sans rouvrir un autre gisement.
 
-**Avant / après, les quatre émissions** (`scripts/mesure-ratios.ts`, sections
+**Avant / après, les quatre émissions** (`scripts/measure-ratios.ts`, sections
 2 et 5) :
 
 | | temps borné par la position (§5) | temps de montage en 16:9, clips (§2) |
@@ -530,7 +530,7 @@ sans rouvrir un autre gisement.
 | `2026-22-02-entre-nous` | **41 % → 18 %** | **49 % → 39 %** |
 
 Les deux colonnes sont le **temps de montage**, jamais le compte de clips —
-c'est la doctrine de `scripts/mesure-ratios.ts` (« le chiffre qui décide est
+c'est la doctrine de `scripts/measure-ratios.ts` (« le chiffre qui décide est
 le temps de montage par ratio, pas le compte de clips »), et la mélanger
 aurait fait paraître `entre-nous` bouger deux fois sur des bases différentes.
 En **compte de clips**, `entre-nous` ne bouge d'ailleurs pas : 4 clips sur 6
@@ -978,11 +978,11 @@ d'`entre-nous`, part en 16:9 et têtes hors cadre : `head` 47 % / 71, `bust`
 ### Reproduction
 
 ```bash
-pnpm tsx scripts/mesure-ratios.ts 2026-22-02-entre-nous
-pnpm tsx scripts/mesure-ratios.ts 2026-22-02-entre-nous --tronc off
-pnpm tsx scripts/vignettes-cadrage.ts 2026-22-02-entre-nous \
+pnpm tsx scripts/measure-ratios.ts 2026-22-02-entre-nous
+pnpm tsx scripts/measure-ratios.ts 2026-22-02-entre-nous --tronc off
+pnpm tsx scripts/framing-thumbnails.ts 2026-22-02-entre-nous \
   2026-22-02-entre-nous_002940409-003025773 --images 3
-pnpm tsx scripts/vignettes-cadrage.ts 2026-22-02-entre-nous \
+pnpm tsx scripts/framing-thumbnails.ts 2026-22-02-entre-nous \
   2026-22-02-entre-nous_002940409-003025773 --tronc off --images 3
 ```
 

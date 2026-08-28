@@ -1057,6 +1057,14 @@ def refus_du_seuil_de_scène(
     # **Pas de refus croisé avec --scene-threshold**, quoiqu'un plancher
     # au-dessus du seuil ne rende que des frontières redondantes : c'est inutile,
     # pas cassé, et le refus bloquait un abaissement légitime du seuil de scène.
+    if 0 < rupture_min_score < plancher:
+        return (
+            f"--rupture-min-score ({rupture_min_score}) est sous --scene-floor ({plancher}), "
+            "le plancher de collecte : aucun score en dessous n'est jamais rapporté par ffmpeg, "
+            "donc ce réglage se comporte exactement comme 0 sans le dire — accepté, et sans "
+            "effet. Le mettre à 0 si c'est l'intention, l'amener au niveau du plancher sinon, "
+            "ou baisser --scene-floor pour que l'intervalle demandé existe."
+        )
     if not math.isfinite(rupture_box_score) or not 0 < rupture_box_score <= 1:
         return (
             f"--rupture-box-score vaut {rupture_box_score}, hors du domaine d'une confiance de "
@@ -1484,9 +1492,8 @@ def main() -> int:
         pass
 
     # --- [4/5] les frontières (scène + bascules) --------------------------------
-    # Calcul pur, sans GPU : la VRAM est déjà rendue ci-dessus. Deux détecteurs
-    # orthogonaux, croisés sur la même liste de frontières et le même
-    # `--min-shot` — pas de plancher séparé pour les bascules, voir
+    # Calcul pur, sans GPU. Trois sources de candidates, unies avant un seul
+    # espacement : `--min-shot` ne se décline pas par source, voir
     # `_spaced_boundaries`.
     journal(f"[4/5] Frontières (scène ≥ {a.scene_threshold}, bascules)…")
     t0 = time.monotonic()

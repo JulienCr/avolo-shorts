@@ -92,7 +92,7 @@ c'est la confusion qui ferait chercher un défaut là où il n'y en a pas.
 
 Le tableau ci-dessus compte des images. Ce qui sort du produit est **un ratio par
 clip**, et il a été mesuré le 18 août 2026 sur trois émissions entières, filtre
-du premier plan actif (`scripts/mesure-ratios.ts`).
+du premier plan actif (`scripts/measure-ratios.ts`).
 
 | | `2025-06-15-cqlp` | `2026-03-08-caro-mdlm` | `2026-22-02-entre-nous` |
 |---|---|---|---|
@@ -1070,7 +1070,7 @@ Les deux bornes sont nécessaires, et la seconde a été payée par une image :
   lieu de la deviner : voir plus bas.
 
 Le compteur qui manquait à ce paragraphe existe depuis le 19 août au soir, et
-c'est ce que les points de pose ont apporté de plus net : `scripts/mesure-ratios.ts`
+c'est ce que les points de pose ont apporté de plus net : `scripts/measure-ratios.ts`
 compte les couples (personne, image) dont **aucun point de tête n'est dans le
 rectangle de crop**. Un visage tombé dehors ne se cherche donc plus à l'œil sur une
 image.
@@ -1238,6 +1238,20 @@ deux comédiens qui bougent de concert, vérifié à l'image sur `cqlp`
 (t ≈ 1 111,9 et 1 182,4 s). Le détail, les seuils retenus et la méthode
 d'étalonnage sont dans `worker/detect.py` (section « Les bascules de
 composition ») et `docs/ratios-par-clip.md`.
+
+**Et depuis le 28 août 2026, ce détecteur a un second déclencheur, parce que
+le premier ne voit qu'une translation.** Quand la coupe change l'effectif ou
+l'échelle — 2 corps qui deviennent 1 puis 4 —, il n'y a aucun déplacement
+commun à mesurer et la condition « deux personnes appariées » écarte la
+fenêtre. `composition_ruptures` compare alors la médiane des largeurs de boîte
+et la médiane des `y0` entre deux images consécutives. Le plafond de 18 % cité
+ci-dessus est celui de l'approche par translation, mesuré sur `entre-nous` ;
+il ne borne pas celle-ci. Mesuré sur `2026-02-08-eve-matteo-pr`, dont
+l'éclairage LED magenta sature les deux caméras de la même façon et écrase
+donc l'écart d'histogramme : les sept coupes d'un clip valaient 0,2389 à
+0,2840 pour un seuil de rétention à 0,40, et le clip sortait en un plan de
+325,8 s. **La règle des deux signaux ne bouge pas** — `refine_switch` confirme
+toujours sur le score de scène, et prend désormais un plancher de magnitude.
 
 Le mouvement de caméra perçu est nul. Dès qu'un plan dure et que les comédiens se
 déplacent, toute caméra qui suit finit par tanguer : c'est la cause du défaut

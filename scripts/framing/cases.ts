@@ -461,7 +461,7 @@ export const FRAMING_CASES: readonly FramingCase[] = [
     scope: { over: 'shot' },
     anchor: { at: 'shot', shot: { start: 3625.267, end: 3631.633 }, instants: [3625.267] },
     probes:
-      "Une frontière, pas un cadre : une coupe que le score de scène ne franchit pas (0,2818 contre un seuil à 0,40), parce que l'éclairage LED sature les deux caméras de la même façon. Si elle se reperd, ce plan de 6,4 s redevient un plan de 325,8 s et le clip reçoit un split figé par-dessus six changements de caméra.",
+      "Une frontière, pas un cadre : une coupe que le score de scène ne franchit pas (0,2818 contre un seuil à 0,40), parce que l'éclairage LED sature les deux caméras de la même façon. Si elle se reperd, ce plan de 6,4 s redevient un plan de 325,8 s et le clip reçoit un split figé par-dessus ses cinq changements de caméra.",
     label: null,
     tags: [],
     origin: 'signalé par Julien le 28 août 2026',

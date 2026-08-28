@@ -71,7 +71,8 @@ describe('le switch split-screen', () => {
 
   it('se dit hérité tant qu’aucune surcharge n’existe', () => {
     mount({ clip: clip({ framingStyle: {} }) })
-    expect(screen.getAllByText('— hérité').length).toBeGreaterThan(0)
+    const row = within(screen.getByRole('checkbox', { name: 'Split-screen' }).parentElement!)
+    expect(row.getByText('— hérité')).toBeTruthy()
   })
 })
 
@@ -93,7 +94,8 @@ describe('le switch montage doublage', () => {
 
   it('se dit hérité tant qu’aucune surcharge n’existe', () => {
     mount({ clip: clip({ framingStyle: {} }) })
-    expect(screen.getAllByText('— hérité').length).toBeGreaterThan(0)
+    const row = within(screen.getByRole('checkbox', { name: 'Montage doublage' }).parentElement!)
+    expect(row.getByText('— hérité')).toBeTruthy()
   })
 })
 

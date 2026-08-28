@@ -182,7 +182,13 @@ export function writeResolvedEnvLocal(path: string, resolved: readonly [string, 
   try {
     content = formatEnvLocal(resolved)
   } catch (cause) {
-    removeStaleEnvLocal(path)
+    // La suppression est best-effort : si elle échoue à son tour (permissions,
+    // TOCTOU), le message diagnostique de quoteValue prime sur l'erreur fs.
+    try {
+      removeStaleEnvLocal(path)
+    } catch {
+      // ignoré, voir commentaire ci-dessus
+    }
     throw cause
   }
   writeEnvLocalFile(path, content)

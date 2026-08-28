@@ -14,6 +14,7 @@ import {
   type HookSettings,
 } from '@/core/hook'
 import { useTextDeferred } from '@/components/clip/text-fields'
+import { useStyleWrites } from '@/components/clip/style-writes'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -137,22 +138,9 @@ export function HookFields({
   const overrideCount = COLLAPSIBLE_FIELDS.filter((field) => hasOverrideOf(clip, field)).length
   const hasOverride = Object.keys(clip.hookStyle).length > 0
 
-  const setStyle = useCallback(
-    <K extends keyof HookSettings>(field: K, value: HookSettings[K]) => {
-      void Promise.resolve(onWrite({ hookStyle: { ...clip.hookStyle, [field]: value } })).catch(
-        () => {},
-      )
-    },
-    [clip.hookStyle, onWrite],
-  )
-
-  const resetField = useCallback(
-    (field: keyof HookSettings) => {
-      const rest = { ...clip.hookStyle }
-      delete rest[field]
-      void Promise.resolve(onWrite({ hookStyle: rest })).catch(() => {})
-    },
-    [clip.hookStyle, onWrite],
+  const { setStyle, resetField, resetAll } = useStyleWrites(
+    clip.hookStyle,
+    useCallback((hookStyle: Partial<HookSettings>) => onWrite({ hookStyle }), [onWrite]),
   )
 
   const regenerate = useRegenerateHook()
@@ -425,7 +413,7 @@ export function HookFields({
               variant="ghost"
               disabled={loading}
               className="w-fit"
-              onClick={() => void Promise.resolve(onWrite({ hookStyle: {} })).catch(() => {})}
+              onClick={resetAll}
             >
               <RotateCcw aria-hidden />
               Réinitialiser avec les paramètres globaux

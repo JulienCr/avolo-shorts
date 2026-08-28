@@ -231,6 +231,50 @@ describe('hérité vs surchargé', () => {
   })
 })
 
+describe('deux écritures avant que la première ne se pose (issue #189)', () => {
+  it('activer le hook puis changer la taille, sans attendre entre les deux, garde les deux surcharges', () => {
+    const onWrite = vi.fn()
+    mount({ clip: clip({ hookStyle: {} }), onWrite })
+    openPersonalize()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Hook activé/ }))
+    const input = screen.getByLabelText('Taille')
+    fireEvent.change(input, { target: { value: '150' } })
+    fireEvent.blur(input)
+
+    expect(onWrite).toHaveBeenLastCalledWith({
+      hookStyle: expect.objectContaining({ enabled: expect.any(Boolean), sizePermille: 150 }),
+    })
+  })
+
+  it('rendre « Hook activé » à l’héritage pendant qu’une autre surcharge n’est pas posée ne le fait pas réapparaître', () => {
+    const onWrite = vi.fn()
+    mount({ clip: clip({ hookStyle: { enabled: true } }), onWrite })
+    openPersonalize()
+
+    fireEvent.click(screen.getByRole('button', { name: /Hook activé.*revenir à l’héritage/ }))
+    const input = screen.getByLabelText('Taille')
+    fireEvent.change(input, { target: { value: '150' } })
+    fireEvent.blur(input)
+
+    const last = onWrite.mock.calls.at(-1)?.[0] as { hookStyle: Partial<HookSettings> }
+    expect(last).toEqual({ hookStyle: { sizePermille: 150 } })
+  })
+
+  it('une réinitialisation complète suivie d’une nouvelle surcharge ne ressuscite pas les anciens champs', () => {
+    const onWrite = vi.fn()
+    mount({ clip: clip({ hookStyle: { enabled: true, sizePermille: 200 } }), onWrite })
+    openPersonalize()
+
+    fireEvent.click(screen.getByText('Réinitialiser avec les paramètres globaux'))
+    const input = screen.getByLabelText('Taille')
+    fireEvent.change(input, { target: { value: '150' } })
+    fireEvent.blur(input)
+
+    expect(onWrite).toHaveBeenLastCalledWith({ hookStyle: { sizePermille: 150 } })
+  })
+})
+
 /**
  * **`durationMs` a rejoint le panneau replié** (PR #117, seconde manche) :
  * le PNG en `overlay` ne portait plus la borne temporelle du tout, et ce

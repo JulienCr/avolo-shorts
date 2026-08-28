@@ -118,6 +118,50 @@ describe('hérité vs surchargé', () => {
   })
 })
 
+describe('deux écritures avant que la première ne se pose (issue #189)', () => {
+  it('surcharger le split-screen puis un champ numérique, sans attendre entre les deux, garde les deux surcharges', () => {
+    const onWrite = vi.fn()
+    mount({ clip: clip({ framingStyle: {} }), onWrite })
+    openPersonalize()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Split-screen' }))
+    const input = screen.getByLabelText('Plancher de taille')
+    fireEvent.change(input, { target: { value: '250' } })
+    fireEvent.blur(input)
+
+    expect(onWrite).toHaveBeenLastCalledWith({
+      framingStyle: expect.objectContaining({ splitScreen: expect.any(Boolean), sizeFloorPermille: 250 }),
+    })
+  })
+
+  it('réinitialiser un champ pendant qu’un autre est en surcharge non posée ne le fait pas réapparaître', () => {
+    const onWrite = vi.fn()
+    mount({ clip: clip({ framingStyle: { splitScreen: true } }), onWrite })
+    openPersonalize()
+
+    fireEvent.click(screen.getByRole('button', { name: /revenir à l’héritage/ }))
+    const input = screen.getByLabelText('Plancher de taille')
+    fireEvent.change(input, { target: { value: '250' } })
+    fireEvent.blur(input)
+
+    const last = onWrite.mock.calls.at(-1)?.[0]
+    expect(last).toEqual({ framingStyle: { sizeFloorPermille: 250 } })
+  })
+
+  it('une réinitialisation complète suivie d’une nouvelle surcharge ne ressuscite pas les anciens champs', () => {
+    const onWrite = vi.fn()
+    mount({ clip: clip({ framingStyle: { splitScreen: true, sizeFloorPermille: 300 } }), onWrite })
+    openPersonalize()
+
+    fireEvent.click(screen.getByText(/Réinitialiser avec les paramètres globaux/))
+    const input = screen.getByLabelText('Plancher de taille')
+    fireEvent.change(input, { target: { value: '250' } })
+    fireEvent.blur(input)
+
+    expect(onWrite).toHaveBeenLastCalledWith({ framingStyle: { sizeFloorPermille: 250 } })
+  })
+})
+
 describe('sans réglages globaux chargés', () => {
   it('reste inerte plutôt que de planter', () => {
     mount({ globals: undefined })

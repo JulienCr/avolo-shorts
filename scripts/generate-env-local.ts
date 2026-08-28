@@ -171,6 +171,34 @@ export function formatEnvLocal(resolved: readonly [string, string][]): string {
 }
 
 /**
+ * Formate `resolved` puis écrit `path` — jamais l'inverse. `formatEnvLocal`
+ * valide chaque valeur (`quoteValue`) avant que `writeEnvLocalFile` ne
+ * touche le disque : si une valeur est rejetée, l'appel s'arrête avant
+ * d'écrire, et un `.env.local` déjà présent est supprimé (issue #230) plutôt
+ * que laissé avec un secret révoqué, prioritaire sur `.env`.
+ */
+export function writeResolvedEnvLocal(path: string, resolved: readonly [string, string][]): void {
+  let content: string
+  try {
+    content = formatEnvLocal(resolved)
+  } catch (cause) {
+    // La suppression est best-effort : si elle échoue à son tour (permissions,
+    // TOCTOU), le message diagnostique de quoteValue prime, mais l'échec de
+    // suppression s'y ajoute plutôt que de disparaître (relevé par Copilot).
+    try {
+      removeStaleEnvLocal(path)
+    } catch (removeCause) {
+      const removeMessage = removeCause instanceof Error ? removeCause.message : String(removeCause)
+      if (cause instanceof Error) {
+        cause.message += `\n${path} n'a pas pu être supprimé (${removeMessage}) : le secret révoqué peut y être resté.`
+      }
+    }
+    throw cause
+  }
+  writeEnvLocalFile(path, content)
+}
+
+/**
  * Supprime `.env.local` s'il existe. Ce fichier n'est jamais que le dernier
  * résultat de ce script : quand `.env` ne porte plus de référence `op://`, le
  * laisser en place ferait persister un secret révoqué, prioritaire sur `.env`
@@ -229,7 +257,7 @@ async function main(): Promise<void> {
   }
 
   const resolved = await resolveEnvLocal(entries, injectViaOp, lireInOnePassword)
-  writeEnvLocalFile(ENV_LOCAL_PATH, formatEnvLocal(resolved))
+  writeResolvedEnvLocal(ENV_LOCAL_PATH, resolved)
   console.log(`.env.local : ${resolved.map(([name]) => name).join(', ')} résolue(s).`)
 }
 

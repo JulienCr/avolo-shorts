@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useStyleWrites } from '@/components/clip/style-writes'
 import {
   FRAMING_BOUNDS,
   FRAMING_SETTINGS_DEFAULTS,
@@ -60,22 +61,9 @@ export function FramingFields({
   const overrideCount = NUMERIC_KEYS.filter((field) => hasOverrideOf(clip, field)).length
   const hasOverride = Object.keys(clip.framingStyle).length > 0
 
-  const setStyle = useCallback(
-    <K extends keyof FramingSettings>(field: K, value: FramingSettings[K]) => {
-      void Promise.resolve(
-        onWrite({ framingStyle: { ...clip.framingStyle, [field]: value } }),
-      ).catch(() => {})
-    },
-    [clip.framingStyle, onWrite],
-  )
-
-  const resetField = useCallback(
-    (field: keyof FramingSettings) => {
-      const rest = { ...clip.framingStyle }
-      delete rest[field]
-      void Promise.resolve(onWrite({ framingStyle: rest })).catch(() => {})
-    },
-    [clip.framingStyle, onWrite],
+  const { setStyle, resetField, resetAll } = useStyleWrites(
+    clip.framingStyle,
+    useCallback((framingStyle: Partial<FramingSettings>) => onWrite({ framingStyle }), [onWrite]),
   )
 
   return (
@@ -141,7 +129,7 @@ export function FramingFields({
               variant="ghost"
               disabled={loading}
               className="w-fit"
-              onClick={() => void Promise.resolve(onWrite({ framingStyle: {} })).catch(() => {})}
+              onClick={resetAll}
             >
               <RotateCcw aria-hidden />
               Réinitialiser avec les paramètres globaux

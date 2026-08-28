@@ -20,11 +20,12 @@ import {
   effectiveRatio,
   shotRatios,
   anyShotSplit,
+  dubbingShotCount,
   activeSplit,
   useCurrentShot,
 } from '@/components/clip/framing'
 import { usePlayback } from '@/components/clip/playback'
-import { framing, manualFraming, shot, splitCells } from '../../fixtures/framing'
+import { dubbingCells, framing, manualFraming, shot, splitCells } from '../../fixtures/framing'
 
 afterEach(() => usePlayback.getState().reset())
 
@@ -143,6 +144,26 @@ describe('anyShotSplit', () => {
 
   it('vaut faux sans aucun plan splitté', () => {
     expect(anyShotSplit(framing({ shots: [shot(0, 1, '16:9', 0.5)] }))).toBe(false)
+  })
+})
+
+describe('dubbingShotCount', () => {
+  it('compte les plans qui portent une composition de doublage', () => {
+    expect(
+      dubbingShotCount(
+        framing({
+          shots: [
+            shot(0, 1, '16:9', 0.5, 'auto', undefined, dubbingCells()),
+            shot(1, 2, '16:9', 0.5),
+            shot(2, 3, '16:9', 0.5, 'auto', undefined, dubbingCells()),
+          ],
+        }),
+      ),
+    ).toBe(2)
+  })
+
+  it('vaut zéro sans aucun plan de doublage', () => {
+    expect(dubbingShotCount(framing({ shots: [shot(0, 1, '16:9', 0.5)] }))).toBe(0)
   })
 })
 

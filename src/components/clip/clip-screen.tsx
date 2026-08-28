@@ -594,7 +594,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
           </div>
 
           <div className="shrink-0">
-            <FramingFields clip={clip} globals={framingGlobals} onWrite={write} />
+            <FramingFields clip={clip} globals={framingGlobals} framing={framing} onWrite={write} />
           </div>
 
           {/* **Les faits de montage rejoignent la scène** (spec du 23 août,

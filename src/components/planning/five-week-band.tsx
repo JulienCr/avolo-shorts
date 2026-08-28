@@ -7,6 +7,7 @@ import { ChevronDown, ExternalLink } from 'lucide-react'
 import { formatErrorDetail } from '@/core/publication-errors'
 import { hasSchedulablePlatform, PLATFORM_LABELS, PLATFORMS, PUBLICATION_STATUS_LABELS } from '@/core/publication'
 import { aggregatePublicationStatus, dayKeyFor, PLANNING_AGGREGATE_LABELS } from '@/core/planning'
+import { keys } from '@/lib/queries'
 import { publishClip, type PublicationDetail, type ScheduledEntry } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -214,6 +215,9 @@ function PlatformDetailRow({
     mutationFn: () => publishClip(clipId, [platform]),
     onSuccess() {
       void client.invalidateQueries({ queryKey: ['planning-schedule'] })
+      // Même clé que `usePublisher` (`src/lib/queries.ts:942`) : sans elle,
+      // `usePublications` sert le `failed` périmé pendant son `staleTime`.
+      void client.invalidateQueries({ queryKey: keys.publications(clipId) })
     },
   })
 

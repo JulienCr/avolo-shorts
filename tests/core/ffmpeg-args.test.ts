@@ -1479,12 +1479,9 @@ describe('blurredVariantArgs', () => {
           segments: [entry(0, 10, FRAME_1_X_1, '1:1', undefined, uhd)],
         }),
       )
-      // La source double en x comme en y (3840/1920, 2160/1080) et le pavé
-      // comédiens double avec elle : ramené à l'échelle du canevas, le masque
-      // retombe **exactement** sur les mêmes coordonnées que le cas 1080p
-      // verrouillé plus haut — la preuve que l'ellipse suit la résolution.
-      // Sans le correctif, l'expression sortait en dehors du pavé
-      // (`x: -1669.005`, mesuré avant ce commit).
+      // La source double en x/y (3840/1920, 2160/1080) : ramené à l'échelle du
+      // canevas, le masque retombe exactement sur le cas 1080p verrouillé
+      // plus haut. Sans le correctif il sortait du pavé (`x: -1669.005`).
       expect(g).toContain(
         "geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lte((X-542.667)*(X-542.667)/" +
           "(541.245*541.245)+(Y-349.941)*(Y-349.941)/(541.402*541.402),1),255,0)'",

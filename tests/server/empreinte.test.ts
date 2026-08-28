@@ -1327,9 +1327,8 @@ describe('la composition du doublage', () => {
     expect(variantWith.join(' ')).toContain('geq=')
 
     // Régression Codex : le pavé film ne doit jamais recouper la bande synchro
-    // dans le graphe **réellement construit** — source 1920x1080 mockée plus
-    // haut, cellules dérivées de la vraie ancre. `strip.y0` de l'ancre vaut
-    // 0,9, donc le crop du film doit s'arrêter à 972 (`1080 * 0,9`), jamais 1080.
+    // dans le graphe réellement construit — source 1920x1080 mockée plus haut,
+    // cellules dérivées de la vraie ancre.
     const filter = variantWith[variantWith.indexOf('-filter_complex') + 1]
     const expectedFilmHeight = Math.round((CELLS.film.y1 - CELLS.film.y0) * 1080)
     expect(filter).toContain(`crop=1920:${expectedFilmHeight}:0:0`)

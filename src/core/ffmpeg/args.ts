@@ -795,10 +795,8 @@ function buildRender(
     // `vstack`, trois pavés inégaux empilés sur un fond flouté.
     if (s.dubbing !== undefined) {
       const { film, pip, strip } = s.dubbing
-      // La bande synchro est ancrée pleine largeur/bas dans la source (contrat,
-      // amendement 3), donc sa géométrie donne la taille de la source sans
-      // qu'il faille la transporter jusqu'ici : largeur = `strip.w`, hauteur =
-      // `strip.y + strip.h`.
+      // La bande est ancrée pleine largeur/bas (contrat, amendement 3) : sa
+      // géométrie donne la taille de la source sans rien transporter de plus.
       const sourceW = strip.w
       const sourceH = strip.y + strip.h
       const cropOfPane = (r: Rectangle, name: string): string =>

@@ -91,12 +91,28 @@ function defaultSelection(
   )
 }
 
+/**
+ * Le repli d'une disponibilité qu'on sait, avec certitude, en échec —
+ * distinct de `defaultPlatformAvailability()` (`not_configured`, l'état
+ * honnête d'un environnement où rien n'a encore été branché). `unavailable`
+ * existe déjà dans `PlatformUnavailableReason` pour ce cas précis ; ce
+ * fichier le réutilise plutôt que d'ajouter un quatrième vocabulaire.
+ */
+function unavailablePlatformAvailability(): Record<Platform, PlatformAvailability> {
+  return Object.fromEntries(
+    PLATFORMS.map((platform) => [platform, { available: false, reason: 'unavailable' as const }]),
+  ) as Record<Platform, PlatformAvailability>
+}
+
 export function PublishDialog({
   open,
   onOpenChange,
   clips,
   availability,
+  availabilityError = false,
+  onRetryAvailability,
   recordsLoading = false,
+  recordsError = false,
   onLaunch,
 }: {
   open: boolean
@@ -104,6 +120,15 @@ export function PublishDialog({
   clips: readonly PublishClipTarget[]
   /** Injectable pour les tests, et pour le connecteur du jour où il existera. */
   availability?: Readonly<Record<Platform, PlatformAvailability>>
+  /**
+   * `usePublicationAvailability` a échoué définitivement, plutôt que de
+   * charger encore. **Distinct d'une absence de données** : sans lui, un
+   * échec réseau se lit comme « rien n'est configuré », l'inverse de la
+   * vérité (issue #150). Ignoré si `availability` est fourni malgré tout.
+   */
+  availabilityError?: boolean
+  /** Réessaie la requête de disponibilité — absent, le bandeau d'échec n'a rien à proposer. */
+  onRetryAvailability?: () => void
   /**
    * La requête qui remplit `clips[].records` est encore en vol.
    *
@@ -118,6 +143,12 @@ export function PublishDialog({
    */
   recordsLoading?: boolean
   /**
+   * La requête d'historique a échoué définitivement, plutôt que de charger
+   * encore. Bloque la confirmation comme `recordsLoading` : un échec n'est
+   * pas moins incertain qu'un chargement (issue #150).
+   */
+  recordsError?: boolean
+  /**
    * Appelé une fois, seulement si au moins une cible a été retenue. Porte
    * `force` (issue #97) : sans lui, une republication délibérée se distingue
    * mal d'un premier envoi côté appelant.
@@ -127,7 +158,9 @@ export function PublishDialog({
   // **Qui décide (issue #96) : l'appelant propose, cette modale décide.**
   // `eligibility` vient de `clip.status` (vue Émission) ou d'`outputs.mp4Url`
   // (écran de clip) — non réconciliés ; la modale filtre sur ce qu'on lui donne.
-  const resolvedAvailability = availability ?? defaultPlatformAvailability()
+  const availabilityUnavailable = availabilityError && availability === undefined
+  const resolvedAvailability =
+    availability ?? (availabilityUnavailable ? unavailablePlatformAvailability() : defaultPlatformAvailability())
   const eligible = clips.filter((c) => c.eligibility.eligible)
   const ineligible = clips.filter((c) => !c.eligibility.eligible)
   const selectable = selectablePlatforms(resolvedAvailability)
@@ -204,12 +237,11 @@ export function PublishDialog({
     ),
   )
 
-  // **Recoupé avec `selectedAndAvailable`, pas `selected` seul.**
-  // Cocher une plateforme puis la voir devenir indisponible pendant que la
-  // boîte reste ouverte laissait « Suivant » actif alors que `targets` était
-  // déjà vide — la passe 2 avait renommé l'identifiant sans corriger le
-  // calcul. (relevé par Copilot, passe 3)
-  const canContinue = !recordsLoading && (selectable.length === 0 || selectedAndAvailable.length > 0)
+  // Recoupé avec `selectedAndAvailable`, pas `selected` seul, et bloqué par
+  // `recordsLoading` autant que `recordsError` : le critère est « connu avec
+  // certitude », pas « pas encore en train de charger ».
+  const canContinue =
+    !recordsLoading && !recordsError && (selectable.length === 0 || selectedAndAvailable.length > 0)
 
   function togglePlatform(platform: Platform) {
     setDirty(true)
@@ -269,6 +301,24 @@ export function PublishDialog({
           </Alert>
         )}
 
+        {/* `unavailable`, jamais `not_configured` : le second dit « rien n'est
+            branché », la vérité ici est que la requête est en panne. */}
+        {availabilityUnavailable && (
+          <Alert variant="destructive">
+            <TriangleAlert aria-hidden />
+            <AlertTitle>Impossible de vérifier les connecteurs.</AlertTitle>
+            <AlertDescription>
+              La disponibilité des plateformes n’a pas pu être chargée. Elle peut être branchée sans
+              que ce constat le sache — réessayer avant de conclure au contraire.
+              {onRetryAvailability && (
+                <Button size="sm" variant="outline" className="mt-2" onClick={onRetryAvailability}>
+                  Réessayer
+                </Button>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
         {ineligible.length > 0 && (
           <Alert variant="destructive">
             <TriangleAlert aria-hidden />
@@ -297,6 +347,21 @@ export function PublishDialog({
           </p>
         )}
 
+        {/* Bloque « Suivant » comme `recordsLoading` (voir `canContinue`), mais
+            dit la vraie raison : l'historique n'a pas pu être lu, pas qu'il
+            charge encore. */}
+        {recordsError && (
+          <Alert variant="destructive">
+            <TriangleAlert aria-hidden />
+            <AlertTitle>Historique de publication indisponible.</AlertTitle>
+            <AlertDescription>
+              L’état des publications précédentes n’a pas pu être vérifié. Un clip déjà publié
+              pourrait donc être proposé à nouveau sans le savoir — la confirmation reste bloquée
+              jusqu’à ce que ce soit su.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {step === 'platforms' ? (
           <PlatformsStep
             eligible={eligible}
@@ -322,7 +387,7 @@ export function PublishDialog({
                 Retour
               </Button>
               {targets.length > 0 ? (
-                <Button variant="destructive" onClick={confirmLaunch}>
+                <Button variant="destructive" onClick={confirmLaunch} disabled={!canContinue}>
                   Confirmer et publier
                 </Button>
               ) : (

@@ -709,8 +709,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         writeInCurrent={writesInFlight > 0}
         writeInFailure={patch.isError || textsInFailure.length > 0}
         publicationAvailability={publicationAvailability.data}
+        publicationAvailabilityError={publicationAvailability.isError}
+        onRetryPublicationAvailability={() => publicationAvailability.refetch()}
         publicationRecords={publicationRecords}
         recordsLoading={publications.isPending}
+        recordsError={publications.isError}
         publishError={publishError}
         onPublish={launchPublish}
       />

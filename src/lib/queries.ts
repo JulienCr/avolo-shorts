@@ -893,11 +893,18 @@ export function usePublicationRecordsByClip(clipIds: readonly string[]) {
   // porte que les clips effectivement interrogés dont la réponse n'est pas
   // encore là. (relevé par Copilot)
   const pendingClipIds = new Set<string>()
+  // Distincte de `pendingClipIds` : un échec définitif et un chargement en
+  // cours appellent des conduites opposées, l'un se rattrape seul, l'autre pas.
+  const failedClipIds = new Set<string>()
   clipIds.forEach((clipId, index) => {
     const result = results[index]
     if (result === undefined) return
     if (result.isPending) {
       pendingClipIds.add(clipId)
+      return
+    }
+    if (result.isError) {
+      failedClipIds.add(clipId)
       return
     }
     const rows = result.data
@@ -915,7 +922,7 @@ export function usePublicationRecordsByClip(clipIds: readonly string[]) {
       ]),
     )
   })
-  return { byClip, pendingClipIds }
+  return { byClip, pendingClipIds, failedClipIds }
 }
 
 /**

@@ -12,7 +12,13 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { PublicationRow } from '@/lib/api'
-import { keys, usePublications, usePublisher } from '@/lib/queries'
+import {
+  keys,
+  usePublicationAvailability,
+  usePublicationRecordsByClip,
+  usePublications,
+  usePublisher,
+} from '@/lib/queries'
 
 function response(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, statusText: '', json: async () => body } as Response
@@ -122,5 +128,88 @@ describe('usePublications — la boucle s’arrête (issue #97, critère d’acc
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+// issue #150 : ces trois requêtes ne distinguaient pas « charge encore » de
+// « a échoué » — aucun test ne couvrait le second cas avant cette PR.
+describe('usePublicationAvailability — panne réseau (issue #150)', () => {
+  it('rend `isError` plutôt qu’une simple absence de données', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'panne' }, 500)))
+    const { envelope } = harness()
+    const { result } = renderHook(() => usePublicationAvailability(), { wrapper: envelope })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.data).toBeUndefined()
+  })
+
+  it('le contrôle négatif : encore en vol ne se lit pas comme un échec', () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
+    const { envelope } = harness()
+    const { result } = renderHook(() => usePublicationAvailability(), { wrapper: envelope })
+
+    expect(result.current.isPending).toBe(true)
+    expect(result.current.isError).toBe(false)
+  })
+})
+
+describe('usePublications — panne réseau (issue #150)', () => {
+  it('rend `isError` plutôt qu’une simple absence de données', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'panne' }, 500)))
+    const { envelope } = harness()
+    const { result } = renderHook(() => usePublications('c1'), { wrapper: envelope })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.data).toBeUndefined()
+  })
+
+  it('le contrôle négatif : encore en vol ne se lit pas comme un échec', () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
+    const { envelope } = harness()
+    const { result } = renderHook(() => usePublications('c1'), { wrapper: envelope })
+
+    expect(result.current.isPending).toBe(true)
+    expect(result.current.isError).toBe(false)
+  })
+})
+
+describe('usePublicationRecordsByClip — distingue échec et absence (issue #150)', () => {
+  it('range un clip en échec dans `failedClipIds`, jamais dans `byClip`', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'panne' }, 500)))
+    const { envelope } = harness()
+    const { result } = renderHook(() => usePublicationRecordsByClip(['c1']), { wrapper: envelope })
+
+    await waitFor(() => expect(result.current.failedClipIds.has('c1')).toBe(true))
+    expect(result.current.byClip.c1).toBeUndefined()
+    expect(result.current.pendingClipIds.has('c1')).toBe(false)
+  })
+
+  it('le contrôle négatif : un clip encore en vol reste dans `pendingClipIds`, pas `failedClipIds`', () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
+    const { envelope } = harness()
+    const { result } = renderHook(() => usePublicationRecordsByClip(['c1']), { wrapper: envelope })
+
+    expect(result.current.pendingClipIds.has('c1')).toBe(true)
+    expect(result.current.failedClipIds.has('c1')).toBe(false)
+  })
+
+  // Suggéré par Aristarque : le cas réel de la sélection groupée, un clip en
+  // 200 et un autre en 500 dans le même appel, plutôt qu'un seul clip à la fois.
+  it('répartit correctement un mélange succès/échec entre `byClip` et `failedClipIds`', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes('/c-ok/')) return response({ publications: [row({ clipId: 'c-ok' })] })
+        return response({ error: 'panne' }, 500)
+      }),
+    )
+    const { envelope } = harness()
+    const { result } = renderHook(() => usePublicationRecordsByClip(['c-ok', 'c-ko']), { wrapper: envelope })
+
+    await waitFor(() => expect(result.current.failedClipIds.has('c-ko')).toBe(true))
+    expect(result.current.byClip['c-ok']).toBeDefined()
+    expect(result.current.byClip['c-ko']).toBeUndefined()
+    expect(result.current.pendingClipIds.size).toBe(0)
   })
 })

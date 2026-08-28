@@ -701,6 +701,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
           </section>
 
           <div
+            role="region"
             aria-labelledby="zone-sortie"
             // La dérivation vit ici, sur l'enfant flexible de `<main>` —
             // pas sur une figure nichée : posée trop bas, le volet se

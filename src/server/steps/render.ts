@@ -392,14 +392,15 @@ export function pathsRender(
  * merger et la corriger à `main + 1` si elle a bougé — deux PR qui écrivent
  * la même valeur fusionnent sans conflit, et la seconde n'invaliderait alors
  * plus rien.
- *
+ */
+
+/**
  * **Passée à 13 le 28 août 2026, avec la composition du doublage improvisé
- * sur la variante 9:16.** `args.ts` gagne une quatrième branche de graphe
- * (trois pavés composés par overlay, masqués par l'arc du disque) et aucun
- * champ de l'empreinte ne porte le graphe : sans l'incrément, les rendus déjà
- * publiés sur une séquence de doublage se diraient à jour. **Relire cette
- * valeur sur `main` au moment de fusionner, pas la recopier d'ici** : une
- * autre PR peut avoir déjà pris 13 pendant que celle-ci était en revue.
+ * sur la variante 9:16.** `args.ts` gagne une quatrième branche de graphe,
+ * masquée par l'arc du disque, et aucun champ de l'empreinte ne la porte :
+ * les rendus déjà publiés sur une séquence de doublage se diraient à jour.
+ * **Relire cette valeur sur `main` au moment de fusionner** : une autre PR
+ * peut avoir déjà pris 13 pendant que celle-ci était en revue.
  */
 export const VERSION_FINGERPRINT = 13
 
@@ -2102,9 +2103,8 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
           crop: cropRect(ratio, m.cropXNative, size.w, size.h),
         }))
         // **Le split et le doublage ne touchent que la variante 9:16** : le
-        // natif construit son `FramedSegment` sans jamais lire `m.split` ni
-        // `m.dubbing`, ce qui garantit qu'il ne peut pas bouger d'un pixel à
-        // cause d'un plan splitté ou d'une séquence de doublage.
+        // natif ne lit jamais `m.split` ni `m.dubbing`, ce qui garantit qu'il
+        // ne peut pas bouger d'un pixel à cause de l'un ou de l'autre.
         const verticalPieces: FramedSegment[] = pieces.map((m) => ({
           start: m.start,
           end: m.end,

@@ -29,20 +29,12 @@ const NOT_FAST = 0.05
 /**
  * Pourquoi le curseur de cadrage ne déplace rien, ou `null` quand il déplace.
  *
- * Quatre causes cumulables, dans l'ordre où elles priment : le plan est
- * splitté (deux cellules, pas de crop unique) ; le plan pose une composition
- * de doublage improvisé (le pavé comédiens vient de la composition, pas d'un
- * crop) ; le cadrage est calculé (la dérogation par plan qui rendrait le
- * curseur utile n'existe pas encore, §9.4) ; ou le cadre couvre toute la
- * source (16:9, rien à déplacer). `CropOverlay` et `RatioPicker` l'appellent
- * tous deux, pour ne jamais rendre deux textes différents pour la même cause.
- *
- * **La cause « doublage » est vraie depuis que `render.ts` compose ce pavé**
- * (PR3) : avant, cette même phrase décrivait une composition que l'export ne
- * produisait pas encore, et Copilot l'avait fait retirer sur cette base
- * (PR #254). `split` et `dubbing` ne se recouvrent jamais sur un même plan
- * (`src/core/framing.ts` : « un plan de doublage ne split jamais »), donc leur
- * ordre l'un par rapport à l'autre n'a pas d'effet observable.
+ * Quatre causes cumulables, dans l'ordre où elles priment : split-screen,
+ * doublage improvisé, cadrage calculé (§9.4), cadre plein cadre (16:9).
+ * `CropOverlay` et `RatioPicker` l'appellent tous deux, pour ne jamais rendre
+ * deux textes différents pour la même cause. La cause « doublage » est vraie
+ * depuis que `render.ts` compose ce pavé (PR3) — avant, Copilot l'avait fait
+ * retirer (PR #254) sur une composition que l'export ne produisait pas encore.
  */
 export function frozenCropReason(
   framing: PublishedFraming,

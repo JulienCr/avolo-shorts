@@ -1451,10 +1451,9 @@ describe('blurredVariantArgs', () => {
       expect(g.match(/geq=/g)).toHaveLength(1)
     })
 
-    // La hauteur d'un pavé sur le canevas suit la position du bandeau
-    // (amendement 3) : deux bandes de hauteurs différentes, même largeur de
-    // disque, ne doivent PAS sortir à la même hauteur sur le canevas — sinon
-    // une corde a été réintroduite quelque part.
+    // Deux bandes de hauteurs différentes, même largeur de disque, ne doivent
+    // PAS sortir à la même hauteur sur le canevas — sinon une corde a été
+    // réintroduite quelque part (amendement 3).
     it("fait varier la hauteur du pavé comédiens avec la hauteur de la bande, jamais avec sa position", () => {
       const shallow = { ...DUBBING_CELLS, pip: { w: 413, h: 100, x: 1484, y: 100 } }
       const g = graph(

@@ -733,6 +733,13 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                   fichier livré
                 </figcaption>
                 <video
+                  // Même intitulé que les lecteurs d'`ExportsView` (relevé
+                  // par Aristarque).
+                  aria-label={
+                    outputs.variant9x16Url !== null
+                      ? 'Variante 9:16'
+                      : `Le rendu ${native} de ${clip.title || 'ce clip'}`
+                  }
                   src={outputs.variant9x16Url ?? outputs.mp4Url ?? undefined}
                   controls
                   preload="metadata"

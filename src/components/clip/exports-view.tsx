@@ -62,7 +62,9 @@ export function ExportsView({
   const nothingDelivered = outputs.mp4Url === null && outputs.variant9x16Url === null && outputs.textsUrl === null
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 workbench:flex-row">
+    // `<main>`, pas `<div>` : c'est ce que rend la vue Édition (relevé par
+    // Aristarque) — les deux ne coexistent jamais, `ClipScreen` choisit l'une.
+    <main className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 workbench:flex-row">
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex items-baseline gap-2">
           <h2 className="text-sm font-medium">Livraison courante</h2>
@@ -102,6 +104,10 @@ export function ExportsView({
 
         {nothingDelivered ? (
           <p className="text-[0.75rem] text-muted-foreground">Aucun fichier livré pour ce clip.</p>
+        ) : outputs.mp4Url === null && outputs.variant9x16Url === null ? (
+          // Seul `.txt` livré (relevé par Aristarque) : `OutputsList` au-dessus
+          // le dit déjà, rien à ajouter ici plutôt qu'un bloc vide.
+          null
         ) : (
           <div className="flex flex-col gap-3">
             {outputs.mp4Url !== null && (
@@ -161,6 +167,6 @@ export function ExportsView({
           label="Copier pour publication"
         />
       </div>
-    </div>
+    </main>
   )
 }

@@ -260,6 +260,7 @@ function PlatformDetailRow({
           className="w-fit"
           disabled={retry.isPending}
           onClick={() => retry.mutate()}
+          aria-label={`Relancer ${PLATFORM_LABELS[platform]}`}
         >
           Relancer
         </Button>

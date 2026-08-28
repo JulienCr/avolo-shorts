@@ -108,7 +108,7 @@ describe('FiveWeekBand', () => {
     trigger.focus()
     await user.keyboard('{Enter}')
 
-    const retryButton = await screen.findByRole('button', { name: 'Relancer' })
+    const retryButton = await screen.findByRole('button', { name: 'Relancer TikTok' })
     await user.click(retryButton)
 
     expect(fetchMock).toHaveBeenCalledWith(

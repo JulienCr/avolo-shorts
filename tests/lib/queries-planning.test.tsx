@@ -40,9 +40,24 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/** Un clip du vivier, réduit aux champs que le sondage regarde. */
+function poolClip(statuses: Record<string, { status: string }>) {
+  return {
+    clipId: 'c1',
+    projectId: 'p1',
+    title: 'Un clip',
+    duration: 12,
+    thumbnailUrl: null,
+    description: '',
+    outputs: { mp4Url: null, mp4Due: false, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
+    statuses,
+    stale: false,
+  }
+}
+
 describe('usePlanningPool', () => {
-  it('lit /api/planning/pool sans sondage', async () => {
-    const call = vi.fn(async () => response({ clips: [] }))
+  it('lit /api/planning/pool, et ne sonde pas sur un vivier au repos', async () => {
+    const call = vi.fn(async () => response({ clips: [poolClip({ instagram: { status: 'published' } })] }))
     vi.stubGlobal('fetch', call)
     const { envelope } = harness()
     const { result } = renderHook(() => usePlanningPool(), { wrapper: envelope })
@@ -50,6 +65,47 @@ describe('usePlanningPool', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     const [path] = call.mock.calls[0] as unknown as [string]
     expect(path).toBe('/api/planning/pool')
+  })
+
+  /**
+   * `POST /api/clips/:id/publish` rend sur `in_progress` et téléverse
+   * détaché : sans ce sondage, la carte relancée depuis l'aperçu du vivier
+   * garde « en cours » jusqu'à un rechargement (relevé par Codex et Copilot).
+   */
+  it('sonde à deux secondes tant qu’une ligne est `in_progress`, puis s’arrête', async () => {
+    vi.useFakeTimers()
+    try {
+      let settled = false
+      const call = vi.fn(async () =>
+        response({ clips: [poolClip({ instagram: { status: settled ? 'published' : 'in_progress' } })] }),
+      )
+      vi.stubGlobal('fetch', call)
+      const { envelope } = harness()
+      const { result } = renderHook(() => usePlanningPool(), { wrapper: envelope })
+
+      await vi.waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(call).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000)
+      })
+      expect(call.mock.calls.length).toBeGreaterThanOrEqual(2)
+
+      settled = true
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000)
+      })
+      const callsAtSettle = call.mock.calls.length
+
+      // La preuve que ça s’arrête, pas seulement que ça démarre : un
+      // `refetchInterval` qui ne rendrait jamais `false` passerait sans elle.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      expect(call.mock.calls.length).toBe(callsAtSettle)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

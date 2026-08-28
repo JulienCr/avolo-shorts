@@ -3,44 +3,64 @@
 import { useId, useRef, useState } from 'react'
 
 import type { PlanningPoolClip } from '@/lib/api'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PoolCard } from '@/components/planning/pool-card'
-import { filterPool, POOL_FILTER_NONE, showsInPool, type PoolFilter } from '@/components/planning/pool-filter'
+import {
+  countsByPoolView,
+  filterPool,
+  POOL_RESTRICTION_NONE,
+  POOL_VIEWS,
+  showsInPool,
+  type PoolFilter,
+  type PoolRestriction,
+  type PoolView,
+} from '@/components/planning/pool-filter'
 import { formatShowOrigin } from '@/components/planning/texts'
 
 const ALL_SHOWS = 'all'
 const SKELETONS = 8
 
 /**
- * Le vivier en grille : filtre par émission, recherche, et navigation
- * clavier bidimensionnelle.
+ * Le vivier en grille : six onglets, filtre par émission, recherche, et
+ * navigation clavier bidimensionnelle.
  *
- * **Le filtre reste dans le composant, pas dans l'URL** — même règle que
- * `LibraryGrid` (`sources/library.tsx`) : une recherche à demi tapée dans une
- * URL est une URL qu'on ne peut plus partager.
+ * **L'émission et la recherche restent dans le composant, pas dans l'URL** —
+ * même règle que `LibraryGrid` (`sources/library.tsx`) : une recherche à demi
+ * tapée dans une URL est une URL qu'on ne peut plus partager. L'onglet, lui,
+ * vit dans l'URL (`review/template.ts`) : un rechargement doit rendre le même
+ * écran, et on revient ici après un aller-retour par « Éditer ».
  */
 export function PoolGrid({
   clips,
   loading,
+  view,
+  onView,
   selected,
   onToggle,
   onPreview,
 }: {
   clips: readonly PlanningPoolClip[]
   loading: boolean
+  view: PoolView
+  onView: (view: PoolView) => void
   selected: ReadonlySet<string>
   onToggle: (clipId: string) => void
   onPreview: (clipId: string) => void
 }) {
-  const [filter, setFilter] = useState<PoolFilter>(POOL_FILTER_NONE)
+  const [restriction, setRestriction] = useState<PoolRestriction>(POOL_RESTRICTION_NONE)
   const [current, setCurrent] = useState<string | null>(null)
   const grid = useRef<HTMLDivElement>(null)
 
+  const filter: PoolFilter = { ...restriction, view }
+  const counts = countsByPoolView(clips, filter)
   const visible = filterPool(clips, filter)
+  const restricting = restriction.projectId !== null || restriction.search.trim() !== ''
   const active = visible.some((c) => c.clipId === current) ? current : (visible[0]?.clipId ?? null)
   // Un id sélectionné qui a quitté `clips` (planning programmé, rendu périmé
   // exclu) n'est pas « masqué par le filtre » : ne compter que ceux encore
@@ -78,7 +98,7 @@ export function PoolGrid({
   if (clips.length === 0) {
     return (
       <div className="rounded-xl border border-dashed px-6 py-14 text-center">
-        <p className="text-sm font-medium">Aucun clip à programmer.</p>
+        <p className="text-sm font-medium">Aucun clip exporté.</p>
         <p className="mt-1 text-sm text-muted-foreground">
           Exportez un clip depuis son émission pour qu’il rejoigne le vivier.
         </p>
@@ -87,8 +107,31 @@ export function PoolGrid({
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <FilterBar clips={clips} filter={filter} onFilter={setFilter} restricted={visible.length !== clips.length} />
+    /* **Le contenu est dans un panneau, pas à côté des onglets** — un
+       `tablist` sans `tabpanel` s'annonce « onglet 1 sur 6 » sans qu'aucun
+       panneau ne soit désigné (`review/feed.tsx`). Un seul suffit, celui de
+       l'onglet actif. */
+    <Tabs value={view} onValueChange={(value) => onView(value as PoolView)} className="gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <TabsList>
+          {POOL_VIEWS.map(({ value, label }) => (
+            <TabsTrigger key={value} value={value}>
+              {label}
+              <Badge variant="outline" className="ml-1 font-mono text-xs tabular-nums">
+                {counts[value]}
+              </Badge>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        <FilterBar
+          clips={clips}
+          filter={filter}
+          onRestrict={setRestriction}
+          restricted={visible.length !== clips.length}
+          visibleCount={visible.length}
+        />
+      </div>
 
       {hiddenSelectedCount > 0 && (
         <p className="text-sm text-muted-foreground">
@@ -98,12 +141,19 @@ export function PoolGrid({
         </p>
       )}
 
+      <TabsContent value={view}>
       {visible.length === 0 ? (
         <div className="rounded-xl border border-dashed px-6 py-14 text-center">
-          <p className="text-sm font-medium">Aucun clip ne correspond au filtre.</p>
-          <Button variant="outline" size="sm" className="mt-3" onClick={() => setFilter(POOL_FILTER_NONE)}>
-            Tout afficher
-          </Button>
+          {/* Deux vides à ne pas confondre : l'onglet n'a rien, ou le filtre
+              cache ce qu'il a. Le second se répare d'un clic, le premier non. */}
+          <p className="text-sm font-medium">
+            {restricting ? 'Aucun clip ne correspond au filtre.' : EMPTY_LABELS[view]}
+          </p>
+          {restricting && (
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => setRestriction(POOL_RESTRICTION_NONE)}>
+              Tout afficher
+            </Button>
+          )}
         </div>
       ) : (
         <div
@@ -138,23 +188,35 @@ export function PoolGrid({
           ))}
         </div>
       )}
-    </div>
+      </TabsContent>
+    </Tabs>
   )
+}
+
+/** Ce que dit un onglet vide — la raison change avec lui. */
+const EMPTY_LABELS: Record<PoolView, string> = {
+  toPublish: 'Aucun clip à programmer.',
+  scheduled: 'Aucune échéance en attente.',
+  published: 'Aucun clip publié.',
+  partial: 'Aucun clip partiellement publié.',
+  errors: 'Aucun clip en échec.',
+  all: 'Aucun clip ne correspond au filtre.',
 }
 
 function FilterBar({
   clips,
   filter,
-  onFilter,
+  onRestrict,
   restricted,
+  visibleCount,
 }: {
   clips: readonly PlanningPoolClip[]
   filter: PoolFilter
-  onFilter: (filter: PoolFilter) => void
+  onRestrict: (restriction: PoolRestriction) => void
   restricted: boolean
+  visibleCount: number
 }) {
   const shows = showsInPool(clips)
-  const visibleCount = filterPool(clips, filter).length
   const showId = useId()
 
   return (
@@ -166,7 +228,7 @@ function FilterBar({
         <Select
           value={filter.projectId ?? ALL_SHOWS}
           onValueChange={(value) =>
-            onFilter({ ...filter, projectId: value === ALL_SHOWS ? null : value })
+            onRestrict({ search: filter.search, projectId: value === ALL_SHOWS ? null : value })
           }
         >
           <SelectTrigger id={showId} className="w-56">
@@ -194,7 +256,7 @@ function FilterBar({
           type="search"
           placeholder="Rechercher un clip…"
           value={filter.search}
-          onChange={(e) => onFilter({ ...filter, search: e.target.value })}
+          onChange={(e) => onRestrict({ projectId: filter.projectId, search: e.target.value })}
           className="w-56"
         />
       </div>

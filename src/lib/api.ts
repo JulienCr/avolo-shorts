@@ -1394,28 +1394,10 @@ export function getPublications(clipId: string): Promise<{ publications: Publica
 // Le planning (spec du 26 août 2026)
 // ---------------------------------------------------------------------------
 
-/** Un clip du vivier : exporté, à jour, pas encore programmé. */
-export type PlanningPoolClip = {
-  clipId: string
-  projectId: string
-  title: string
-  /** La durée du montage, en secondes. */
-  duration: number
-  /** La vignette tirée du proxy, `null` quand le proxy manque. */
-  thumbnailUrl: string | null
-  /** La description **composée** (`composeDescription`) : pied de page compris, comme ce qui sera envoyé. */
-  description: string
-  /** Ce que l'export a produit, et où le lire. */
-  outputs: ClipOutputs
-  /** Ce qui est déjà parti, par plateforme. */
-  statuses: Partial<Record<Platform, PublicationStatus>>
-}
-
 /**
- * Ce que le planning affiche pour une plateforme d'une échéance : au-delà du
- * statut, ce qui vient nourrir le détail d'un échec sans dupliquer le
- * courriel d'abandon (`src/server/publication/scheduler.ts`), qui lit les
- * mêmes colonnes.
+ * Ce que le planning affiche pour une plateforme : au-delà du statut, ce qui
+ * vient nourrir le détail d'un échec sans dupliquer le courriel d'abandon
+ * (`src/server/publication/scheduler.ts`), qui lit les mêmes colonnes.
  */
 export type PublicationDetail = {
   status: PublicationStatus
@@ -1424,6 +1406,31 @@ export type PublicationDetail = {
   /** Le dernier essai, en ms depuis l'époque. */
   updatedAt: number
   remoteUrl: string | null
+}
+
+/**
+ * Un clip du vivier : **exporté, et rien de plus**.
+ *
+ * La fraîcheur du rendu et l'état des publications ne filtrent plus, ils se
+ * lisent — `stale` et `statuses` portent de quoi ranger le clip dans un des
+ * six onglets sans un aller-retour de plus.
+ */
+export type PlanningPoolClip = {
+  clipId: string
+  projectId: string
+  title: string
+  /** La durée du montage, en secondes. */
+  duration: number
+  /** La vignette : l'affiche du rendu s'il est à jour, sinon celle du proxy. `null` sans l'un ni l'autre. */
+  thumbnailUrl: string | null
+  /** La description **composée** (`composeDescription`) : pied de page compris, comme ce qui sera envoyé. */
+  description: string
+  /** Ce que l'export a produit, et où le lire. */
+  outputs: ClipOutputs
+  /** Ce qui est déjà parti, par plateforme — même forme que `ScheduledEntry`. */
+  statuses: Partial<Record<Platform, PublicationDetail>>
+  /** Le rendu sur le disque ne correspond plus au montage courant. */
+  stale: boolean
 }
 
 /** Une échéance posée, telle que le calendrier la lit. */
@@ -1438,7 +1445,7 @@ export type ScheduledEntry = {
   stale: boolean
 }
 
-/** Les clips exportés, à jour, pas encore programmés — `GET /api/planning/pool`. */
+/** Tous les clips exportés, quel que soit leur état de publication — `GET /api/planning/pool`. */
 export function listPlanningPool(): Promise<PlanningPoolClip[]> {
   return lire<{ clips: PlanningPoolClip[] }>('/api/planning/pool').then((r) => r.clips)
 }

@@ -87,6 +87,7 @@ function clip(fields: Partial<PlanningPoolClip> = {}): PlanningPoolClip {
     description: '',
     outputs: { mp4Url: null, mp4Due: false, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
     statuses: {},
+    stale: false,
     ...fields,
   }
 }
@@ -163,7 +164,7 @@ describe('PlanningScreen', () => {
     server({ pool: [] })
     render(<PlanningScreen />, { wrapper: wrapper() })
 
-    await waitFor(() => expect(screen.getByText(/Aucun clip à programmer/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Aucun clip exporté/)).toBeTruthy())
     expect(screen.getByText(/Exportez un clip/)).toBeTruthy()
   })
 

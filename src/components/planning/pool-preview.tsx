@@ -1,16 +1,14 @@
 'use client'
 
-import type { VariantProps } from 'class-variance-authority'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useRef } from 'react'
 
-import { PLATFORM_LABELS, PLATFORMS, PUBLICATION_STATUS_LABELS, type PublicationStatus } from '@/core/publication'
+import { PLATFORM_LABELS, PLATFORMS } from '@/core/publication'
 import type { PlanningPoolClip } from '@/lib/api'
 import { formatDuration } from '@/lib/format'
 import { linkClip } from '@/lib/navigation'
 import { buttonVariants } from '@/components/ui/button'
-import { Badge, badgeVariants } from '@/components/ui/badge'
+import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
   DialogContent,
@@ -19,41 +17,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { PlatformDetailRow, StaleRenderBadge } from '@/components/planning/publication-detail'
 import { formatShowOrigin } from '@/components/planning/texts'
+import { usePlanningUrlParam } from '@/components/planning/url-state'
 import { cn } from '@/lib/utils'
 
-/**
- * Le clip en aperçu, lu dans `?preview=`, et le geste qui l'y pose ou l'en
- * retire.
- *
- * **Les autres paramètres survivent** — même règle que
- * `useTranscriptPanelUrl` (`show/transcript-panel.tsx`) : un `URLSearchParams`
- * reconstruit depuis `useSearchParams().toString()` avant d'ajouter ou de
- * retirer la clé.
- */
+/** Le clip en aperçu, lu dans `?preview=`, et le geste qui l'y pose ou l'en retire. */
 export function usePreviewUrl(): [string | null, (clipId: string | null) => void] {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const preview = searchParams.get('preview')
-
-  function setPreview(clipId: string | null) {
-    const params = new URLSearchParams(searchParams.toString())
-    if (clipId !== null) params.set('preview', clipId)
-    else params.delete('preview')
-    const query = params.toString()
-    router.replace(`/planning${query === '' ? '' : `?${query}`}`, { scroll: false })
-  }
-
-  return [preview, setPreview]
-}
-
-/** Le ton du badge par plateforme — `failed` est seul à porter le rouge. */
-const STATUS_BADGE_VARIANT: Record<PublicationStatus, VariantProps<typeof badgeVariants>['variant']> = {
-  planned: 'outline',
-  in_progress: 'outline',
-  submitted: 'secondary',
-  published: 'secondary',
-  failed: 'destructive',
+  return usePlanningUrlParam('preview')
 }
 
 /**
@@ -89,14 +60,23 @@ export function PoolPreview({
             <span className="font-mono tabular-nums">{formatDuration(clip.duration)}</span>
           </div>
 
-          <div className="flex flex-wrap gap-1.5">
+          {clip.stale && <StaleRenderBadge />}
+
+          {/* Une ligne par plateforme visée, un badge pour les autres : le
+              détail porte le lien vers le post, la date d'essai, le message
+              d'échec et sa relance — rien de tout cela n'existe pour une
+              plateforme sans ligne. */}
+          <div className="flex flex-col gap-1.5">
             {PLATFORMS.map((platform) => {
-              const status = clip.statuses[platform]
-              return (
-                <Badge key={platform} variant={status === undefined ? 'outline' : STATUS_BADGE_VARIANT[status]}>
-                  {PLATFORM_LABELS[platform]} · {status === undefined ? 'programmable' : PUBLICATION_STATUS_LABELS[status]}
-                </Badge>
-              )
+              const detail = clip.statuses[platform]
+              if (detail === undefined) {
+                return (
+                  <Badge key={platform} variant="outline" className="w-fit">
+                    {PLATFORM_LABELS[platform]} · programmable
+                  </Badge>
+                )
+              }
+              return <PlatformDetailRow key={platform} clipId={clip.clipId} platform={platform} detail={detail} />
             })}
           </div>
 

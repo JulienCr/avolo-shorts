@@ -107,7 +107,10 @@ function postRequest(url: string, body: unknown): Request {
 }
 
 describe('GET /api/planning/pool', () => {
-  it('exclut un clip `kept`, un clip exporté périmé, et un clip déjà programmé', async () => {
+  // Le vivier ne filtre plus que sur `status = 'exported'` : un rendu périmé
+  // et une échéance déjà posée s'y lisent au lieu d'en sortir, faute de quoi
+  // les onglets « Programmés » et « Erreurs » n'auraient rien à montrer.
+  it('n’exclut que les clips non exportés, et marque le rendu périmé', async () => {
     putClip(getDb(), baseClip('gardé', { status: 'kept' }))
     fresh.add('gardé')
 
@@ -123,16 +126,20 @@ describe('GET /api/planning/pool', () => {
 
     const response = await poolRoute()
     expect(response.status).toBe(200)
-    const payload = (await response.json()) as { clips: { clipId: string; duration: number }[] }
-    expect(payload.clips.map((c) => c.clipId)).toEqual(['éligible'])
-    expect(payload.clips[0].duration).toBe(20)
+    const payload = (await response.json()) as {
+      clips: { clipId: string; duration: number; stale: boolean; statuses: Record<string, { status: string }> }[]
+    }
+    const byId = new Map(payload.clips.map((c) => [c.clipId, c]))
+    expect(new Set(byId.keys())).toEqual(new Set(['déjà-programmé', 'éligible', 'périmé']))
+    expect(byId.get('éligible')!.duration).toBe(20)
+    expect(byId.get('éligible')!.stale).toBe(false)
+    expect(byId.get('périmé')!.stale).toBe(true)
+    expect(byId.get('déjà-programmé')!.statuses.instagram.status).toBe('planned')
   })
 
-  // Le piège que `schedulePublications` pose : son UPSERT ne réécrit jamais
-  // une ligne au résultat déjà arrêté (`WHERE status = 'planned'`). Un clip
-  // dont les quatre lignes portent déjà un résultat n'a donc plus rien à
-  // programmer, et doit sortir du vivier plutôt que produire un succès vide.
-  it("exclut un clip dont les quatre plateformes portent déjà un résultat", async () => {
+  // C'est le cas qui a motivé la PR : un clip publié partout n'avait plus
+  // aucune surface où se lire une fois sorti des cinq semaines du calendrier.
+  it('rend un clip dont les quatre plateformes portent déjà un résultat', async () => {
     putClip(getDb(), baseClip('épuisé'))
     fresh.add('épuisé')
     for (const platform of ['instagram', 'facebook', 'tiktok', 'youtube'] as const) {
@@ -152,8 +159,33 @@ describe('GET /api/planning/pool', () => {
     }
 
     const response = await poolRoute()
-    const payload = (await response.json()) as { clips: { clipId: string }[] }
-    expect(payload.clips.map((c) => c.clipId)).toEqual([])
+    const payload = (await response.json()) as {
+      clips: { clipId: string; statuses: Record<string, { status: string; remoteUrl: string | null }> }[]
+    }
+    expect(payload.clips.map((c) => c.clipId)).toEqual(['épuisé'])
+    expect(payload.clips[0].statuses.youtube).toEqual({
+      status: 'published',
+      error: null,
+      updatedAt: 1000,
+      remoteUrl: 'https://example.test/p1',
+    })
+  })
+
+  /**
+   * `urlVignette(clip, true)` publie l'URL sur la seule foi de la livraison :
+   * sur un rendu périmé elle mène à un 404, là où le repli sur le proxy donne
+   * une affiche qui existe.
+   */
+  it('l’affiche du rendu ne se sert que sur une livraison à jour', async () => {
+    putClip(getDb(), baseClip('à-jour'))
+    fresh.add('à-jour')
+    putClip(getDb(), baseClip('dépassé'))
+
+    const response = await poolRoute()
+    const payload = (await response.json()) as { clips: { clipId: string; thumbnailUrl: string | null }[] }
+    const byId = new Map(payload.clips.map((c) => [c.clipId, c.thumbnailUrl]))
+    expect(byId.get('à-jour')).toContain('?poster=render')
+    expect(byId.get('dépassé') ?? '').not.toContain('?poster=render')
   })
 
   it('rend la description, les sorties et les statuts du clip', async () => {
@@ -175,12 +207,19 @@ describe('GET /api/planning/pool', () => {
 
     const response = await poolRoute()
     const payload = (await response.json()) as {
-      clips: { clipId: string; description: string; outputs: { variant9x16Url: string | null }; statuses: Record<string, string> }[]
+      clips: {
+        clipId: string
+        description: string
+        outputs: { variant9x16Url: string | null }
+        statuses: Record<string, unknown>
+      }[]
     }
     const clip = payload.clips[0]
     expect(clip.description).toBe('Une scène.')
     expect(clip.outputs.variant9x16Url).not.toBeNull()
-    expect(clip.statuses).toEqual({ instagram: 'published' })
+    expect(clip.statuses).toEqual({
+      instagram: { status: 'published', error: null, updatedAt: 1000, remoteUrl: 'https://example.test/p1' },
+    })
   })
 
   /**

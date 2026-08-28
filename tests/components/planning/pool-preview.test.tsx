@@ -5,13 +5,25 @@
  * vide, et le lien d'édition.
  */
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, render as renderRaw, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PoolPreview } from '@/components/planning/pool-preview'
-import type { PlanningPoolClip } from '@/lib/api'
+import type { PlanningPoolClip, PublicationDetail } from '@/lib/api'
 
 afterEach(cleanup)
+
+/** `PlatformDetailRow` porte la relance, donc une mutation : il lui faut un client. */
+function render(ui: ReactNode) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return renderRaw(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+}
+
+function detail(status: PublicationDetail['status'], fields: Partial<PublicationDetail> = {}): PublicationDetail {
+  return { status, error: null, updatedAt: 1_756_000_000_000, remoteUrl: null, ...fields }
+}
 
 function clip(fields: Partial<PlanningPoolClip> = {}): PlanningPoolClip {
   return {
@@ -23,6 +35,7 @@ function clip(fields: Partial<PlanningPoolClip> = {}): PlanningPoolClip {
     description: '',
     outputs: { mp4Url: null, mp4Due: false, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
     statuses: {},
+    stale: false,
     ...fields,
   }
 }
@@ -56,17 +69,31 @@ describe('PoolPreview', () => {
     expect(screen.getByText(/Aucun rendu à jour n’est disponible/)).toBeTruthy()
   })
 
-  it('les quatre plateformes se rendent, une absence lit « programmable »', () => {
-    render(
-      <PoolPreview
-        clip={clip({ statuses: { instagram: 'published' } })}
-        onClose={vi.fn()}
-      />,
-    )
-    expect(screen.getByText(/Instagram · publié/)).toBeTruthy()
+  it('une plateforme visée donne sa ligne de détail, une absence lit « programmable »', () => {
+    render(<PoolPreview clip={clip({ statuses: { instagram: detail('published') } })} onClose={vi.fn()} />)
+    expect(screen.getByText('publié')).toBeTruthy()
+    expect(screen.getByText('Instagram')).toBeTruthy()
     expect(screen.getByText(/Facebook · programmable/)).toBeTruthy()
     expect(screen.getByText(/TikTok · programmable/)).toBeTruthy()
     expect(screen.getByText(/YouTube Shorts · programmable/)).toBeTruthy()
+  })
+
+  // La raison d'un échec ne doit dépendre ni d'un survol ni du clavier : sans
+  // elle, l'onglet « Erreurs » n'a rien à dire.
+  it('un échec montre son message et son bouton de relance', () => {
+    render(
+      <PoolPreview
+        clip={clip({ statuses: { tiktok: detail('failed', { error: 'jeton expiré' }) } })}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('jeton expiré')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Relancer TikTok' })).toBeTruthy()
+  })
+
+  it('un rendu périmé se signale dans l’aperçu', () => {
+    render(<PoolPreview clip={clip({ stale: true })} onClose={vi.fn()} />)
+    expect(screen.getByText('rendu périmé')).toBeTruthy()
   })
 
   it('une description vide lit « (sans description) »', () => {

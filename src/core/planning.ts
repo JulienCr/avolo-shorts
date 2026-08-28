@@ -15,7 +15,7 @@
  * la saisie qui doit être fixée à Europe/Paris, pas seulement la lecture.
  */
 
-import type { Platform, PublicationStatus } from '@/core/publication'
+import { PLATFORMS, type Platform, type PublicationStatus } from '@/core/publication'
 
 const PARIS_TZ = 'Europe/Paris'
 
@@ -150,6 +150,20 @@ export const PLANNING_AGGREGATE_LABELS: Record<PlanningAggregateStatus, string> 
   submitted: 'déposé',
   in_progress: 'en cours',
   partial: 'partiel',
+}
+
+/**
+ * Le statut seul, pour les fonctions pures qui n'ont que faire du reste.
+ *
+ * Le paramètre est structurel plutôt que nommé `PublicationDetail` : ce type
+ * vit dans `@/lib/api`, qui dépend déjà de ce module.
+ */
+export function statusesOnly(
+  statuses: Partial<Record<Platform, { status: PublicationStatus }>>,
+): Partial<Record<Platform, PublicationStatus>> {
+  const result: Partial<Record<Platform, PublicationStatus>> = {}
+  for (const platform of PLATFORMS) result[platform] = statuses[platform]?.status
+  return result
 }
 
 /**

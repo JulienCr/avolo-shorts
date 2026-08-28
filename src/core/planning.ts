@@ -168,8 +168,10 @@ export function aggregatePublicationStatus(
 ): PlanningAggregateStatus {
   const values = Object.values(statuses).filter((s): s is PublicationStatus => s !== undefined)
   if (values.length > 0 && values.every((s) => s === 'failed')) return 'failed'
-  if (values.some((s) => s === 'failed')) return 'partial_failure'
+  // Un envoi qui tourne encore l'emporte sur un échec déjà écrit ailleurs :
+  // sinon « échec partiel » masquerait une publication active en cours.
   if (values.some((s) => s === 'in_progress')) return 'in_progress'
+  if (values.some((s) => s === 'failed')) return 'partial_failure'
   if (values.every((s) => s === 'planned')) return 'planned'
   if (values.every((s) => s === 'published')) return 'published'
   if (values.every((s) => s === 'published' || s === 'submitted') && values.some((s) => s === 'submitted')) {

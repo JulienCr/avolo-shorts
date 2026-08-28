@@ -130,4 +130,8 @@ describe('aggregatePublicationStatus', () => {
   it('in_progress signifie qu’un envoi tourne réellement, rien de moins', () => {
     expect(aggregatePublicationStatus({ instagram: 'published', tiktok: 'in_progress' })).toBe('in_progress')
   })
+
+  it('un envoi en cours l’emporte sur un échec déjà écrit ailleurs', () => {
+    expect(aggregatePublicationStatus({ instagram: 'failed', tiktok: 'in_progress' })).toBe('in_progress')
+  })
 })

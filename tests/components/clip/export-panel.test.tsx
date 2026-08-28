@@ -75,6 +75,9 @@ function mount(props: Partial<Parameters<typeof PanelExport>[0]> = {}) {
     fingerprint: 'empreinte-de-depart',
     writeInCurrent: false,
     writeInFailure: false,
+    // Réglages déjà chargés, pied de page vide — sinon la plupart des tests
+    // hériteraient de l'état « réglages indisponibles » sans le vouloir.
+    descriptionFooter: '',
     ...props,
   }
   const view = render(<PanelExport {...complete} />, { wrapper: envelope })
@@ -482,6 +485,19 @@ describe('les textes et les marques', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /copier mots-dièse/i }))
     await waitFor(() => expect(write).toHaveBeenLastCalledWith('#impro'))
+  })
+
+  it('désactive la description et la copie tant que le pied de page n’est pas connu', () => {
+    // `descriptionFooter` absent (réglages en cours de chargement ou en échec) :
+    // ne pas confondre avec un pied de page réellement vide (relevé par Copilot).
+    mount({ clip: clip({ footer: true }), descriptionFooter: undefined })
+    openDetail()
+    expect(
+      screen.getByRole('button', { name: /copier description/i }).hasAttribute('disabled'),
+    ).toBe(true)
+    expect(
+      screen.getByRole('button', { name: /^copier pour publication$/i }).hasAttribute('disabled'),
+    ).toBe(true)
   })
 
   it('refuse de copier un texte vide', () => {

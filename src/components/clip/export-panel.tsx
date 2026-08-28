@@ -89,11 +89,16 @@ export function PanelExport({
   recordsError,
   publishError,
   onPublish,
-  descriptionFooter = '',
+  descriptionFooter,
 }: {
   /** Le clip **du serveur** : c'est lui qui porte le titre, la description et les marques. */
   clip: Clip
-  /** `publication.descriptionFooter` — composé avec la description du clip par `composeDescription`. */
+  /**
+   * `publication.descriptionFooter` — composé avec la description du clip par
+   * `composeDescription`. `undefined` tant que les réglages n'ont pas répondu
+   * ou ont échoué : distinct d'un pied de page réellement vide, pour ne
+   * jamais composer ni copier un texte incomplet (relevé par Copilot).
+   */
   descriptionFooter?: string
   outputs: ClipOutputs
   /**
@@ -232,7 +237,8 @@ export function PanelExport({
   const publicationEligibility = clipExportEligibility(state === 'delivered')
   // La même fonction que les connecteurs (`@/core/publication`) : ce qui
   // s'affiche ici est ce qui part réellement, pied de page compris.
-  const composedDescription = composeDescription(clip, { footer: descriptionFooter })
+  const composedDescription =
+    descriptionFooter === undefined ? undefined : composeDescription(clip, { footer: descriptionFooter })
   const publishTarget: PublishClipTarget = {
     clipId: clip.id,
     title: clip.title,
@@ -291,10 +297,16 @@ export function PanelExport({
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <h3 className="text-sm font-medium">Textes de publication</h3>
           <FieldCopyable tag="Titre" value={clip.title.trim()} />
-          <FieldCopyable tag="Description" value={composedDescription} lines={6} />
+          <FieldCopyable
+            tag="Description"
+            value={composedDescription ?? ''}
+            lines={6}
+            disabled={composedDescription === undefined}
+          />
           <FieldCopyable
             tag="Mots-dièse"
-            value={wordsHash(`${clip.title.trim()}\n${composedDescription}`).join(' ')}
+            value={composedDescription === undefined ? '' : wordsHash(`${clip.title.trim()}\n${composedDescription}`).join(' ')}
+            disabled={composedDescription === undefined}
           />
         </div>
       </CollapsiblePanel>
@@ -381,8 +393,9 @@ export function PanelExport({
           />
 
           <ButtonCopy
-            text={publicationText(clip, { footer: descriptionFooter })}
+            text={descriptionFooter === undefined ? '' : publicationText(clip, { footer: descriptionFooter })}
             label="Copier pour publication"
+            disabled={descriptionFooter === undefined}
           />
 
           {exporter.isPending && (
@@ -622,11 +635,14 @@ function FieldCopyable({
   tag,
   value,
   lines = 1,
+  disabled = false,
 }: {
   tag: string
   value: string
   /** Une ligne pour un titre ou des mots-dièse, plusieurs pour une description. */
   lines?: number
+  /** Réglage pas encore connu (chargement ou échec) : rien à copier ni afficher. */
+  disabled?: boolean
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
@@ -634,14 +650,14 @@ function FieldCopyable({
         <span aria-hidden className="text-[0.75rem] text-muted-foreground">
           {tag}
         </span>
-        <ButtonCopy text={value} label={`Copier ${tag.toLowerCase()}`} size="xs" />
+        <ButtonCopy text={value} label={`Copier ${tag.toLowerCase()}`} size="xs" disabled={disabled} />
       </div>
       <textarea
         aria-label={`${tag} de publication`}
         readOnly
         rows={lines}
         value={value}
-        placeholder={`(sans ${tag.toLowerCase()})`}
+        placeholder={disabled ? 'Réglages en cours de chargement…' : `(sans ${tag.toLowerCase()})`}
         className="w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 font-mono text-[0.8rem] leading-relaxed"
       />
     </div>
@@ -659,10 +675,12 @@ function ButtonCopy({
   text,
   label,
   size = 'sm',
+  disabled = false,
 }: {
   text: string
   label: string
   size?: 'xs' | 'sm'
+  disabled?: boolean
 }) {
   const [copy, setCopy] = useState<string | null>(null)
   const toDay = copy === text && text !== ''
@@ -686,7 +704,7 @@ function ButtonCopy({
       onClick={() => void copyToClipboard()}
       // Copier le vide efface le presse-papiers : le contraire du service rendu,
       // et cela ne se remarque qu'au moment de coller.
-      disabled={text === ''}
+      disabled={disabled || text === ''}
       // **Le nom complet à la voix, court à l'œil.** Plusieurs boutons
       // « Copier » sur le même écran ne se distinguent qu'à leur place ; un
       // lecteur d'écran n'a pas cette place. Et le nom porte l'état : sans

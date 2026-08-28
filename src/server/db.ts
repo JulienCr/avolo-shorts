@@ -510,10 +510,10 @@ export type SettingField = {
   max?: number
   /**
    * Pour un champ `text`, autorise la chaîne vide comme valeur valide et
-   * significative — le seul cas aujourd'hui est `ai.ollamaBaseUrl`, où vide
-   * veut dire « résoudre la passerelle WSL à l'exécution » (`CLAUDE.md`).
-   * Absent ou faux, un texte vide reste refusé comme avant : un champ oublié,
-   * pas un réglage.
+   * significative — `ai.ollamaBaseUrl`, où vide veut dire « résoudre la
+   * passerelle WSL à l'exécution » (`CLAUDE.md`), et `publication.descriptionFooter`,
+   * où vide veut dire « pas de pied de page ». Absent ou faux, un texte vide
+   * reste refusé comme avant : un champ oublié, pas un réglage.
    */
   allowEmpty?: boolean
   /**
@@ -959,8 +959,9 @@ export function parseSetting(
       // (relevé par Copilot)
       //
       // **`allowEmpty` est l'exception nommée, pas un relâchement général** :
-      // `ai.ollamaBaseUrl` est le seul champ qui la porte, et vide y est une
-      // valeur à part entière plutôt qu'un champ oublié.
+      // seuls les champs qui la portent explicitement (`ai.ollamaBaseUrl`,
+      // `publication.descriptionFooter`) y voient une valeur à part entière
+      // plutôt qu'un champ oublié.
       if (field.allowEmpty && raw === '') return raw
       if (raw.trim() === '' || raw.length > TEXT_MAX) return warnRejected(field, raw, seen)
       if (field.enum !== undefined && !field.enum.includes(raw))

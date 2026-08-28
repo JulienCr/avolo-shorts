@@ -272,7 +272,27 @@ describe('PublishDialog — aperçu de la description finale (récapitulatif)', 
     )
     fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
     expect(screen.getByText('Description envoyée')).toBeTruthy()
-    expect(document.querySelector('pre')?.textContent).toBe('Une scène.\n\n———\nLa Scène Avolo.')
+    // Instagram reçoit une légende unique, titre en préfixe (`platformTexts`) —
+    // l'aperçu doit montrer ce que la plateforme reçoit réellement, pas
+    // `composeDescription` seule (relevé par Copilot et Codex).
+    expect(document.querySelector('pre')?.textContent).toBe('La chute\n\nUne scène.\n\n———\nLa Scène Avolo.')
+  })
+
+  it('distingue la légende et la description YouTube quand les deux sont ciblées', () => {
+    render(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[eligible({ composedDescription: 'Une scène.\n\n———\nLa Scène Avolo.' })]}
+        availability={allAvailable}
+      />,
+    )
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Facebook' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'TikTok' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    const previews = Array.from(document.querySelectorAll('pre')).map((node) => node.textContent)
+    expect(previews).toContain('La chute\n\nUne scène.\n\n———\nLa Scène Avolo.')
+    expect(previews).toContain('Une scène.\n\n———\nLa Scène Avolo.')
   })
 
   it("n'affiche rien quand l'appelant n'a pas fourni la description composée", () => {

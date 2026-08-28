@@ -617,6 +617,33 @@ describe('runOnePass — le courriel de brouillon TikTok', () => {
     expect(mails[0]?.body).toContain('Une impro qui part en vrille')
   })
 
+  it('inclut le pied de page commun quand le clip l’active', async () => {
+    putClip(getDb(), baseClip({ footer: true }))
+    applySettings(getDb(), { publication: { descriptionFooter: 'Suivez La Scène Avolo sur Twitch.' } })
+    schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
+    const publish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] =
+          platform === 'tiktok'
+            ? { status: 'submitted', remoteId: 'p1', remoteUrl: null }
+            : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      }
+      return outcomes
+    })
+    fakeAdapter = { ...adapterAlwaysPublishing(publish), id: 'tiktok' }
+    const mails: Array<{ subject: string; body: string }> = []
+    const sendMail = vi.fn(async (subject: string, body: string) => {
+      mails.push({ subject, body })
+    })
+
+    const outcome = await runOnePass(deps({ sendMail }))
+
+    expect(outcome.kind).toBe('done')
+    expect(mails).toHaveLength(1)
+    expect(mails[0]?.body).toContain('Suivez La Scène Avolo sur Twitch.')
+  })
+
   it('échappe la légende dans le HTML, la laisse intacte dans le texte', async () => {
     putClip(getDb(), baseClip({ title: 'A & B <script>', description: 'un <b>gras</b> qui ne doit pas passer' }))
     await renderClip(CLIP_ID, { db: getDb() })

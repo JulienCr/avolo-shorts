@@ -128,7 +128,7 @@ export function PoolGrid({
           clips={clips}
           filter={filter}
           onRestrict={setRestriction}
-          restricted={visible.length !== clips.length}
+          restricted={restricting}
           visibleCount={visible.length}
         />
       </div>
@@ -261,6 +261,8 @@ function FilterBar({
         />
       </div>
 
+      {/* Sur l'onglet, pas de compte : sa pastille le porte déjà, et « 13 sur
+          15 » se lirait comme un filtre posé alors qu'il n'y en a aucun. */}
       {restricted && (
         <p className="text-xs text-muted-foreground tabular-nums">
           {visibleCount} clips sur {clips.length}

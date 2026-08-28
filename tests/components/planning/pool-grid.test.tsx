@@ -43,6 +43,25 @@ const CLIPS = [clip('a'), clip('b'), clip('c')]
 /** Les props d'onglet, que chaque rendu doit porter. */
 const VIEW = { view: 'toPublish', onView: vi.fn() } as const
 
+describe('PoolGrid — le compte de la barre de filtre', () => {
+  /**
+   * `restricted` valait `visible.length !== clips.length`, vrai sur presque
+   * tout onglet depuis que l'onglet filtre lui aussi : « 2 clips sur 3 »
+   * s'affichait sans qu'aucun filtre soit posé (relevé par Aristarque).
+   */
+  it('se tait sur un onglet seul, et compte dès qu’une recherche restreint', async () => {
+    const user = userEvent.setup()
+    const clips = [clip('a'), clip('b'), clip('c', { statuses: publishedEverywhere() })]
+    render(<PoolGrid {...VIEW} clips={clips} loading={false} selected={new Set()} onToggle={vi.fn()} onPreview={vi.fn()} />)
+
+    // « À publier » n'en montre que deux sur trois, et ne l'annonce pas.
+    expect(screen.queryByText(/clips sur/)).toBeNull()
+
+    await user.type(screen.getByPlaceholderText('Rechercher un clip…'), 'Clip a')
+    expect(screen.getByText('1 clips sur 3')).toBeTruthy()
+  })
+})
+
 describe('PoolGrid — navigation clavier', () => {
   it('atteint chaque carte depuis la première par ArrowDown, et revient par ArrowUp', async () => {
     const user = userEvent.setup()

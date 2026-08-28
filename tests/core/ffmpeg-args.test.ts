@@ -12,6 +12,7 @@ import type { HookSettings } from '@/core/hook'
 import {
   audioArgs,
   blurredVariantArgs,
+  filmstripArgs,
   proxyArgs,
   renderArgs,
   posterArgs,
@@ -136,6 +137,26 @@ describe('thumbArgs', () => {
 
   it('ne demande jamais un instant négatif', () => {
     expect(thumbArgs({ src: '/p.mp4', dst: '/t.jpg', at: -3 })[7]).toBe('0')
+  })
+})
+
+describe('filmstripArgs', () => {
+  const args = filmstripArgs({ src: '/p/proxy.mp4', dst: '/p/strip.jpg', at: 100, duration: 50, count: 12 })
+
+  it('cherche avant d’ouvrir', () => {
+    expect(args.indexOf('-ss')).toBeLessThan(args.indexOf('-i'))
+  })
+
+  it('tuile douze vues sur la durée du clip', () => {
+    expect(args).toContain('fps=12/50,scale=160:90,tile=12x1')
+  })
+
+  it('n’écrit qu’une image', () => {
+    expect(args[args.indexOf('-frames:v') + 1]).toBe('1')
+  })
+
+  it('refuse une durée nulle', () => {
+    expect(() => filmstripArgs({ src: 'a', dst: 'b', at: 0, duration: 0, count: 12 })).toThrow(/durée/)
   })
 })
 

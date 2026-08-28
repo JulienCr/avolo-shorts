@@ -8,6 +8,7 @@ import {
   effectiveRatio,
   shotRatios,
   anyShotSplit,
+  dubbingShotCount,
   activeSplit,
   activeDubbing,
   useCurrentShot,
@@ -162,6 +163,36 @@ export function CropOverlay({
     else if (e.key === 'End') onCropX(clampCropX(1, width))
     else return
     e.preventDefault()
+  }
+
+  if (dubbing && shot?.dubbing) {
+    // Trois pavés inégaux, jamais un slider : même raisonnement que le split
+    // ci-dessous, dans les mêmes fractions que `splitCellRect` les rend.
+    const { film, pip, strip } = shot.dubbing
+    return (
+      <div
+        ref={frame}
+        role="group"
+        tabIndex={reason !== null ? 0 : -1}
+        aria-label="Cadre de ce plan, en composition de doublage improvisé"
+        aria-describedby={reason !== null ? describedBy : undefined}
+        className="pointer-events-none absolute inset-0 outline-none focus-visible:ring-2 focus-visible:ring-stage focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+      >
+        {[film, pip, strip].map((cell, i) => (
+          <div
+            key={i}
+            aria-hidden
+            className="absolute border-2 border-stage/90 shadow-[0_0_0_1px_rgba(0,0,0,0.45)]"
+            style={{
+              left: `${cell.x0 * 100}%`,
+              top: `${cell.y0 * 100}%`,
+              width: `${(cell.x1 - cell.x0) * 100}%`,
+              height: `${(cell.y1 - cell.y0) * 100}%`,
+            }}
+          />
+        ))}
+      </div>
+    )
   }
 
   if (split && shot?.split) {
@@ -325,6 +356,7 @@ export function RatioPicker({
   const effective = effectiveRatio(shot, ratio)
   const split = activeSplit(shot, framing, ratio)
   const anySplit = anyShotSplit(framing)
+  const anyDubbing = dubbingShotCount(framing) > 0
   const origin = originMessage(framing)
   const varied = ratio === 'auto' ? shotRatios(framing) : []
   const varies = varied.length > 1
@@ -373,10 +405,12 @@ export function RatioPicker({
           plan qu'on regarde*, et qu'un ratio épinglé vaut pour tous. */}
       <p className="font-mono text-[0.75rem] text-muted-foreground">
         {ratio === 'auto'
-          ? `auto → ${split ? 'split' : effective}`
+          ? `auto → ${split ? 'split' : dubbing ? 'doublage' : effective}`
           : split
             ? 'split · sur ce plan'
-            : `${effective} · épinglé partout`}
+            : dubbing
+              ? 'doublage · sur ce plan'
+              : `${effective} · épinglé partout`}
         {' · natif '}
         {nativeRatio}
       </p>
@@ -393,7 +427,15 @@ export function RatioPicker({
         <span className="font-mono">{nativeRatio}</span>
         {' · '}
         <strong className="font-medium">Variante 9:16</strong>{' '}
-        {variantDue ? (anySplit ? 'sur fond flouté, en split sur certains plans' : 'sur fond flouté') : 'aucune'}
+        {variantDue
+          ? [
+              'sur fond flouté',
+              anySplit && 'en split sur certains plans',
+              anyDubbing && 'en doublage sur certains plans',
+            ]
+              .filter(Boolean)
+              .join(', ')
+          : 'aucune'}
       </p>
 
       <details className="group/comportement basis-full">
@@ -421,6 +463,13 @@ export function RatioPicker({
                 <>
                   {' '}
                   — un plan à deux personnes se pose en deux cellules empilées, sans fond
+                </>
+              )}
+              {anyDubbing && (
+                <>
+                  {' '}
+                  — un plan de doublage se recompose en trois pavés : le film, les comédiens et la
+                  bande synchro
                 </>
               )}{' '}
               : elle suit le calcul et ne se règle pas ici.

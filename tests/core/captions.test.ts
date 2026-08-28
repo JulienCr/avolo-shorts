@@ -468,11 +468,8 @@ describe('renderAss', () => {
   })
 })
 
-// La coupure de ligne est-elle stable **au sein d'un même carton** ? Un
-// contrôle qui ne regarderait que « tous les événements portent la même
-// structure `\N` » passerait trivialement sur le commit parent, qui n'en
-// écrit aucun : on exige donc la PRÉSENCE d'un `\N` autant que son identité
-// d'un événement à l'autre.
+// La stabilité doit tenir sur toute la durée du carton, un événement par mot
+// actif. Voir le corps de la PR pour le piège du contrôle trivial évité ici.
 describe('la coupure de ligne stable au sein d’un carton', () => {
   const card = [
     { word: 'one', start: 0, end: 0.4 },

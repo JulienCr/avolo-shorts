@@ -249,10 +249,6 @@ function escape(text: string): string {
  * Une virgule y ajouterait des champs à la ligne `Style:`, donc réécrirait la
  * taille, les couleurs et la marge qui la suivent ; une accolade ou un antislash
  * y ouvriraient des balises.
- *
- * **Exportée pour `src/server/caption-measure.ts`**, qui doit mesurer avec la
- * même famille de police que celle écrite en `Style:` — sinon la coupure
- * calculée ne correspond plus à la police réellement incrustée.
  */
 export function fontName(name: string): string {
   const clean = String(name ?? '')

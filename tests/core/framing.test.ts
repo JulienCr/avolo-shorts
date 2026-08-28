@@ -2811,6 +2811,28 @@ describe('le doublage improvisé dans computeFraming', () => {
   })
 
   it(
+    'une dérogation manuelle sur un plan de doublage efface `dubbing`, pas seulement `split` — ' +
+      'sinon un futur rendu verrait les deux et choisirait la composition au lieu du crop demandé',
+    () => {
+      const request = {
+        segments: [seg(20, 40)],
+        shots: [shot(20, 40)],
+        people: dubbingRun(0, 69),
+        srcW: SRC_W,
+        srcH: SRC_H,
+        ratio: 'auto' as const,
+        cropMode: 'manual' as const,
+        crops: { [shotStartMs(shot(20, 40))]: 0.6 },
+        ...RAW_BOUNDS,
+      }
+      const framing = computeFraming(request)
+      expect(framing.shots[0].source).toBe('manual')
+      expect(framing.shots[0].split).toBeUndefined()
+      expect(framing.shots[0].dubbing).toBeUndefined()
+    },
+  )
+
+  it(
     '`dubbingLayout: false` ne détecte plus rien et laisse le reste du cadrage ' +
       'intact — le réglage est donc bien lu, pas seulement déclaré',
     () => {

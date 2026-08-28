@@ -2468,8 +2468,10 @@ function applyExceptions(shots: ShotFraming[], req: FramingRequest): number[] {
     s.cropXNative = exception.value
     s.source = 'manual'
     // Une dérogation pose un crop unique : un plan encore splitté l'ignorerait
-    // à l'export, la variante 9:16 gardant ses deux cellules en silence.
+    // à l'export, la variante 9:16 gardant ses deux cellules en silence. Même
+    // raison pour `dubbing` : le crop manuel doit rester seul à faire foi.
     s.split = undefined
+    s.dubbing = undefined
   }
 
   return [...new Set(rejected)].sort((a, b) => a - b)

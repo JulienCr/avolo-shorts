@@ -1520,6 +1520,15 @@ describe('PATCH /api/clips/:id', () => {
       await patch({ segments: [{ start: 60, end: 95 }], seq: 40 })
       expect(fs.existsSync(strip)).toBe(false)
     })
+
+    it('ne touche pas à la planche quand les bornes ne bougent pas', async () => {
+      const strip = filmstripPath(PROJECT, CLIP)
+      fs.mkdirSync(path.dirname(strip), { recursive: true })
+      fs.writeFileSync(strip, 'jpeg')
+
+      await patch({ title: 'Un autre titre', seq: 40 })
+      expect(fs.existsSync(strip)).toBe(true)
+    })
   })
 })
 

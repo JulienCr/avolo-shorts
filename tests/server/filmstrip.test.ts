@@ -115,6 +115,23 @@ describe('filmstrip', () => {
     expect(second).toBe(first)
     expect(runFfmpeg).toHaveBeenCalledTimes(1)
   })
+
+  it('rend null et efface le temporaire si les bornes bougent pendant le rendu', async () => {
+    putClip(getDb(), baseClip())
+    writeProxy()
+    vi.mocked(runFfmpeg).mockImplementationOnce(async (args: string[]) => {
+      putClip(getDb(), { ...baseClip(), segments: [{ start: 60, end: 80 }] })
+      fs.writeFileSync(args[args.length - 1], Buffer.from('jpeg'))
+    })
+
+    const result = await filmstrip(baseClip())
+    expect(result).toBeNull()
+
+    const destination = filmstripPath(PROJECT, CLIP)
+    expect(fs.existsSync(destination)).toBe(false)
+    const leftovers = fs.readdirSync(path.dirname(destination)).filter((f) => f.includes('.partiel-'))
+    expect(leftovers).toEqual([])
+  })
 })
 
 describe('GET /api/clips/:id/filmstrip', () => {

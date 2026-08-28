@@ -405,17 +405,14 @@ describe('writeResolvedEnvLocal', () => {
   // Relevé par Copilot sur la passe précédente : la suppression best-effort
   // ne doit pas avaler son propre échec, sous peine de laisser l'opérateur
   // croire qu'un secret révoqué a disparu alors qu'il est encore sur disque.
-  it("annonce l'echec de suppression plutôt que de le taire quand le repertoire est verrouille", () => {
+  it("annonce l'echec de suppression plutôt que de le taire quand unlinkSync ne peut pas aboutir", () => {
     const file = path.join(dir, '.env.local')
-    fs.writeFileSync(file, "OLD_KEY='ancien-secret-perime'\n")
-    fs.chmodSync(dir, 0o500)
+    // `unlinkSync` sur un répertoire échoue avec EISDIR quel que soit
+    // l'utilisateur — root compris, contrairement à un chmod restrictif.
+    fs.mkdirSync(file)
 
-    try {
-      expect(() => writeResolvedEnvLocal(file, [['NEW_KEY', "valeur avec une apostrophe '"]])).toThrow(
-        /NEW_KEY[\s\S]*n'a pas pu être supprimé[\s\S]*secret révoqué peut y être resté/,
-      )
-    } finally {
-      fs.chmodSync(dir, 0o700)
-    }
+    expect(() => writeResolvedEnvLocal(file, [['NEW_KEY', "valeur avec une apostrophe '"]])).toThrow(
+      /NEW_KEY[\s\S]*n'a pas pu être supprimé[\s\S]*secret révoqué peut y être resté/,
+    )
   })
 })

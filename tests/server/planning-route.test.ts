@@ -307,9 +307,45 @@ describe('GET /api/planning/schedule', () => {
     // La fenêtre exclut 5000 (l'ancienne échéance youtube), ne couvre que 9000.
     const response = await scheduleGetRoute(getRequest('http://test/api/planning/schedule?from=8000&to=10000'))
     const payload = (await response.json()) as {
-      entries: { clipId: string; statuses: Record<string, string> }[]
+      entries: { clipId: string; statuses: Record<string, { status: string }> }[]
     }
-    expect(payload.entries[0].statuses.youtube).toBe('published')
+    expect(payload.entries[0].statuses.youtube?.status).toBe('published')
+  })
+
+  // Ce que les emails d'alerte lisent déjà (`notifyAbandoned`) doit
+  // atteindre le planning sans passe de traduction séparée : la raison, le
+  // dernier essai, et le lien si la plateforme l'a rendu.
+  it("montre l'erreur, le dernier essai et le lien d'une plateforme en échec", async () => {
+    putClip(getDb(), baseClip('a'))
+    fresh.add('a')
+    schedulePublications(getDb(), ['a'], 5000, 1000)
+    upsertPublication(getDb(), {
+      clipId: 'a',
+      platform: 'tiktok',
+      status: 'failed',
+      remoteId: null,
+      remoteUrl: 'https://tiktok.com/@avolo/video/1',
+      requestId: 'req-1',
+      error: 'Le débit TikTok est atteint.',
+      publishedFingerprint: null,
+      createdAt: 1000,
+      updatedAt: 4242,
+      scheduledAt: 5000,
+    })
+
+    const response = await scheduleGetRoute(getRequest('http://test/api/planning/schedule?from=0&to=10000'))
+    const payload = (await response.json()) as {
+      entries: {
+        clipId: string
+        statuses: Record<string, { status: string; error: string | null; updatedAt: number; remoteUrl: string | null }>
+      }[]
+    }
+    expect(payload.entries[0].statuses.tiktok).toEqual({
+      status: 'failed',
+      error: 'Le débit TikTok est atteint.',
+      updatedAt: 4242,
+      remoteUrl: 'https://tiktok.com/@avolo/video/1',
+    })
   })
 
   // Le cas contre-intuitif de la spec (§5.2) : le calendrier lit les
@@ -372,8 +408,8 @@ describe('POST /api/planning/schedule', () => {
     const response = await scheduleRoute(
       postRequest('http://test/api/planning/schedule', { clipIds: ['a'], scheduledAt: 5000 }),
     )
-    const payload = (await response.json()) as { entries: { statuses: Record<string, string> }[] }
-    expect(payload.entries[0].statuses.youtube).toBe('published')
+    const payload = (await response.json()) as { entries: { statuses: Record<string, { status: string }> }[] }
+    expect(payload.entries[0].statuses.youtube?.status).toBe('published')
   })
 
   it('400 sur des identifiants dupliqués', async () => {

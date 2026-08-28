@@ -13,6 +13,7 @@ import {
   type Platform,
   type PublicationStatus,
 } from '@/core/publication'
+import { formatErrorDetail } from '@/core/publication-errors'
 import { effectiveSettings, getClip, getPublications, nextDueSchedule, upsertPublication } from '@/server/db'
 import { messageSafe } from '@/server/errors'
 import { adapterFor } from '@/server/publication'
@@ -310,23 +311,6 @@ const DEFAULT_STATUS_COLOR = { bg: '#f1f3f4', fg: '#5f6368' }
 
 function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-/**
- * Ré-indente le suffixe JSON d'une erreur Meta (cas `MetaFileRefusedError`,
- * `src/server/publication/meta.ts:124-126` : un préfixe en français suivi d'un
- * blob JSON, jamais du JSON pur) pour rester lisible dans le tableau HTML — le
- * préfixe reste tel quel (relevé en revue, Copilot).
- */
-function formatErrorDetail(error: string): string {
-  const jsonStart = error.indexOf('{')
-  if (jsonStart === -1) return error
-  try {
-    const pretty = JSON.stringify(JSON.parse(error.slice(jsonStart)), null, 2)
-    return error.slice(0, jsonStart) + pretty
-  } catch {
-    return error
-  }
 }
 
 function platformRowHtml(platform: Platform, status: PublicationStatus, error: string | null | undefined): string {

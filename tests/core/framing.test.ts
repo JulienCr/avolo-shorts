@@ -26,6 +26,7 @@ import {
   trimmedBounds,
   type Cell,
 } from '@/core/framing'
+import { DUBBING_ANCHORS } from '@/core/dubbing'
 import type { Ratio, Segment } from '@/core/edl'
 import { POINT, POINT_COUNT, shotStartMs } from '@/core/shots'
 import type { PersonBox, Shot } from '@/core/shots'
@@ -2758,6 +2759,106 @@ describe('le split-screen dans computeFraming', () => {
     expect(manual.shots[0].split).toBeUndefined()
     expect(manual.shots[0].cropX).toBe(0.42)
   })
+})
+
+describe('le doublage improvisé dans computeFraming', () => {
+  const ANCHOR = DUBBING_ANCHORS[0]
+  /** Une boîte de comédien du disque, entièrement contenue dans l'ancre. */
+  const dubBox = (t: number): PersonBox => ({
+    t,
+    x0: ANCHOR.pip.x0 + 0.02,
+    x1: ANCHOR.pip.x1 - 0.02,
+    y0: ANCHOR.pip.y0 + 0.02,
+    y1: ANCHOR.pip.y1 - 0.02,
+    score: 0.9,
+  })
+  /** Une image par seconde, de `from` à `to` inclus — bien plus que le délai d'entrée de 30 s. */
+  const dubbingRun = (from: number, to: number): PersonBox[] => {
+    const out: PersonBox[] = []
+    for (let t = from; t <= to; t += 1) out.push(dubBox(t))
+    return out
+  }
+
+  it(
+    "prend `dubbing` et perd `split` sur un plan dont le milieu tombe dans la séquence, " +
+      'mesurée sur la liste complète des boîtes et non sur le segment monté',
+    () => {
+      // Segment et plan ne couvrent que [20, 40), un fragment de la séquence
+      // [0, 69] portée par `people`. Mesurer l'étendue sur `peopleInSegments`
+      // la tronquerait à ce fragment : le délai d'entrée de 30 s ne serait
+      // alors jamais confirmé (20 images seulement, de 20 à 39), et aucun
+      // `dubbing` ne serait posé — c'est le point que ce test décide.
+      const request = {
+        segments: [seg(20, 40)],
+        shots: [shot(20, 40)],
+        people: dubbingRun(0, 69),
+        srcW: SRC_W,
+        srcH: SRC_H,
+        ratio: 'auto' as const,
+        cropMode: 'auto' as const,
+        ...RAW_BOUNDS,
+      }
+      const framing = computeFraming(request)
+      expect(framing.shots[0].dubbing).toBeDefined()
+      expect(framing.shots[0].split).toBeUndefined()
+    },
+  )
+
+  it("ne pose rien sur un plan qu'aucune séquence ne traverse", () => {
+    const framing = computeFraming(base)
+    expect(framing.shots[0].dubbing).toBeUndefined()
+    expect(framing.shots[1].dubbing).toBeUndefined()
+  })
+
+  it(
+    'une dérogation manuelle sur un plan de doublage efface `dubbing`, pas seulement `split` — ' +
+      'sinon un futur rendu verrait les deux et choisirait la composition au lieu du crop demandé',
+    () => {
+      const request = {
+        segments: [seg(20, 40)],
+        shots: [shot(20, 40)],
+        people: dubbingRun(0, 69),
+        srcW: SRC_W,
+        srcH: SRC_H,
+        ratio: 'auto' as const,
+        cropMode: 'manual' as const,
+        crops: { [shotStartMs(shot(20, 40))]: 0.6 },
+        ...RAW_BOUNDS,
+      }
+      const framing = computeFraming(request)
+      expect(framing.shots[0].source).toBe('manual')
+      expect(framing.shots[0].split).toBeUndefined()
+      expect(framing.shots[0].dubbing).toBeUndefined()
+    },
+  )
+
+  it(
+    '`dubbingLayout: false` ne détecte plus rien et laisse le reste du cadrage ' +
+      'intact — le réglage est donc bien lu, pas seulement déclaré',
+    () => {
+      const request = {
+        segments: [seg(0, 10)],
+        shots: [shot(0, 10)],
+        people: [...dubbingRun(0, 69), ...PEOPLE.filter((p) => p.t < 10)],
+        srcW: SRC_W,
+        srcH: SRC_H,
+        ratio: 'auto' as const,
+        cropMode: 'auto' as const,
+        ...RAW_BOUNDS,
+      }
+      const on = computeFraming({ ...request, dubbingLayout: true })
+      const off = computeFraming({ ...request, dubbingLayout: false })
+      expect(on.shots[0].dubbing).toBeDefined()
+      expect(off.shots.every((s) => s.dubbing === undefined)).toBe(true)
+      // Le ratio et les deux positions de crop ne bougent pas : ils se
+      // calculent normalement pour un plan de doublage, c'est ce qui garantit
+      // que le fichier natif ne bouge pas tant que PR3 ne rend rien de neuf.
+      expect(off.ratio).toBe(on.ratio)
+      expect(off.shots[0].ratio).toBe(on.shots[0].ratio)
+      expect(off.shots[0].cropX).toBeCloseTo(on.shots[0].cropX, 10)
+      expect(off.shots[0].cropXNative).toBeCloseTo(on.shots[0].cropXNative, 10)
+    },
+  )
 })
 
 /**

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import type { DubbingCells } from '@/core/dubbing'
 import type { Ratio, Segment } from '@/core/edl'
 import { MIN_PIECE_SEC, type Cell, type ShotFraming } from '@/core/framing'
 import { splitByShot } from '@/core/shot-split'
@@ -23,6 +24,7 @@ function shot(
   ratio: Ratio,
   cropX: number,
   split?: [Cell, Cell],
+  dubbing?: DubbingCells,
 ): ShotFraming {
   return {
     shot: { start, end },
@@ -32,6 +34,7 @@ function shot(
     cropXNative: cropX,
     source: 'auto',
     split,
+    dubbing,
   }
 }
 
@@ -43,6 +46,16 @@ const CELL_B: [Cell, Cell] = [
   { x0: 0.1, y0: 0, x1: 0.6, y1: 0.5 },
   { x0: 0.1, y0: 0.5, x1: 0.6, y1: 1 },
 ]
+
+const DUBBING_A: DubbingCells = {
+  film: { x0: 0, y0: 0, x1: 1, y1: 1 },
+  pip: { x0: 0.77, y0: 0.02, x1: 0.99, y1: 0.41 },
+  strip: { x0: 0, y0: 0.9, x1: 1, y1: 1 },
+}
+const DUBBING_B: DubbingCells = {
+  ...DUBBING_A,
+  pip: { x0: 0.77, y0: 0.05, x1: 0.99, y1: 0.44 },
+}
 
 const seg = (start: number, end: number): Segment => ({ start, end })
 
@@ -288,5 +301,47 @@ describe('splitByShot', () => {
     expect(m).toHaveLength(2)
     expect(m[0].split).toEqual(CELL_A)
     expect(m[1].split).toBeUndefined()
+  })
+
+  // Le point le plus facile à manquer, dit le contrat de la PR : la fusion
+  // doit aussi comparer les pavés de doublage, sans quoi deux plans composés
+  // différemment fusionneraient et le second perdrait sa composition sans que
+  // rien ne le signale.
+  it('fusionne deux plans consécutifs aux mêmes pavés de doublage', () => {
+    const m = splitByShot(
+      [seg(0, 20)],
+      [
+        shot(0, 10, '16:9', 0.5, undefined, DUBBING_A),
+        shot(10, 20, '16:9', 0.5, undefined, DUBBING_A),
+      ],
+      FALLBACK,
+    )
+    expect(m).toHaveLength(1)
+    expect(m[0].dubbing).toEqual(DUBBING_A)
+  })
+
+  it('ne fusionne pas deux plans dont les pavés de doublage diffèrent', () => {
+    const m = splitByShot(
+      [seg(0, 20)],
+      [
+        shot(0, 10, '16:9', 0.5, undefined, DUBBING_A),
+        shot(10, 20, '16:9', 0.5, undefined, DUBBING_B),
+      ],
+      FALLBACK,
+    )
+    expect(m).toHaveLength(2)
+    expect(m[0].dubbing).toEqual(DUBBING_A)
+    expect(m[1].dubbing).toEqual(DUBBING_B)
+  })
+
+  it('ne fusionne pas un plan de doublage avec un plan qui n’en pose pas', () => {
+    const m = splitByShot(
+      [seg(0, 20)],
+      [shot(0, 10, '16:9', 0.5, undefined, DUBBING_A), shot(10, 20, '16:9', 0.5)],
+      FALLBACK,
+    )
+    expect(m).toHaveLength(2)
+    expect(m[0].dubbing).toEqual(DUBBING_A)
+    expect(m[1].dubbing).toBeUndefined()
   })
 })

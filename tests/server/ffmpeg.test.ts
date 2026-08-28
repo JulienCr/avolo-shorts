@@ -399,6 +399,159 @@ describe('propagerArrêt', () => {
   })
 })
 
+/**
+ * Le groupe de processus : l'opt-in que seule l'analyse d'image utilise.
+ *
+ * `detached: true` fait du parent le meneur d'un groupe qui lui est propre ;
+ * ses propres enfants Unix héritent de ce groupe tant qu'ils ne s'en
+ * détachent pas eux-mêmes. `killGroup: true` vise ce groupe entier (`-pid`)
+ * plutôt que le seul PID du parent : c'est ce qui atteint l'ffmpeg qu'un
+ * worker Python a lancé, sans que rien d'autre ne le sache.
+ */
+describe('forwardAbort, le groupe de processus', () => {
+  /** Un « worker » détaché qui lance lui-même un `sleep` et annonce son PID. */
+  function spawnWorkerWithChild(): ReturnType<typeof spawn> {
+    return spawn(
+      process.execPath,
+      [
+        '-e',
+        "const { spawn } = require('child_process');" +
+          "const child = spawn('sleep', ['30']);" +
+          "console.log(child.pid);" +
+          "setTimeout(() => {}, 30000)",
+      ],
+      { detached: true, stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+  }
+
+  /** Le PID annoncé sur la première ligne de stdout. */
+  function firstPid(proc: ReturnType<typeof spawn>): Promise<number> {
+    return new Promise((resolve) => {
+      proc.stdout?.once('data', (chunk: Buffer) => resolve(Number(chunk.toString().trim())))
+    })
+  }
+
+  /** Sonde un PID par un signal 0, jusqu'à ce qu'il réponde ESRCH ou expire. */
+  async function untilGone(pid: number, timeoutMs = 2000): Promise<void> {
+    const start = Date.now()
+    for (;;) {
+      try {
+        process.kill(pid, 0)
+      } catch {
+        return
+      }
+      if (Date.now() - start > timeoutMs) throw new Error(`pid ${pid} toujours vivant`)
+      await new Promise((r) => setTimeout(r, 20))
+    }
+  }
+
+  it("tue l'enfant du worker quand l'appelant vise le groupe", async () => {
+    const proc = spawnWorkerWithChild()
+    const childPid = await firstPid(proc)
+    const controller = new AbortController()
+    const detach = forwardAbort(proc, controller.signal, undefined, { killGroup: true })
+    controller.abort()
+    await untilGone(childPid)
+    detach()
+  })
+
+  /**
+   * **Le cas que le garde-fou anti-recyclage a failli casser.** `detect.py`
+   * n'a pas de gestionnaire pour `SIGTERM` et meurt dessus immédiatement ; son
+   * ffmpeg, lui, l'intercepte le temps de finir sa sortie. `close` du worker
+   * arrive donc *avant* que le descendant ne parte — le SIGKILL différé doit
+   * survivre à cette fermeture pour l'atteindre quand même (échoue avant le
+   * correctif : `close` coupait la minuterie, et `exitCode` déjà posé sur le
+   * meneur bloquait aussi l'envoi).
+   */
+  it("tue un enfant qui ignore SIGTERM même si le meneur meurt d'abord", async () => {
+    const proc = spawn(
+      process.execPath,
+      [
+        '-e',
+        "const { spawn } = require('child_process');" +
+          "const child = spawn('sh', ['-c', \"trap '' TERM; echo ready; sleep 30\"]," +
+          "  { stdio: ['ignore', 'pipe', 'ignore'] });" +
+          // N'annonce le PID qu'une fois le `trap` posé : sinon la course entre
+          // le fork du fils et l'abort du test rendrait le résultat aléatoire.
+          "child.stdout.once('data', () => console.log(child.pid));" +
+          'setTimeout(() => {}, 30000)',
+      ],
+      { detached: true, stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+    const childPid = await firstPid(proc)
+    const controller = new AbortController()
+    const detach = forwardAbort(proc, controller.signal, 100, { killGroup: true })
+    controller.abort()
+    await new Promise<void>((resolve) => proc.once('close', () => resolve()))
+    // Le meneur est mort, le descendant tient encore bon face à son SIGTERM.
+    expect(() => process.kill(childPid, 0)).not.toThrow()
+    detach()
+    await untilGone(childPid)
+  })
+
+  /**
+   * Le pendant, et il épingle le critère 2 : un appelant qui n'opte pas — la
+   * forme des trois autres appels de `forwardAbort` — ne change rien à son
+   * comportement. Même worker détaché, même enfant : sans l'option, il survit.
+   */
+  it("laisse l'enfant du worker en vie quand l'appelant n'opte pas", async () => {
+    const proc = spawnWorkerWithChild()
+    const childPid = await firstPid(proc)
+    const controller = new AbortController()
+    const detach = forwardAbort(proc, controller.signal)
+    controller.abort()
+    await new Promise((r) => setTimeout(r, 300))
+    expect(() => process.kill(childPid, 0)).not.toThrow()
+    // Sans ça, la minuterie de SIGKILL (10 s) survit au test (relevé par Aristarque).
+    detach()
+    // Nettoyage : cet enfant ne meurt jamais tout seul dans ce test.
+    process.kill(childPid, 'SIGKILL')
+  })
+
+  /**
+   * **Le chemin `Ctrl-C`, jusqu'ici non exercé** (relevé par Copilot). Un
+   * vrai « serveur » tourne dans son propre process (`tsx`, pour importer le
+   * vrai `forwardAbort`), sans jamais appeler `abort()` : seul son
+   * `process.once('exit', …)` doit sauver le groupe du worker quand le
+   * serveur meurt d'un `SIGINT` externe, comme un `Ctrl-C` de terminal.
+   */
+  it("le hook 'exit' du serveur tue le groupe du worker sur un SIGINT externe", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-ctrlc-'))
+    const ffmpegModule = path.join(__dirname, '..', '..', 'src', 'server', 'ffmpeg.ts')
+    const serverScript = path.join(root, 'server.ts')
+    fs.writeFileSync(
+      serverScript,
+      [
+        "import { spawn } from 'node:child_process'",
+        `import { forwardAbort } from ${JSON.stringify(ffmpegModule)}`,
+        "const worker = spawn(process.execPath, ['-e'," +
+          '"const { spawn } = require(\'child_process\');' +
+          'const child = spawn(\'sleep\', [\'30\']);' +
+          'console.log(child.pid);' +
+          'setTimeout(() => {}, 30000)"' +
+          "], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] })",
+        // Aucun `signal` : seul le hook `exit` (posé par `killGroup: true`) doit agir.
+        'forwardAbort(worker, undefined, undefined, { killGroup: true })',
+        'worker.stdout!.once(\'data\', (chunk) => process.stdout.write(chunk))',
+        'setTimeout(() => {}, 30000)',
+      ].join('\n'),
+    )
+
+    const tsx = path.join(process.cwd(), 'node_modules', '.bin', 'tsx')
+    const server = spawn(tsx, [serverScript], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] })
+    const childPid = await firstPid(server)
+    const serverPid = server.pid
+    if (serverPid === undefined) throw new Error('le serveur de test n’a pas de PID')
+
+    const closed = new Promise<void>((resolve) => server.once('close', () => resolve()))
+    process.kill(-serverPid, 'SIGINT')
+    await closed
+    await untilGone(childPid)
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+})
+
 describe('runFfmpeg, l’arrêt demandé', () => {
   let folder: string
 

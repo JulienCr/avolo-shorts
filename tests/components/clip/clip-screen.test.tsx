@@ -868,6 +868,37 @@ describe('l’état périmé', () => {
       false,
     )
   })
+
+  it('ramène le viseur en Aperçu quand un nouveau `detail` périme le fichier affiché', async () => {
+    // `outputs` vient du prop `detail`, que la page (`useClip`) renouvelle
+    // après chaque écriture. Sans ce recours, un nouveau `detail` périmé
+    // laisse le viseur tenter un `<video>` sans `src`. (relevé par Copilot)
+    const delivered = detail('c2')
+    delivered.outputs = {
+      mp4Url: null,
+      mp4Due: false,
+      variant9x16Url: '/api/clips/c2/renders/c2-9x16.mp4',
+      variant9x16Due: true,
+      textsUrl: '/api/clips/c2/renders/c2.txt',
+    }
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const envelope = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    const view = render(<ClipScreen detail={delivered} />, { wrapper: envelope })
+    await screen.findByRole('link', { name: 'La scène du 15 juin' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+    expect(await screen.findByText('fichier livré')).toBeTruthy()
+
+    const stale = detail('c2')
+    view.rerender(<ClipScreen detail={stale} />)
+
+    await waitFor(() => expect(screen.queryByText('fichier livré')).toBeNull())
+    expect(screen.queryByRole('button', { name: 'Export' })).toBeNull()
+  })
 })
 
 describe('la raison d’un primaire désactivé', () => {

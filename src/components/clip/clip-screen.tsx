@@ -161,10 +161,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const hookGlobals = settings.data?.hook
   const framingGlobals = settings.data?.framing
   const resolvedHook = resolveHook(hookGlobals ?? HOOK_DEFAULTS, clip)
-  // `ExportsView` demande une chaîne définie ; le pire cas pendant le court
-  // chargement des réglages est une composition sans pied de page, jamais un
-  // texte incomplet publié.
-  const descriptionFooter = settings.data?.publication?.descriptionFooter ?? ''
+  // `undefined` tant que les réglages n'ont pas répondu, jamais `''` : sinon
+  // `ExportsView` copierait un texte de publication sans son pied de page
+  // configuré. (relevé par Codex et par Copilot)
+  const descriptionFooter =
+    settings.data === undefined ? undefined : (settings.data.publication?.descriptionFooter ?? '')
 
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const [search, setSearch] = useState(false)
@@ -343,6 +344,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   const [signatureRendered, setSignatureRendered] = useState<string | null>(null)
   const state = deriveDeliveryState(clip.status, outputs)
+  // Une édition après « Export » peut périmer la livraison sans que `mode`
+  // ne bouge, sinon le viseur tente un `<video>` sans `src`. (relevé par
+  // Codex et par Copilot)
+  const effectiveMode = mode === 'export' && state !== 'delivered' ? 'preview' : mode
   const native = framing.ratio
   const names = outputNames(clip.id, native)
   // **Trois empêchements, et chacun a sa raison.** Rendre un état non
@@ -400,9 +405,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     title: clip.title,
     eligibility: publicationEligibility,
     records: publicationRecords,
-    composedDescription: settings.data === undefined
-      ? undefined
-      : composeDescription(clip, { footer: descriptionFooter }),
+    composedDescription:
+      descriptionFooter === undefined ? undefined : composeDescription(clip, { footer: descriptionFooter }),
   }
 
   return (
@@ -706,7 +710,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
             <h2 id="zone-sortie" className="sr-only">
               Sortie
             </h2>
-            {mode === 'preview' ? (
+            {effectiveMode === 'preview' ? (
               <PreviewOutput
                 hook={hookGlobals !== undefined ? resolvedHook : undefined}
                 video={video}
@@ -735,7 +739,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                 />
               </figure>
             )}
-            <OutputSwitch delivered={state === 'delivered'} mode={mode} onMode={setMode} />
+            <OutputSwitch delivered={state === 'delivered'} mode={effectiveMode} onMode={setMode} />
           </div>
         </main>
       ) : (

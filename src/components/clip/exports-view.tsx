@@ -31,8 +31,13 @@ export function ExportsView({
   outputs: ClipOutputs
   /** Le cadrage que le serveur publie : ratio résolu, crop par plan. */
   framing: PublishedFraming
-  /** `publication.descriptionFooter`, composé avec la description du clip. */
-  descriptionFooter: string
+  /**
+   * `publication.descriptionFooter`, composé avec la description du clip.
+   * `undefined` tant que les réglages n'ont pas répondu — jamais confondu
+   * avec un pied de page réellement vide, sous peine de composer et laisser
+   * copier un texte de publication incomplet.
+   */
+  descriptionFooter: string | undefined
   /**
    * Force un nouveau rendu même sur un clip que le système dit à jour.
    *
@@ -52,7 +57,8 @@ export function ExportsView({
   const frames = shotRatios(framing)
   const split = names.variant9x16 !== null && anyShotSplit(framing)
   const eligibility = clipExportEligibility(state === 'delivered')
-  const composedDescription = composeDescription(clip, { footer: descriptionFooter })
+  const composedDescription =
+    descriptionFooter === undefined ? undefined : composeDescription(clip, { footer: descriptionFooter })
   const nothingDelivered = outputs.mp4Url === null && outputs.variant9x16Url === null && outputs.textsUrl === null
 
   return (
@@ -134,13 +140,24 @@ export function ExportsView({
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <h3 className="text-sm font-medium">Textes de publication</h3>
         <FieldCopyable tag="Titre" value={clip.title.trim()} />
-        <FieldCopyable tag="Description" value={composedDescription} lines={6} />
+        <FieldCopyable
+          tag="Description"
+          value={composedDescription ?? ''}
+          lines={6}
+          disabled={composedDescription === undefined}
+        />
         <FieldCopyable
           tag="Mots-dièse"
-          value={wordsHash(`${clip.title.trim()}\n${composedDescription}`).join(' ')}
+          value={
+            composedDescription === undefined
+              ? ''
+              : wordsHash(`${clip.title.trim()}\n${composedDescription}`).join(' ')
+          }
+          disabled={composedDescription === undefined}
         />
         <ButtonCopy
-          text={publicationText(clip, { footer: descriptionFooter })}
+          text={descriptionFooter === undefined ? '' : publicationText(clip, { footer: descriptionFooter })}
+          disabled={descriptionFooter === undefined}
           label="Copier pour publication"
         />
       </div>

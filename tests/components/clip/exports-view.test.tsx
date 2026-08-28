@@ -17,7 +17,7 @@ const nothingIsProduced: ClipOutputs = {
 }
 
 function mount(overrides: Partial<Parameters<typeof ExportsView>[0]> = {}) {
-  render(
+  return render(
     <ExportsView
       clip={clipFixture()}
       outputs={nothingIsProduced}
@@ -53,10 +53,10 @@ describe('ExportsView', () => {
   })
 
   it('dit qu’il n’y a rien plutôt que d’inventer une version', () => {
-    mount({ outputs: nothingIsProduced })
+    const { container } = mount({ outputs: nothingIsProduced })
 
     expect(screen.getByText(/aucun fichier livré/i)).toBeTruthy()
-    expect(screen.queryByRole('video')).toBeNull()
+    expect(container.querySelector('video')).toBeNull()
   })
 
   it('énonce le cadrage que l’export a appliqué', () => {
@@ -106,6 +106,25 @@ describe('ExportsView', () => {
   it('n’en signale aucun quand tous les plans ont été mesurés', () => {
     mount({ framing: framing() })
     expect(screen.queryByText(/sans mesure/)).toBeNull()
+  })
+
+  it('désactive la description, les mots-dièse et la copie tant que le pied de page n’est pas chargé', () => {
+    // `undefined` distingue un pied de page en cours de chargement d'un pied
+    // de page réellement vide : confondre les deux copierait un texte de
+    // publication incomplet. (relevé par Codex et par Copilot)
+    mount({
+      clip: clipFixture({ title: 'La chute', description: 'Une impro #impro' }),
+      descriptionFooter: undefined,
+    })
+
+    const description = screen.getByRole<HTMLTextAreaElement>('textbox', { name: /description de publication/i })
+    expect(description.value).toBe('')
+    expect(description.placeholder).toMatch(/chargement/i)
+    expect(screen.getByRole('button', { name: /copier description/i }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: /copier mots-dièse/i }).hasAttribute('disabled')).toBe(true)
+    expect(
+      screen.getByRole('button', { name: /copier pour publication/i }).hasAttribute('disabled'),
+    ).toBe(true)
   })
 
   it('dit pourquoi la publication n’est pas possible, quand le clip n’est pas livré', () => {

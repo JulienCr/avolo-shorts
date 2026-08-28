@@ -19,7 +19,7 @@ import { FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS, type FramingSettings } from 
  * `GET /api/settings`, la section montre les défauts, tout inerte.
  */
 
-type NumericKey = Exclude<keyof FramingSettings, 'splitScreen'>
+type NumericKey = Exclude<keyof FramingSettings, 'splitScreen' | 'dubbingLayout'>
 
 type NumericField = {
   label: string
@@ -90,10 +90,10 @@ export function FramingSection({
         </h2>
         <p className="text-sm text-muted-foreground">
           Les réglages globaux du cadrage automatique : le split-screen d’un
-          plan à deux personnes, et le plancher qui exclut une boîte trop
-          petite pour être quelqu’un à cadrer. Changer une valeur ne recalcule
-          rien — un clip déjà cadré garde son crop jusqu’à sa prochaine
-          ouverture.
+          plan à deux personnes, le montage doublage détecté automatiquement,
+          et le plancher qui exclut une boîte trop petite pour être quelqu’un
+          à cadrer. Changer une valeur ne recalcule rien — un clip déjà cadré
+          garde son crop jusqu’à sa prochaine ouverture.
         </p>
       </div>
 
@@ -105,6 +105,16 @@ export function FramingSection({
             defaultValue={FRAMING_SETTINGS_DEFAULTS.splitScreen}
             disabled={inert}
             onChange={(value) => onChange({ splitScreen: value })}
+          />
+        </Row>
+
+        <Row>
+          <ToggleField
+            label="Montage doublage activé par défaut"
+            checked={shown.dubbingLayout}
+            defaultValue={FRAMING_SETTINGS_DEFAULTS.dubbingLayout}
+            disabled={inert}
+            onChange={(value) => onChange({ dubbingLayout: value })}
           />
         </Row>
 

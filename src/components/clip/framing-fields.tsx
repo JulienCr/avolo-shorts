@@ -15,6 +15,7 @@ import {
   type Clip,
   type ClipPatch,
   type FramingSettings,
+  type FramingStyleOverride,
 } from '@/lib/api'
 
 /**
@@ -23,15 +24,16 @@ import {
  * contrôle dit s'il est hérité ou surchargé, et un bouton isolé le rend à
  * l'héritage.
  *
- * **`splitScreen` reste visible en permanence**, les cinq réglages numériques
- * repliés derrière « Personnaliser » — c'est ce que le propriétaire du dépôt a
- * demandé : comparer le cadrage normal et le cadrage avancé sur un seul clip,
- * sans republier tout le panneau Réglages ici.
+ * **`splitScreen` et `dubbingLayout` restent visibles en permanence**, les
+ * cinq réglages numériques repliés derrière « Personnaliser » — c'est ce que
+ * le propriétaire du dépôt a demandé : comparer le cadrage normal et le
+ * cadrage avancé sur un seul clip, sans republier tout le panneau Réglages
+ * ici.
  */
 
 type OnWrite = (patch: ClipPatch) => Promise<unknown> | void
 
-type NumericKey = Exclude<keyof FramingSettings, 'splitScreen'>
+type NumericKey = Exclude<keyof FramingSettings, 'splitScreen' | 'dubbingLayout'>
 
 const NUMERIC_LABELS: Readonly<Record<NumericKey, { label: string; unit: string }>> = {
   splitMinShotMs: { label: 'Durée minimale du plan', unit: 'ms' },
@@ -60,10 +62,11 @@ export function FramingFields({
   const resolved: FramingSettings = { ...(globals ?? FRAMING_SETTINGS_DEFAULTS), ...clip.framingStyle }
   const overrideCount = NUMERIC_KEYS.filter((field) => hasOverrideOf(clip, field)).length
   const hasOverride = Object.keys(clip.framingStyle).length > 0
+  const dubbingLayoutGloballyOn = (globals ?? FRAMING_SETTINGS_DEFAULTS).dubbingLayout
 
   const { setStyle, resetField, resetAll } = useStyleWrites(
     clip.framingStyle,
-    useCallback((framingStyle: Partial<FramingSettings>) => onWrite({ framingStyle }), [onWrite]),
+    useCallback((framingStyle: FramingStyleOverride) => onWrite({ framingStyle }), [onWrite]),
   )
 
   return (
@@ -82,6 +85,28 @@ export function FramingFields({
           field="Split-screen"
           overridden={hasOverrideOf(clip, 'splitScreen')}
           onReset={() => resetField('splitScreen')}
+        />
+      </div>
+
+      <div className="flex items-center gap-2 text-[0.75rem]">
+        <Checkbox
+          id={`${identifier}-dubbing`}
+          checked={resolved.dubbingLayout}
+          disabled={loading || !dubbingLayoutGloballyOn}
+          onCheckedChange={(value) =>
+            // La surcharge ne peut que désactiver (§1 du contrat) : cocher
+            // revient à l'héritage plutôt que d'écrire `true`, que le schéma
+            // du serveur rejetterait de toute façon (`z.literal(false)`).
+            value === true ? resetField('dubbingLayout') : setStyle('dubbingLayout', false)
+          }
+        />
+        <Label htmlFor={`${identifier}-dubbing`} className="text-[0.75rem] font-normal">
+          Montage doublage
+        </Label>
+        <FieldOrigin
+          field="Montage doublage"
+          overridden={hasOverrideOf(clip, 'dubbingLayout')}
+          onReset={() => resetField('dubbingLayout')}
         />
       </div>
 

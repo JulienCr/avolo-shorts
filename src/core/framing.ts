@@ -471,7 +471,7 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
 })
 
 /**
- * Les six réglages `framing` globaux (issue #180), tels que le registre
+ * Les sept réglages `framing` globaux (issue #180), tels que le registre
  * (`src/server/db.ts`) et l'écran des paramètres les persistent.
  *
  * **Ici, pas dans `src/lib/api.ts`, comme `HookSettings`** : la PR suivante
@@ -482,11 +482,23 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
  */
 export type FramingSettings = {
   splitScreen: boolean
+  dubbingLayout: boolean
   splitMinShotMs: number
   splitMinCellWidthPermille: number
   splitBleedTolerancePermille: number
   splitBleedSharePermille: number
   sizeFloorPermille: number
+}
+
+/**
+ * La surcharge par clip de la famille `framing` (`Clip.framingStyle`) : le
+ * patron de `Partial<FramingSettings>`, sauf `dubbingLayout` qui ne sait que
+ * désactiver (§1 du contrat PR4) — `true` réactiverait le montage doublage là
+ * où le défaut global l'a coupé, l'asymétrie que le schéma serveur
+ * (`FRAMING_STYLE_SHAPE`, `z.literal(false)`) applique déjà à l'exécution.
+ */
+export type FramingStyleOverride = Omit<Partial<FramingSettings>, 'dubbingLayout'> & {
+  dubbingLayout?: false
 }
 
 /**
@@ -497,6 +509,7 @@ export type FramingSettings = {
  */
 export const FRAMING_SETTINGS_DEFAULTS: Readonly<FramingSettings> = Object.freeze({
   splitScreen: FRAMING_DEFAULTS.splitScreen,
+  dubbingLayout: FRAMING_DEFAULTS.dubbingLayout,
   splitMinShotMs: Math.trunc(FRAMING_DEFAULTS.splitMinShot * 1000),
   splitMinCellWidthPermille: Math.trunc(FRAMING_DEFAULTS.splitMinCellWidth * 1000),
   splitBleedTolerancePermille: Math.trunc(FRAMING_DEFAULTS.splitBleedTolerance * 1000),

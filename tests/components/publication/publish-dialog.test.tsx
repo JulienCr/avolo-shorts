@@ -284,3 +284,104 @@ describe('PublishDialog — ne s’affiche pas fermée', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull()
   })
 })
+
+// issue #150 : une panne réseau se lisait comme `data: undefined`, exactement
+// comme un chargement — les deux tombaient sur le même repli honnête-mais-faux
+// (`defaultPlatformAvailability`, « aucun connecteur n'est encore branché »).
+describe('PublishDialog — panne de disponibilité (issue #150)', () => {
+  it('rend un état `unavailable`, distinct de « aucun connecteur », avec une action de reprise', () => {
+    const onRetry = vi.fn()
+    render(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[eligible()]}
+        availabilityError
+        onRetryAvailability={onRetry}
+      />,
+    )
+
+    expect(screen.getByText('Impossible de vérifier les connecteurs.')).toBeTruthy()
+    expect(screen.queryByText('Aucun connecteur n’est encore branché.')).toBeNull()
+    expect(screen.getAllByText(/momentanément indisponible/).length).toBe(4)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Réessayer' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  it('le contrôle négatif : une requête simplement pendante ne se lit pas comme une panne', () => {
+    render(<PublishDialog open onOpenChange={() => {}} clips={[eligible()]} />)
+
+    expect(screen.queryByText('Impossible de vérifier les connecteurs.')).toBeNull()
+    expect(screen.getByText('Aucun connecteur n’est encore branché.')).toBeTruthy()
+  })
+})
+
+describe('PublishDialog — panne de l’historique (issue #150)', () => {
+  it('bloque la confirmation le temps que l’échec soit résolu', () => {
+    render(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[eligible()]}
+        availability={allAvailable}
+        recordsError
+      />,
+    )
+
+    expect(screen.getByText('Historique de publication indisponible.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Suivant' })).toHaveProperty('disabled', true)
+  })
+
+  it('le contrôle négatif : un chargement seul se comporte comme avant, sans le bandeau de panne', () => {
+    render(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[eligible()]}
+        availability={allAvailable}
+        recordsLoading
+      />,
+    )
+
+    expect(screen.queryByText('Historique de publication indisponible.')).toBeNull()
+    expect(screen.getByText('Chargement de l’état des publications précédentes…')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Suivant' })).toHaveProperty('disabled', true)
+  })
+
+  // Relevé par Aristarque : `canContinue` bloque « Suivant », mais le geste
+  // terminal ne le consultait pas. Une requête qui échoue une fois
+  // l'utilisateur déjà à l'étape de confirmation laissait « Confirmer et
+  // publier » actif — envoi sans `force`, 409 invisible.
+  it('bloque aussi le geste terminal si l’historique échoue après le passage à la confirmation', () => {
+    const onLaunch = vi.fn()
+    const { rerender } = render(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[eligible()]}
+        availability={onlyInstagram}
+        onLaunch={onLaunch}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    expect(screen.getByRole('button', { name: 'Confirmer et publier' })).toHaveProperty('disabled', false)
+
+    rerender(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[eligible()]}
+        availability={onlyInstagram}
+        onLaunch={onLaunch}
+        recordsError
+      />,
+    )
+
+    const confirmButton = screen.getByRole('button', { name: 'Confirmer et publier' })
+    expect(confirmButton).toHaveProperty('disabled', true)
+    fireEvent.click(confirmButton)
+    expect(onLaunch).not.toHaveBeenCalled()
+  })
+})

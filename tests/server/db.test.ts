@@ -876,15 +876,40 @@ describe('la grammaire du registre', () => {
       warn.mockRestore()
     })
 
-    it('tronque une valeur texte trop longue dans le message', () => {
+    it('ne recopie pas le début d’une valeur texte trop longue dans le message', () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const c = field('text', { format: 'url' })
       const longRaw = 'not-a-url-'.repeat(50)
       expect(parseSetting(c, longRaw)).toBeUndefined()
       expect(warn).toHaveBeenCalledOnce()
       const message = String(warn.mock.calls[0][0])
-      expect(message.length).toBeLessThan(longRaw.length)
+      expect(message).not.toContain(longRaw.slice(0, 10))
       warn.mockRestore()
+    })
+
+    /**
+     * #229 (relevé par Aristarque) : `warnRejected` ne masquait que le champ
+     * `format: 'url'` — une ligne corrompue d'un autre type peut tout aussi
+     * bien porter un secret (édition manuelle, migration ratée), et le
+     * journal serveur est plus facile à partager que la table elle-même. Il
+     * faut tenir pour chaque type, pas seulement l'url.
+     */
+    it('ne recopie le secret d’aucun type de champ dans le journal', () => {
+      const secret = 'postgres://user:motdepasse@hote/db'
+      for (const c of [
+        field('text', { enum: ['a', 'b'] }),
+        field('integer', { min: 1 }),
+        field('boolean'),
+        field('color'),
+      ]) {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        expect(parseSetting(c, secret)).toBeUndefined()
+        expect(warn).toHaveBeenCalledOnce()
+        const message = String(warn.mock.calls[0][0])
+        expect(message).not.toContain('motdepasse')
+        expect(message).toContain('selection.temoin')
+        warn.mockRestore()
+      }
     })
   })
 })

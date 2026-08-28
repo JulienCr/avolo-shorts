@@ -83,7 +83,7 @@ describe('FRAMING_CASES', () => {
     }
   })
 
-  it('les treize identifiants attendus sont tous présents — retirer un cas ne le retire pas d\'ici', () => {
+  it('les seize identifiants attendus sont tous présents — retirer un cas ne le retire pas d\'ici', () => {
     const expected = [
       'entre-nous-2973000',
       'caro-mdlm-7250000',
@@ -98,6 +98,10 @@ describe('FRAMING_CASES', () => {
       'cqlp-1366033',
       'entre-nous-3495867',
       'fmr-1115733',
+      // Trois cas de doublage improvisé (PR1, fleet « doublage improvisé »).
+      'entre-nous-6390000',
+      'caro-mdlm-5476000',
+      'nabla-7814000',
     ]
     const ids = new Set(FRAMING_CASES.map((c) => c.id))
     for (const id of expected) {

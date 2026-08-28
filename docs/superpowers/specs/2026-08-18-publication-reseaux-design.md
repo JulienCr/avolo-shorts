@@ -350,9 +350,12 @@ donc par ce qui n'attend rien, et non par ce qui semble le plus important.
 **Lot 1 — Instagram et Facebook, de bout en bout. Partiellement fait (issue
 #146).** Aucun verrou : c'est ce qui se mesurait tout de suite, et c'est ce
 qui a validé l'architecture pendant que les audits dorment. **Instagram** a
-publié un reel réel le 23 août 2026. **Facebook Page Reels est codé mais
-jamais exercé contre le réseau réel**, faute de `pages_manage_posts` sur le
-jeton de Page — à ne pas lire comme validé tant que ce droit manque.
+publié un reel réel le 23 août 2026. **Facebook Page Reels a publié trois
+reels réels**, le dernier le 27 août 2026, avec leur `remoteUrl` en base — le
+droit `pages_manage_posts` est donc acquis sur le jeton de Page. Cette section
+affirmait l'inverse jusqu'au 28 août 2026 ; la précondition posée par l'issue
+#151 (« une fois `pages_manage_posts` obtenu, vérifier `checkFacebook` contre le
+réseau réel ») est donc levée.
 
 **Lot 2 — TikTok en brouillon. Fait.** Fonctionne sans audit. Le jour où l'audit
 passe, c'est l'implémentation qui change, pas l'interface ni la table.

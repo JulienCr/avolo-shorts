@@ -60,7 +60,14 @@
   --color-stage: var(--stage);
   --color-stage-foreground: var(--stage-foreground);
   --color-stage-muted: var(--stage-muted);
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-blue-foreground: var(--brand-blue-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -98,6 +105,7 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -108,12 +116,24 @@
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
 
-  /* L'ambre d'un projecteur de salle. La seule couleur de l'interface, et elle
-     ne sert qu'à trois choses : ce qui est gardé, ce qui est sélectionné, et le
-     rectangle de cadrage. Un accent qui sert partout n'accentue plus rien. */
-  --stage: oklch(0.74 0.152 66);
-  --stage-foreground: oklch(0.22 0.05 66);
-  --stage-muted: oklch(0.96 0.028 78);
+  /* L'orange de marque Avolo (#FFA800). La seule couleur de l'interface, et
+     elle ne sert qu'à trois choses : ce qui est gardé, ce qui est sélectionné,
+     et le rectangle de cadrage. Un accent qui sert partout n'accentue plus rien. */
+  --stage: oklch(0.798 0.171 72.23);
+  --stage-foreground: oklch(0.22 0.05 72.23);
+  --stage-muted: oklch(0.96 0.028 76);
+
+  /* Le bleu de marque Avolo (#011979), réservé au chrome de l'interface —
+     la barre d'application — jamais à un état. */
+  --brand-blue: oklch(0.289 0.161 264.1);
+  --brand-blue-foreground: oklch(1 0 0);
+
+  /* États fonctionnels, distincts des deux teintes de marque (72° et 264°)
+     pour que succès/alerte ne se confondent jamais avec l'accent ou le chrome. */
+  --success: oklch(0.6 0.15 145);
+  --success-foreground: oklch(0.15 0.04 145);
+  --warning: oklch(0.83 0.16 95);
+  --warning-foreground: oklch(0.24 0.05 95);
 
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
@@ -123,6 +143,21 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+}
+
+/* Les enfants de la barre (`StripProgress`, l'état d'enregistrement, le
+   bouton « Réessayer »…) lisent ces jetons pour leur propre style, sans
+   savoir qu'ils rendent sur `--brand-blue`. Revue Copilot/Codex sur la PR
+   #242 : `--muted-foreground` et `--destructive` n'atteignaient que 3,1:1
+   sur ce fond. Une portée locale corrige le contraste sans toucher ces
+   fichiers, possédés par un autre agent. */
+.bg-brand-blue {
+  --background: oklch(0.4 0.1 264.1);
+  --muted: oklch(0.46 0.1 264.1);
+  --muted-foreground: oklch(0.72 0.02 264.1);
+  --border: oklch(0.58 0.08 264.1);
+  --foreground: oklch(1 0 0);
+  --destructive: oklch(0.72 0.19 27.325);
 }
 
 .dark {
@@ -141,12 +176,19 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.145 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
-  --stage: oklch(0.78 0.145 68);
-  --stage-foreground: oklch(0.18 0.04 68);
-  --stage-muted: oklch(0.3 0.045 68);
+  --stage: oklch(0.838 0.164 74.23);
+  --stage-foreground: oklch(0.16 0.04 74.23);
+  --stage-muted: oklch(0.3 0.045 74.23);
+  --brand-blue: oklch(0.289 0.161 264.1);
+  --brand-blue-foreground: oklch(1 0 0);
+  --success: oklch(0.72 0.16 148);
+  --success-foreground: oklch(0.16 0.04 148);
+  --warning: oklch(0.85 0.15 97);
+  --warning-foreground: oklch(0.2 0.04 97);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);

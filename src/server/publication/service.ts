@@ -6,12 +6,14 @@ import type Database from 'better-sqlite3'
 import type { Clip } from '@/core/edl'
 import { clipDuration } from '@/core/edl'
 import {
+  canonicalPlatformTexts,
   canTargetPlatform,
   clipEligibilityFromStatus,
   platformEligibility,
   platformFile,
   platformTexts,
   type Platform,
+  type PlatformTexts,
   type PublicationRecord,
 } from '@/core/publication'
 import { RENDER_NATIVE } from '@/core/render-flags'
@@ -72,18 +74,40 @@ function currentFingerprint(fingerprintPath: string): string | null {
 }
 
 /**
- * L'empreinte du rendu actuel d'un clip, ou `null` si le rendu est absent ou
- * illisible — même chemin que `launchPublish` (`pathsRender` sous
- * `RENDER_NATIVE`), pour que la publication ne compare jamais deux dérivations
- * différentes du même chemin.
- *
- * Utilisée par `GET /api/clips/:id/publications` pour décider `stale` côté
- * serveur plutôt que de faire porter une empreinte au client.
+ * L'empreinte comparée pour décider `stale` (issue #226) : le rendu et les
+ * textes envoyés à cette plateforme, pas le rendu seul — sinon un `PATCH` qui
+ * ne touche que le titre ou la description ne périme jamais rien, puisqu'il
+ * ne laisse aucune trace sur le fichier vidéo.
  */
-export function currentFingerprintForClip(db: Database.Database, clip: Clip): string | null {
+export function publicationFingerprint(renderFingerprint: string, texts: PlatformTexts): string {
+  return createHash('sha256').update(renderFingerprint).update(canonicalPlatformTexts(texts)).digest('hex')
+}
+
+/**
+ * L'empreinte de rendu seule pour ce clip, ou `null` si absente ou illisible
+ * — même chemin que `launchPublish` (`pathsRender` sous `RENDER_NATIVE`).
+ * Séparée de `currentFingerprintForClip` pour que
+ * `GET /api/clips/:id/publications` ne la relise qu'une fois par clip plutôt
+ * qu'une fois par plateforme (relevé en revue, Aristarque).
+ */
+export function renderFingerprintForClip(db: Database.Database, clip: Clip): string | null {
   const framing = clipFraming(clip, effectiveSettings(db).framing)
   const fingerprintPath = pathsRender(clip.projectId, clip.id, framing.ratio, RENDER_NATIVE).fingerprint
   return currentFingerprint(fingerprintPath)
+}
+
+/**
+ * L'empreinte de publication actuelle d'un clip pour une plateforme, ou
+ * `null` si le rendu est absent ou illisible.
+ *
+ * Par plateforme (issue #226) : `platformTexts` diffère selon la cible, donc
+ * une empreinte partagée masquerait un titre changé pour une seule d'entre
+ * elles.
+ */
+export function currentFingerprintForClip(db: Database.Database, clip: Clip, platform: Platform): string | null {
+  const renderFingerprint = renderFingerprintForClip(db, clip)
+  if (renderFingerprint === null) return null
+  return publicationFingerprint(renderFingerprint, platformTexts(clip, platform))
 }
 
 /**
@@ -121,7 +145,7 @@ function applyOutcomes(
   clipId: string,
   platforms: readonly Platform[],
   outcomes: Record<Platform, PlatformOutcome>,
-  fingerprint: string | null,
+  fingerprintFor: (platform: Platform) => string | null,
 ): void {
   const existing = getPublications(db, clipId)
   for (const platform of platforms) {
@@ -141,8 +165,9 @@ function applyOutcomes(
           remoteId: outcome.remoteId,
           remoteUrl: outcome.remoteUrl,
           // L'empreinte n'est posée qu'à `published` : un dépôt TikTok
-          // `submitted` n'est pas en ligne, il ne certifie donc rien.
-          publishedFingerprint: outcome.status === 'published' ? fingerprint : (previous?.publishedFingerprint ?? null),
+          // `submitted` n'est pas en ligne, il ne certifie donc rien. Par
+          // plateforme (issue #226) : `platformTexts` diffère selon la cible.
+          publishedFingerprint: outcome.status === 'published' ? fingerprintFor(platform) : (previous?.publishedFingerprint ?? null),
         }),
       )
     }
@@ -213,13 +238,13 @@ async function runDetached(
   clip: Clip,
   platforms: readonly Platform[],
   job: PublicationJob,
-  fingerprint: string | null,
+  fingerprintFor: (platform: Platform) => string | null,
   sleep: (ms: number) => Promise<void>,
 ): Promise<void> {
   try {
     const published = await adapter.publish(job, platforms)
     const outcomes = await settleAsync(adapter, platforms, published, sleep)
-    applyOutcomes(db, clip.id, platforms, outcomes, fingerprint)
+    applyOutcomes(db, clip.id, platforms, outcomes, fingerprintFor)
   } catch (error) {
     const message = messageSafe(error)
     const existing = getPublications(db, clip.id)
@@ -334,8 +359,8 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
     throw requestInvalid('YouTube exige un titre : ce clip n’en a pas.')
   }
 
-  const fingerprint = currentFingerprint(paths.fingerprint)
-  if (fingerprint === null) {
+  const renderFingerprint = currentFingerprint(paths.fingerprint)
+  if (renderFingerprint === null) {
     throw new Error(`Empreinte introuvable pour ${clip.id} alors que le rendu semblait à jour.`)
   }
 
@@ -388,17 +413,15 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
     }
     const rows = getPublications(db, clip.id).filter((r) => platforms.includes(r.platform))
 
-    // Un `runDetached` par groupe : un échec Meta n'annule ni ne rejoue une
-    // réussite Upload Post, et réciproquement (spec §6.4, généralisée à
-    // plusieurs connecteurs). Le job — donc les textes — est construit **par
-    // groupe** : `representativePlatform` ne doit voir que les plateformes de
-    // ce groupe, sinon YouTube dans un lancement mixte imposerait sa forme de
-    // texte à Instagram/Facebook (issue trouvée en revue sur cette PR).
+    // Un `runDetached` par groupe, textes du représentant pour l'envoi (spec
+    // §6.4) ; l'empreinte stockée reste par plateforme réelle (issue #226) —
+    // sauf mélange YouTube/non-YouTube sous un même connecteur (issue #153).
     const settled = Promise.all(
       [...groups].map(([adapter, group]) => {
         const texts = platformTexts(clip, representativePlatform(group))
-        const job: PublicationJob = { clipId: clip.id, videoPath, fingerprint, force, ...texts }
-        return runDetached(db, adapter, clip, group, job, fingerprint, sleep)
+        const job: PublicationJob = { clipId: clip.id, videoPath, fingerprint: renderFingerprint, force, ...texts }
+        const fingerprintFor = (platform: Platform): string => publicationFingerprint(renderFingerprint, platformTexts(clip, platform))
+        return runDetached(db, adapter, clip, group, job, fingerprintFor, sleep)
       }),
     ).then(() => undefined)
     settled.catch(() => {

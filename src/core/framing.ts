@@ -38,6 +38,8 @@
  * Ce module ne calcule que de la géométrie.
  */
 
+import { detectDubbingRuns, dubbingCellsFor } from '@/core/dubbing'
+import type { DubbingCells } from '@/core/dubbing'
 import { normalizeSegments } from '@/core/edl'
 import type { Ratio, Segment } from '@/core/edl'
 import { POINT, POINT_COUNT, shotStartMs, shotsForSegments } from '@/core/shots'
@@ -337,6 +339,12 @@ export type FramingOptions = {
    * propre `t`, cette valeur ne fait que compter combien sont attendues.
    */
   fps?: number
+  /**
+   * La composition dédiée aux séquences de doublage improvisé. Voir
+   * `src/core/dubbing.ts`. Coupée, un plan de doublage se cadre comme un plan
+   * ordinaire.
+   */
+  dubbingLayout?: boolean
 }
 
 /**
@@ -459,6 +467,7 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
   // Le worker échantillonne à 2 images par seconde ; c'est aussi le défaut que
   // `gaps.ts` retient (`a.fps ?? 2`) quand une analyse ne le porte pas.
   fps: 2,
+  dubbingLayout: true,
 })
 
 /**
@@ -2123,6 +2132,8 @@ export type ShotFraming = {
    * natif, en particulier) continue de fonctionner sans savoir qu'il existe.
    */
   split?: [Cell, Cell]
+  /** Les trois pavés d'une composition de doublage, quand ce plan en est un. */
+  dubbing?: DubbingCells
 }
 
 /**
@@ -2248,6 +2259,7 @@ export function computeFraming(req: FramingRequest): ClipFraming {
     splitBleedTolerance: req.splitBleedTolerance,
     splitBleedShare: req.splitBleedShare,
     fps: req.fps,
+    dubbingLayout: req.dubbingLayout,
   }
 
   // Seules les images des segments retenus comptent (spec §10) : le clip ne
@@ -2276,21 +2288,41 @@ export function computeFraming(req: FramingRequest): ClipFraming {
     req.ratio === 'auto' ? chooseRatioFromSpans(measurements, req.srcW, req.srcH) : req.ratio
   const shotRatiosAll = measuredAll.map(ratioOf)
 
+  // **Le doublage improvisé** (`src/core/dubbing.ts`) : détecté sur la liste
+  // **complète** des boîtes, jamais sur `peopleInSegments` — un clip couvre un
+  // fragment de la séquence, et mesurer son étendue sur ses seuls segments la
+  // tronquerait aux deux bouts. Un plan est un plan de doublage quand le
+  // **milieu** de son intervalle tombe dans une séquence détectée, la même
+  // convention que `frameAtMidpoint` applique déjà dans `shot-split.ts`.
+  const dubbingRuns = flag(req.dubbingLayout, FRAMING_DEFAULTS.dubbingLayout)
+    ? detectDubbingRuns(req.people)
+    : []
+  const dubbingByShot: (DubbingCells | undefined)[] = shots.map((shot) => {
+    const mid = (shot.start + shot.end) / 2
+    const run = dubbingRuns.find((r) => r.start <= mid && mid < r.end)
+    return run === undefined ? undefined : dubbingCellsFor(run.anchor, run.eyeLevel)
+  })
+
   // **Le split-screen** (spec du 25 août 2026) : un plan à deux personnes,
   // plus large que le 9:16, se pose en deux cellules empilées plutôt qu'un
   // crop unique. Ça ne touche que la variante 9:16 — `shotRatiosAll` et le
   // natif l'ignorent totalement, voir `computeShotSplit`.
+  //
+  // Un plan de doublage ne split jamais : un split-screen taillé dans un film
+  // et un PiP n'a pas de sens, et les deux champs ne doivent jamais coexister.
   const splitByShotIndex = flag(req.splitScreen, FRAMING_DEFAULTS.splitScreen)
     ? shots.map((shot, i) =>
-        computeShotSplit(
-          boxesByShot[i],
-          shot,
-          shotRatiosAll[i],
-          req.srcW,
-          req.srcH,
-          options,
-          segments,
-        ),
+        dubbingByShot[i] !== undefined
+          ? null
+          : computeShotSplit(
+              boxesByShot[i],
+              shot,
+              shotRatiosAll[i],
+              req.srcW,
+              req.srcH,
+              options,
+              segments,
+            ),
       )
     : null
 
@@ -2363,7 +2395,8 @@ export function computeFraming(req: FramingRequest): ClipFraming {
       cropX: computed ?? 0.5,
       cropXNative: native ?? 0.5,
       source: computed === null ? 'default' : 'auto',
-      split: splitByShotIndex?.[i].cells ?? undefined,
+      split: splitByShotIndex?.[i]?.cells ?? undefined,
+      dubbing: dubbingByShot[i],
     }
   })
 
@@ -2435,8 +2468,10 @@ function applyExceptions(shots: ShotFraming[], req: FramingRequest): number[] {
     s.cropXNative = exception.value
     s.source = 'manual'
     // Une dérogation pose un crop unique : un plan encore splitté l'ignorerait
-    // à l'export, la variante 9:16 gardant ses deux cellules en silence.
+    // à l'export, la variante 9:16 gardant ses deux cellules en silence. Même
+    // raison pour `dubbing` : le crop manuel doit rester seul à faire foi.
     s.split = undefined
+    s.dubbing = undefined
   }
 
   return [...new Set(rejected)].sort((a, b) => a - b)

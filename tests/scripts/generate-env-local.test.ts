@@ -12,6 +12,7 @@ import {
   removeStaleEnvLocal,
   resolveEnvLocal,
   writeEnvLocalFile,
+  writeResolvedEnvLocal,
 } from '../../scripts/generate-env-local'
 
 /**
@@ -352,5 +353,66 @@ describe('writeEnvLocalFile', () => {
     const file = path.join(dir, '.env.local')
     writeEnvLocalFile(file, "KEY='v'\n")
     expect(fs.readdirSync(dir)).toEqual(['.env.local'])
+  })
+})
+
+describe('writeResolvedEnvLocal', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-envlocal-'))
+  })
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  // issue #230 : `formatEnvLocal` valide (et peut lever) avant que
+  // `writeEnvLocalFile` ne s'exécute. Sans ce test, l'ancien `.env.local`
+  // reste sur disque avec un secret révoqué, prioritaire sur `.env`.
+  it("ne laisse pas l'ancien secret sur disque quand une valeur contient une apostrophe", () => {
+    const file = path.join(dir, '.env.local')
+    fs.writeFileSync(file, "OLD_KEY='ancien-secret-perime'\n")
+
+    expect(() => writeResolvedEnvLocal(file, [['NEW_KEY', "valeur avec une apostrophe '"]])).toThrow(/NEW_KEY/)
+
+    // Les deux assertions disent des choses différentes : le fichier a
+    // disparu, pas seulement « ne contient plus l'ancienne chaîne » — une
+    // troncature passerait la seconde sans passer la première.
+    expect(fs.existsSync(file)).toBe(false)
+    const survivor = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
+    expect(survivor).not.toContain('ancien-secret-perime')
+  })
+
+  it("ne laisse pas l'ancien secret sur disque quand une valeur contient un $", () => {
+    const file = path.join(dir, '.env.local')
+    fs.writeFileSync(file, "OLD_KEY='ancien-secret-perime'\n")
+
+    expect(() => writeResolvedEnvLocal(file, [['NEW_KEY', '$2b$10$abcXYZ']])).toThrow(/NEW_KEY/)
+
+    expect(fs.existsSync(file)).toBe(false)
+    const survivor = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
+    expect(survivor).not.toContain('ancien-secret-perime')
+  })
+
+  // Contrôle négatif : une résolution propre écrit exactement le même
+  // fichier qu'aujourd'hui, rien de moins.
+  it('écrit le même fichier que formatEnvLocal + writeEnvLocalFile sur une résolution propre', () => {
+    const file = path.join(dir, '.env.local')
+    writeResolvedEnvLocal(file, [['GEMINI_API_KEY', 'simple']])
+
+    expect(fs.readFileSync(file, 'utf8')).toBe("GEMINI_API_KEY='simple'\n")
+  })
+
+  // Relevé par Copilot sur la passe précédente : la suppression best-effort
+  // ne doit pas avaler son propre échec, sous peine de laisser l'opérateur
+  // croire qu'un secret révoqué a disparu alors qu'il est encore sur disque.
+  it("annonce l'echec de suppression plutôt que de le taire quand unlinkSync ne peut pas aboutir", () => {
+    const file = path.join(dir, '.env.local')
+    // `unlinkSync` sur un répertoire échoue avec EISDIR quel que soit
+    // l'utilisateur — root compris, contrairement à un chmod restrictif.
+    fs.mkdirSync(file)
+
+    expect(() => writeResolvedEnvLocal(file, [['NEW_KEY', "valeur avec une apostrophe '"]])).toThrow(
+      /NEW_KEY[\s\S]*n'a pas pu être supprimé[\s\S]*secret révoqué peut y être resté/,
+    )
   })
 })

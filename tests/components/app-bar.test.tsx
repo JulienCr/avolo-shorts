@@ -46,6 +46,28 @@ describe('AppBar', () => {
     expect(screen.getByRole('link', { name: 'avolo·shorts' })).toBeTruthy()
   })
 
+  it('porte le logo de marque avec un nom accessible, à la place du texte', () => {
+    render(<AppBar lieu={{ kind: 'library' }} />)
+    const logo = screen.getByRole('img', { name: 'avolo·shorts' })
+    expect(logo).toBeTruthy()
+    expect(logo.getAttribute('alt')).not.toBe('')
+  })
+
+  it('garde le fil d’Ariane visible à côté du logo', () => {
+    render(
+      <AppBar
+        lieu={{
+          kind: 'clip',
+          project: { id: '2025-06-15-cqlp', title: 'La scène du 15 juin' },
+          clip: { title: 'La chute' },
+        }}
+      />,
+    )
+    expect(screen.getByRole('img', { name: 'avolo·shorts' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'La scène du 15 juin' })).toBeTruthy()
+    expect(screen.getByText('La chute')).toBeTruthy()
+  })
+
   it('mène aux paramètres depuis n’importe quel écran', () => {
     // La barre est le seul élément que les écrans partagent, et les réglages
     // n'appartiennent à aucun d'eux.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  canonicalPlatformTexts,
   canTargetPlatform,
   clipEligibilityFromStatus,
   clipExportEligibility,
@@ -181,6 +182,23 @@ describe('platformTexts', () => {
 
   it('un titre et une description vides rendent une légende vide pour les trois autres', () => {
     expect(platformTexts({ title: '', description: '' }, 'instagram')).toEqual({ title: '', description: '' })
+  })
+})
+
+// issue #226 : cette forme est hachée pour l'empreinte de publication —
+// pinnée ici pour qu'un réordonnancement du type ne périme pas silencieusement
+// toutes les empreintes déjà stockées.
+describe('canonicalPlatformTexts', () => {
+  it('sérialise titre et description dans un ordre fixe', () => {
+    expect(canonicalPlatformTexts({ title: 'La chute', description: 'Une impro' })).toBe(
+      '{"title":"La chute","description":"Une impro"}',
+    )
+  })
+
+  it('deux textes différents sérialisent différemment', () => {
+    const a = canonicalPlatformTexts({ title: 'La chute', description: 'Une impro' })
+    const b = canonicalPlatformTexts({ title: 'La chute', description: 'Une autre impro' })
+    expect(a).not.toBe(b)
   })
 })
 

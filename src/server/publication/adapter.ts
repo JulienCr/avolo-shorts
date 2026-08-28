@@ -23,7 +23,12 @@ export type PublicationJob = {
   videoPath: string
   title: string
   description: string
-  /** L'empreinte de rendu au moment du lancement, voir `PublicationRecord.publishedFingerprint`. */
+  /**
+   * L'empreinte de **rendu seul**, volontairement distincte de
+   * `PublicationRecord.publishedFingerprint` (qui couvre aussi les textes,
+   * issue #226) : `upload-post.ts` en dérive sa clé d'idempotence, dont
+   * l'élargissement au texte reste hors de cette PR (issue #241).
+   */
   fingerprint: string
   /**
    * Une republication explicite du même rendu (spec §6.5), plutôt qu'un

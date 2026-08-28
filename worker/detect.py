@@ -796,8 +796,8 @@ def composition_ruptures(
     ne change pas, seul le premier s'élargit.
     """
     # **Des médianes, jamais l'effectif.** YOLO ajoute et retire des boîtes
-    # fantômes d'une image à l'autre (voir `refine_switch`) : un changement de
-    # compte se déclencherait sur ce battement, une médiane ne bouge pas.
+    # fantômes d'une image à l'autre : un changement de compte battrait avec
+    # elles, une médiane ne bouge pas. Le cas mesuré : docs/ratios-par-clip.md.
     by_time: dict[float, list[dict]] = {}
     for entry in boxes:
         if entry["score"] >= min_box_score:

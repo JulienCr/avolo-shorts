@@ -573,7 +573,8 @@ ne garantit qu'un score faible tombe toujours près d'une frontière existante.
 Non corrigé : le seuil qui réglerait la question proprement exigerait de le
 mesurer, donc de rouvrir l'étalonnage validé sur les quatre émissions pour un
 seul cas connu. Voir la skill `cadrage` (septième piège) et la docstring de
-`refine_switch`.
+`refine_switch`. **Refermé le 28 août 2026** — le déclencheur de rupture rendait
+la coïncidence intenable : voir « Le piège 7 se referme » plus bas.
 
 ### Un biais de comptage : bascule détectée n'est pas frontière ajoutée
 

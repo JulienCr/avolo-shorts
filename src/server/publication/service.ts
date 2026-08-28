@@ -79,24 +79,33 @@ function currentFingerprint(fingerprintPath: string): string | null {
  * ne touche que le titre ou la description ne périme jamais rien, puisqu'il
  * ne laisse aucune trace sur le fichier vidéo.
  */
-function publicationFingerprint(renderFingerprint: string, texts: PlatformTexts): string {
+export function publicationFingerprint(renderFingerprint: string, texts: PlatformTexts): string {
   return createHash('sha256').update(renderFingerprint).update(canonicalPlatformTexts(texts)).digest('hex')
 }
 
 /**
+ * L'empreinte de rendu seule pour ce clip, ou `null` si absente ou illisible
+ * — même chemin que `launchPublish` (`pathsRender` sous `RENDER_NATIVE`).
+ * Séparée de `currentFingerprintForClip` pour que
+ * `GET /api/clips/:id/publications` ne la relise qu'une fois par clip plutôt
+ * qu'une fois par plateforme (relevé en revue, Aristarque).
+ */
+export function renderFingerprintForClip(db: Database.Database, clip: Clip): string | null {
+  const framing = clipFraming(clip, effectiveSettings(db).framing)
+  const fingerprintPath = pathsRender(clip.projectId, clip.id, framing.ratio, RENDER_NATIVE).fingerprint
+  return currentFingerprint(fingerprintPath)
+}
+
+/**
  * L'empreinte de publication actuelle d'un clip pour une plateforme, ou
- * `null` si le rendu est absent ou illisible — même chemin que `launchPublish`
- * (`pathsRender` sous `RENDER_NATIVE`).
+ * `null` si le rendu est absent ou illisible.
  *
  * Par plateforme (issue #226) : `platformTexts` diffère selon la cible, donc
  * une empreinte partagée masquerait un titre changé pour une seule d'entre
- * elles. Utilisée par `GET /api/clips/:id/publications` pour décider `stale`
- * côté serveur.
+ * elles.
  */
 export function currentFingerprintForClip(db: Database.Database, clip: Clip, platform: Platform): string | null {
-  const framing = clipFraming(clip, effectiveSettings(db).framing)
-  const fingerprintPath = pathsRender(clip.projectId, clip.id, framing.ratio, RENDER_NATIVE).fingerprint
-  const renderFingerprint = currentFingerprint(fingerprintPath)
+  const renderFingerprint = renderFingerprintForClip(db, clip)
   if (renderFingerprint === null) return null
   return publicationFingerprint(renderFingerprint, platformTexts(clip, platform))
 }
@@ -405,8 +414,8 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
     const rows = getPublications(db, clip.id).filter((r) => platforms.includes(r.platform))
 
     // Un `runDetached` par groupe, textes du représentant pour l'envoi (spec
-    // §6.4) ; l'empreinte stockée reste par plateforme réelle (issue #226),
-    // sans effet ici puisque les non-YouTube partagent la même légende.
+    // §6.4) ; l'empreinte stockée reste par plateforme réelle (issue #226) —
+    // sauf mélange YouTube/non-YouTube sous un même connecteur (issue #153).
     const settled = Promise.all(
       [...groups].map(([adapter, group]) => {
         const texts = platformTexts(clip, representativePlatform(group))

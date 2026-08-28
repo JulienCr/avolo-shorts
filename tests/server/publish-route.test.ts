@@ -344,6 +344,24 @@ describe('GET /api/clips/:id/publications', () => {
     expect(currentFingerprintForClip(getDb(), clip, 'youtube')).not.toBe(currentFingerprintForClip(getDb(), clip, 'instagram'))
   })
 
+  // Le chemin d'écriture, pas seulement le calcul courant (relevé en revue,
+  // Copilot) : un même connecteur pour YouTube et Instagram ne doit pas
+  // stocker la même empreinte pour les deux lignes.
+  it('un groupe à deux plateformes stocke une empreinte distincte par ligne', async () => {
+    await exportClip()
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+    const { settled } = launchPublish({ db: getDb(), clip, platforms: ['youtube', 'instagram'], force: false, sleep: async () => {} })
+    await settled
+
+    const rows = getPublications(getDb(), CLIP_ID)
+    const youtube = rows.find((r) => r.platform === 'youtube')
+    const instagram = rows.find((r) => r.platform === 'instagram')
+    expect(youtube?.publishedFingerprint).toBe(currentFingerprintForClip(getDb(), clip, 'youtube'))
+    expect(instagram?.publishedFingerprint).toBe(currentFingerprintForClip(getDb(), clip, 'instagram'))
+    expect(youtube?.publishedFingerprint).not.toBe(instagram?.publishedFingerprint)
+  })
+
   // issue #226 : le condensat comparé ne portait que le rendu, si bien qu'un
   // `PATCH` qui ne touche que le titre laissait `stale: false` alors que le
   // texte envoyé à la plateforme n'est plus celui du clip.

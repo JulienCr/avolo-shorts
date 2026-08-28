@@ -339,3 +339,34 @@ Deux leçons, et la seconde coûte plus cher que la première :
   commande. Trois hypothèses de remplacement ont été instruites et mesurées
   fausses (`-ss` avant `-i`, l'amorçage AAC, `-hwaccel cuda`) avant que la
   quatrième, celle qu'on avait défense de rouvrir, ne se révèle juste.
+
+## Un défaut qui restaure le bug qu'il ferme, en silence
+
+`renderAss` calcule désormais la coupure de ligne d'un carton une fois pour
+toutes (`wrapCard`), au lieu de laisser libass la rejouer à chaque image. La
+mesure réelle du texte ne peut pas vivre dans `src/core` (la frontière de
+pureté), donc `measure` est injecté — et la première version du plan lui
+donnait un défaut : une fonction qui mesure tout à zéro, pour que les appels
+existants n'aient rien à changer.
+
+Un défaut à zéro veut dire une largeur toujours en dessous du seuil, donc
+`wrapCard` ne coupe jamais, donc aucun `\N` n'est écrit, donc libass reprend
+la main — exactement le bug que cette PR ferme, revenu par l'oubli d'un seul
+appelant plutôt que par une régression qu'un diff montrerait. Rien n'aurait
+échoué : ni le lint, ni le type-check, ni un test, puisque le défaut est du
+JavaScript parfaitement valide qui ne fait que ce qu'on lui a demandé.
+
+Le correctif retenu est de refuser le défaut : `measure` est un paramètre
+obligatoire, et l'appelant qui l'oublie ne compile pas. La distinction qui
+tranche est celle que `CLAUDE.md` porte déjà pour un autre cas — un défaut
+prudent est juste face à une **absence** d'information, faux face à une
+**ambiguïté**. Ici il n'y a ni l'une ni l'autre : un appelant qui n'a pas de
+mesure à donner n'est pas dans le flou, il a un trou dans son câblage, et la
+réponse honnête à un trou de câblage est de ne pas démarrer.
+
+C'est le miroir de « Un signal qui se déclenche toujours n'est pas un signal »
+(plus haut) : là, un détecteur trop prudent noyait deux vraies alertes sous
+huit fausses ; ici, un détecteur trop absent aurait laissé passer la vraie
+sans jamais s'allumer. Les deux se corrigent en refusant de faire semblant de
+savoir — annoncer une dérive qu'on n'a pas vue, ou taire un défaut qu'on a
+justement le pouvoir d'empêcher.

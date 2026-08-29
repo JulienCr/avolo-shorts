@@ -17,6 +17,7 @@ import { framing, shot, splitCells } from '../../fixtures/framing'
 import { DUBBING_ANCHORS, dubbingCellsFor } from '@/core/dubbing'
 import { defaultPlatformAvailability } from '@/core/publication'
 import type { CandidateClip, ClipDetail } from '@/lib/api'
+import { startHistory } from '@/lib/history'
 import { useEditor } from '@/store/editor'
 import { usePlayback } from '@/components/clip/playback'
 
@@ -137,16 +138,16 @@ async function mount(id = 'c2', data?: ClipDetail) {
 }
 
 /**
- * Ouvre le tiroir de montage.
+ * Bascule la bande en mode Mots.
  *
  * **Le transcript n'est plus visible en permanence** : le geste courant de cet
  * écran — vérifier, ajuster deux textes, exporter — se fait sans lui, et
- * l'édition fine passe par un tiroir. Tout test qui touche aux mots commence
- * donc par ce geste, qui est aussi celui de l'utilisateur.
+ * l'édition fine passe par le mode Mots. Tout test qui touche aux mots
+ * commence donc par ce geste, qui est aussi celui de l'utilisateur.
  */
 async function openEditing() {
-  fireEvent.click(screen.getByRole('button', { name: /modifier le montage/i }))
-  return screen.findByRole('dialog')
+  fireEvent.click(screen.getByRole('tab', { name: 'Mots' }))
+  return screen.findByRole('group', { name: 'Transcript du clip' })
 }
 
 /** Une oreille de la bande de temps : la borne d'entrée, ou celle de sortie. */
@@ -274,35 +275,23 @@ describe('le geste courant', () => {
     expect(screen.queryByText(/m0-0/)).toBeNull()
     expect(screen.getByLabelText('Titre')).toBeTruthy()
     expect(screen.getByRole('button', { name: /exporter/i })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /modifier le montage/i })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: 'Mots' })).toBeTruthy()
   })
 
   it('garde toutes les capacités du transcript derrière une action', async () => {
     // **Ne pas retirer des capacités, ne les afficher que lorsqu'on en a
-    // besoin.** Chercher, retirer, poser les bornes, annuler, rétablir.
+    // besoin.** Chercher, retirer, poser les bornes, annuler, rétablir — ces
+    // deux derniers vivent dans la barre d'app, atteignable dans les deux modes.
     await openEditing()
     expect(screen.getByText(/m0-0/)).toBeTruthy()
     expect(screen.getByRole('button', { name: /annuler/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /rétablir/i })).toBeTruthy()
   })
 
-  it('rend le focus au bouton qui a ouvert le tiroir', async () => {
-    // §4.4 : une boîte de dialogue piège le focus et le rend à son déclencheur.
-    // C'est `SheetTrigger` qui le garantit — un bouton qui basculerait un booléen
-    // à côté laisserait le focus au corps du document à la fermeture.
-    const trigger = screen.getByRole('button', { name: /modifier le montage/i })
-    await openEditing()
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(document.activeElement).toBe(trigger)
-  })
-
-  it('laisse les raccourcis vivre dans le tiroir', async () => {
-    // **La garde des raccourcis écarte tout modal — sauf celui-ci, qui le
-    // déclare.** Sans l'exception, `I`, `O`, `Suppr` et `Ctrl+Z` meurent au
-    // moment précis où on les presse : le focus est dans le tiroir, et plus rien
-    // ne répond. Le clip va de 100 à 120 ; `I` sur le premier mot du contexte le
-    // fait commencer au début du transcript.
+  it('laisse les raccourcis vivre en mode Mots', async () => {
+    // Le mode Mots n'est plus un modal à exempter : rien ne fait plus écran
+    // entre lui et les raccourcis de la garde. Le clip va de 100 à 120 ; `I`
+    // sur le premier mot du contexte le fait commencer au début du transcript.
     await openEditing()
     const word = screen.getByText(/m0-0/)
     fireEvent.pointerDown(word)
@@ -311,14 +300,10 @@ describe('le geste courant', () => {
     expect(useEditor.getState().history.present[0].start).toBeCloseTo(0, 5)
   })
 
-  it('dépile Échap : la recherche d’abord, le tiroir ensuite', async () => {
-    // **Ce que Base UI fait de `Échap` décide du sort du montage en cours.** Sa
-    // boîte de dialogue referme sur cette touche ; si elle referme *avant* que
-    // la barre de recherche ait pu se fermer, un geste destiné à quitter la
-    // recherche emporte le tiroir. Le refus se pose donc dans `onOpenChange`, sur
-    // le motif de l'événement — et ce test est la seule chose qui le tienne, la
-    // question ne se tranchant pas à la lecture du source de la primitive.
-    // (à vérifier, relevé par Aristarque)
+  it('l’échap referme la recherche, pas le mode Mots', async () => {
+    // Sans tiroir modal à refermer, `Échap` n'a plus qu'un niveau à dépiler :
+    // la barre de recherche ferme sur sa propre touche (`transcript-surface.tsx`),
+    // et le mode reste celui qu'on a choisi.
     await openEditing()
     fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
     await screen.findByLabelText('Chercher dans le transcript')
@@ -327,43 +312,66 @@ describe('le geste courant', () => {
     await waitFor(() =>
       expect(screen.queryByLabelText('Chercher dans le transcript')).toBeNull(),
     )
-    expect(screen.queryByRole('dialog')).not.toBeNull()
-
-    // La recherche fermée, le second Échap ferme le tiroir.
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.getByRole('group', { name: 'Transcript du clip' })).toBeTruthy()
   })
 
-  it('donne le focus au champ de recherche, pas à la surface', async () => {
-    // `initialFocus` du tiroir vise la surface du transcript ; la barre de
-    // recherche se focalise à son montage. Sur `Ctrl+F` les deux partent au même
-    // instant, et l'ordre décide de qui garde le focus — donc de savoir si la
-    // frappe suivante cherche ou déplace le curseur. (à vérifier, relevé par
-    // Aristarque)
+  it('donne le focus au champ de recherche sur Ctrl+F', async () => {
+    // `SearchBar` se focalise elle-même à son montage
+    // (`transcript-surface.tsx`) : rien d'autre ne se dispute le focus une
+    // fois qu'il n'y a plus de tiroir modal pour le viser en premier.
     fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
     const field = await screen.findByLabelText('Chercher dans le transcript')
     await waitFor(() => expect(document.activeElement).toBe(field))
   })
 
   it('ne laisse pas une sélection agissante derrière la porte', async () => {
-    // La sélection vit dans le transcript. Le tiroir fermé, elle n'est visible
-    // nulle part — et `Suppr` retirerait pourtant un passage. (relevé par
-    // Aristarque)
+    // La sélection vit dans le transcript. Le mode Mots quitté, elle n'est
+    // visible nulle part — et `Suppr` retirerait pourtant un passage.
+    // (relevé par Aristarque, pour l'ancien tiroir modal)
     await openEditing()
     // L'appui suffit à sélectionner : le relâchement sur un mot barré le
     // remonterait, ce qui vide la sélection par un autre chemin.
     fireEvent.pointerDown(screen.getByText(/m0-0/))
     expect(useEditor.getState().selection).not.toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: /^fermer$/i }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Temps' }))
     await waitFor(() => expect(useEditor.getState().selection).toBeNull())
   })
 
-  it('ouvre le tiroir avec la recherche sur Ctrl+F', async () => {
+  it('vide aussi la sélection en quittant Édition par Exports', async () => {
+    // Le commutateur Temps/Mots n'est pas le seul chemin de sortie : l'onglet
+    // Exports démonte `Timeline` directement, sans passer par lui. (relevé par Copilot)
+    await openEditing()
+    fireEvent.pointerDown(screen.getByText(/m0-0/))
+    expect(useEditor.getState().selection).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Exports' }))
+    expect(useEditor.getState().selection).toBeNull()
+  })
+
+  it('vide une sélection laissée par un montage précédent du même clip', async () => {
+    // `charger` ne réinitialise rien à `clipId` égal (store délibéré) : un
+    // aller-retour vers ce même clip doit être couvert par le montage
+    // lui-même. (relevé par Copilot)
+    useEditor.setState({
+      clipId: 'c2',
+      history: startHistory(detail('c2').clip.segments),
+      selection: { anchor: 0, head: 0 },
+    })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    render(<ClipScreen detail={detail('c2')} />, {
+      wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
+    })
+    await waitFor(() => expect(useEditor.getState().selection).toBeNull())
+  })
+
+  it('bascule en mode Mots avec la recherche sur Ctrl+F', async () => {
     // Le transcript n'est plus visible en permanence : une barre de recherche
     // ouverte sur une surface fermée ne chercherait nulle part.
     fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
-    await screen.findByRole('dialog')
+    await screen.findByRole('group', { name: 'Transcript du clip' })
     expect(screen.getByLabelText('Chercher dans le transcript')).toBeTruthy()
   })
 })

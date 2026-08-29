@@ -443,10 +443,8 @@ export function TranscriptPanel({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       {/* **`SheetTrigger`, pas un bouton qui bascule un booléen à côté.**
-          C'est lui que la primitive refocalise à la fermeture — le même
-          contrat que `TranscriptDrawer` documente pour le tiroir de montage
-          (`src/components/clip/transcript-drawer.tsx:53-55,133-140`). Un
-          bouton extérieur au `Sheet` ne le garantit pas. (relevé par Copilot) */}
+          C'est lui que la primitive refocalise à la fermeture. Un bouton
+          extérieur au `Sheet` ne le garantit pas. (relevé par Copilot) */}
       <SheetTrigger render={<Button variant="outline" size="sm" />}>
         <FileText aria-hidden />
         Voir le transcript

@@ -196,13 +196,16 @@ describe('les deux familles de repères', () => {
   })
 
   it('reste lisible à trois fois la densité d’aujourd’hui', () => {
-    // Le clip de référence porte 7 plans ; la #271 a multiplié les frontières
-    // sur une émission re-analysée. Le repère est un trait de 1 px sans
-    // étiquette : rien n'y grossit avec le nombre de plans.
-    const shots = Array.from({ length: 22 }, (_, i) => shot(i * 10, i * 10 + 10, '1:1', 0.5))
+    // Le repère est un trait de 1 px sans étiquette, rien n'y grossit. Les 22
+    // plans tiennent dans la fenêtre (97-123) : hors d'elle, `toFraction`
+    // rabat tout sur 0 %/100 % et le compte passerait des traits empilés.
+    const step = 26 / 22
+    const shots = Array.from({ length: 22 }, (_, i) => shot(97 + i * step, 97 + (i + 1) * step, '1:1', 0.5))
     mount({ framing: framing({ shots }) })
     const marks = screen.getAllByTestId('shot-mark')
     expect(marks).toHaveLength(21)
+    const lefts = marks.map((mark) => (mark as HTMLElement).style.left)
+    expect(new Set(lefts).size).toBe(lefts.length)
     for (const mark of marks) expect(mark.textContent).toBe('')
   })
 })

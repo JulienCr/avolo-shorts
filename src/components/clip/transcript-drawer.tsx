@@ -1,7 +1,7 @@
 'use client'
 
 import { ArrowLeftToLine, ArrowRightToLine, Scissors } from 'lucide-react'
-import { useCallback, useEffect } from 'react'
+import { useCallback } from 'react'
 
 import { gestureOnWordBar } from '@/components/clip/word-gesture'
 import { TranscriptSurface } from '@/components/clip/transcript-surface'
@@ -63,16 +63,9 @@ export function TranscriptDrawer({
     [words, segments, editor],
   )
 
-  // La sélection et la recherche ne survivent pas à la sortie du mode Mots :
-  // les laisser vivantes ferait agir `Suppr` sur des mots que plus personne
-  // ne voit (relevé par Aristarque, pour l'ancien tiroir modal).
-  const { clearSelection } = editor
-  useEffect(() => {
-    return () => {
-      clearSelection()
-      onSearch(false)
-    }
-  }, [clearSelection, onSearch])
+  // La sélection et la recherche ne survivent pas à la sortie du mode Mots
+  // (relevé par Aristarque, pour l'ancien tiroir modal) — `Timeline` s'en
+  // charge désormais, sur la transition plutôt qu'au démontage. (relevé par Copilot)
 
   return (
     <div role="group" aria-label="Transcript du clip" className="flex h-56 flex-col rounded-md border">

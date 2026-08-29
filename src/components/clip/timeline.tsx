@@ -10,6 +10,7 @@ import type { PublishedFraming } from '@/lib/api'
 import { clipBounds, type ClipWord, type IndexedLine } from '@/lib/editing'
 import { formatDuration, formatSpan, formatTimecode } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useEditor } from '@/store/editor'
 
 /**
  * La bande de temps, sous l'aperçu source.
@@ -290,7 +291,18 @@ export function Timeline({
 
   return (
     <div className="relative flex flex-col gap-1">
-      <Tabs value={mode} onValueChange={(next) => setMode(next as BandMode)}>
+      <Tabs
+        value={mode}
+        onValueChange={(next) => {
+          // Sur la transition, pas sur un effet de démontage : celui-ci
+          // rejoue aussi au premier montage sous Strict Mode. (relevé par Copilot)
+          if (mode === 'words' && next !== 'words') {
+            useEditor.getState().clearSelection()
+            onSearch(false)
+          }
+          setMode(next as BandMode)
+        }}
+      >
         <TabsList variant="line" aria-label="Ce que montre la bande">
           <TabsTrigger value="time">
             <span aria-hidden>◷</span> Temps
@@ -804,11 +816,9 @@ function useFramePreview(drag: Drag | null, proxyUrl: string | null) {
   useEffect(() => {
     const source = video.current
     if (!mounted || source === null || time === null || !Number.isFinite(time)) return
-    // **On peint avant de chercher.** La vignette apparaît avec le geste, et une
-    // recherche sur un proxy servi en requêtes partielles prend le temps qu'elle
-    // prend : sans ce premier trait, le début de chaque glissé montre un
-    // rectangle noir. L'image affichée est celle d'avant, ce que le timecode
-    // sous la vignette dit déjà.
+    // **On peint avant de chercher.** Une recherche sur un proxy en requêtes
+    // partielles prend le temps qu'elle prend : sans ce trait, le début du
+    // glissé montre un rectangle noir plutôt que l'image d'avant.
     paint()
     if (inFlight.current) {
       queued.current = time

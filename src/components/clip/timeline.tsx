@@ -113,11 +113,13 @@ export function Timeline({
   onPlay: (index: number) => void
 }) {
   const [mode, setMode] = useState<BandMode>('time')
-  // `search` porte une demande externe (`Ctrl+F`) : le mode suit, jamais
-  // l'inverse — fermer la recherche ne renvoie pas en mode Temps.
-  useEffect(() => {
+  // Ajustée pendant le rendu, pas dans un effet : `search` (`Ctrl+F`) porte
+  // une demande externe, le mode la suit — jamais l'inverse.
+  const [searchSeen, setSearchSeen] = useState(search)
+  if (search !== searchSeen) {
+    setSearchSeen(search)
     if (search) setMode('words')
-  }, [search])
+  }
   const track = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
   const bounds = clipBounds(segments)

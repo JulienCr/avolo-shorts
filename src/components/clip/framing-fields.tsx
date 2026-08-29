@@ -1,7 +1,7 @@
 'use client'
 
 import { RotateCcw } from 'lucide-react'
-import { useCallback, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -60,9 +60,8 @@ export function FramingFields({
 
   const loading = globals === undefined
   const resolved: FramingSettings = { ...(globals ?? FRAMING_SETTINGS_DEFAULTS), ...clip.framingStyle }
-  // Toutes les clés de `framingStyle`, pas seulement `NUMERIC_KEYS` : depuis
-  // que `dubbingLayout` vit lui aussi dans cette modale, un clip dont la
-  // seule surcharge est `dubbingLayout: false` doit se voir sur le
+  // Toutes les clés de `framingStyle`, pas seulement `NUMERIC_KEYS` : un
+  // clip surchargeant seulement `dubbingLayout` doit se voir sur le
   // déclencheur. (relevé par Copilot et Codex)
   const overrideCount = Object.keys(clip.framingStyle).length
   const hasOverride = overrideCount > 0
@@ -95,7 +94,11 @@ export function FramingFields({
           </Button>
         }
       />
-      <DialogContent>
+      {/* **Bornée et défilable**, même borne que `hook-fields.tsx` : cinq
+          `NumberField` se replient souvent sur plusieurs lignes et
+          dépassaient un viewport bas sans hauteur maximale. (relevé par
+          Copilot) */}
+      <DialogContent className="flex max-h-[85vh] flex-col overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Cadrage — réglages avancés</DialogTitle>
         </DialogHeader>
@@ -239,6 +242,15 @@ function NumberField({
     setDraft(String(bounded))
     if (bounded !== value) onCommit(bounded)
   }
+
+  // Échap démonte le champ sans laisser React déclencher `onBlur` : sans ce
+  // filet, une valeur tapée non validée se perdait à la fermeture de la
+  // modale par Échap. (relevé par Aristarque)
+  const commitRef = useRef(commit)
+  useEffect(() => {
+    commitRef.current = commit
+  })
+  useEffect(() => () => commitRef.current(), [])
 
   return (
     <div className="flex flex-col gap-1.5">

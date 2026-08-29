@@ -671,8 +671,11 @@ describe('l’échec d’une écriture directe', () => {
 
     openRenderSettings()
     fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
-    closeRenderSettings()
+    // Pas de fermeture manuelle : c'est l'échec de l'écriture qui doit
+    // refermer la modale, sans quoi le bandeau et « Réessayer » restent
+    // inertes derrière elle. (relevé par Copilot)
     await screen.findByText(/échec de l’enregistrement/i)
+    expect(screen.queryByRole('button', { name: /fermer/i })).toBeNull()
 
     const before = fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length
     fireEvent.click(screen.getByRole('button', { name: /réessayer/i }))

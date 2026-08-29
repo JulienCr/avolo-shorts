@@ -9,7 +9,7 @@
  * dans une bulle d'aide : elle serait invisible au clavier.
  */
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CropOverlay, RatioPicker, frozenCropReason } from '@/components/clip/crop-picker'
@@ -17,7 +17,26 @@ import { framing, manualFraming, shot, splitCells, dubbingCells } from '../../fi
 
 afterEach(cleanup)
 
+/**
+ * Le sélecteur ne montre plus que « auto » : toute la mécanique — ce qu'auto
+ * a choisi, le détail du split ou du doublage, le repli — vit derrière
+ * « Forcer un cadrage », comme un test devant l'écran l'ouvrirait.
+ */
+function openForceDialog() {
+  fireEvent.click(screen.getByRole('button', { name: /forcer un cadrage/i }))
+}
+
 describe('RatioPicker', () => {
+  it('ne garde que « auto », le forçage derrière un déclencheur discret', () => {
+    render(<RatioPicker framing={framing()} ratio="auto" onRatio={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'auto' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '4:5' })).toBeNull()
+    expect(screen.getByRole('button', { name: /forcer un cadrage/i })).toBeTruthy()
+
+    openForceDialog()
+    expect(screen.getByRole('button', { name: '4:5' })).toBeTruthy()
+  })
+
   it('dit pourquoi le cadre ne se déplace pas en 16:9', () => {
     render(
       <RatioPicker
@@ -26,11 +45,13 @@ describe('RatioPicker', () => {
         onRatio={vi.fn()}
       />,
     )
+    openForceDialog()
     expect(screen.getByText(/toute la largeur/i)).toBeTruthy()
   })
 
   it('ne dit rien de tel sur un ratio où le cadre se déplace', () => {
     render(<RatioPicker framing={framing()} ratio="1:1" onRatio={vi.fn()} />)
+    openForceDialog()
     expect(screen.queryByText(/toute la largeur/i)).toBeNull()
   })
 
@@ -47,12 +68,14 @@ describe('RatioPicker', () => {
         onRatio={vi.fn()}
       />,
     )
+    openForceDialog()
     expect(screen.getByText(/auto → 4:5/)).toBeTruthy()
     expect(screen.queryByText(/itération 0/i)).toBeNull()
   })
 
   it('marque un ratio épinglé au lieu de le laisser passer pour un calcul', () => {
     render(<RatioPicker framing={framing()} ratio="1:1" onRatio={vi.fn()} />)
+    openForceDialog()
     expect(screen.getByText(/1:1 · épinglé/)).toBeTruthy()
   })
 
@@ -73,6 +96,7 @@ describe('RatioPicker', () => {
         onRatio={vi.fn()}
       />,
     )
+    openForceDialog()
     expect(screen.getByText(/change avec les plans/i)).toBeTruthy()
   })
 
@@ -90,11 +114,13 @@ describe('RatioPicker', () => {
     render(
       <RatioPicker framing={manualFraming('9:16', 0.5, origin)} ratio="auto" onRatio={vi.fn()} />,
     )
+    openForceDialog()
     expect(screen.getByText(pattern)).toBeTruthy()
   })
 
   it('ne dit rien de tel quand le cadrage a été calculé', () => {
     render(<RatioPicker framing={framing()} ratio="auto" onRatio={vi.fn()} />)
+    openForceDialog()
     expect(screen.queryByText(/n’a pas tourné/i)).toBeNull()
     expect(screen.getByText(/calculé pour chaque plan/i)).toBeTruthy()
   })
@@ -121,6 +147,7 @@ describe('RatioPicker', () => {
         onRatio={vi.fn()}
       />,
     )
+    openForceDialog()
     expect(screen.getAllByText(/change avec les plans/i)).toHaveLength(1)
     expect(screen.getAllByText(/calculé pour chaque plan/i)).toHaveLength(1)
   })
@@ -143,6 +170,7 @@ describe('RatioPicker', () => {
         onRatio={vi.fn()}
       />,
     )
+    openForceDialog()
     const line = screen.getByText(/ne se règle pas ici/i)
     expect(line.textContent).toContain('fichier natif')
     expect(line.textContent).toContain('variante 9:16')
@@ -158,6 +186,7 @@ describe('RatioPicker', () => {
         onRatio={vi.fn()}
       />,
     )
+    openForceDialog()
     expect(screen.getByText(/déjà vertical/i)).toBeTruthy()
     expect(screen.queryByText(/ne se règle pas ici/i)).toBeNull()
   })
@@ -174,6 +203,7 @@ describe('RatioPicker', () => {
         onRatio={vi.fn()}
       />,
     )
+    openForceDialog()
     expect(screen.getByText(/auto → split/)).toBeTruthy()
   })
 
@@ -187,6 +217,7 @@ describe('RatioPicker', () => {
         onRatio={vi.fn()}
       />,
     )
+    openForceDialog()
     expect(screen.getByText(/split · sur ce plan/)).toBeTruthy()
   })
 
@@ -208,7 +239,7 @@ describe('RatioPicker', () => {
     expect(screen.queryByText(/en split sur certains plans/)).toBeNull()
   })
 
-  it('détaille le split-screen dans le dépliant de comportement', () => {
+  it('détaille le split-screen dans la modale de forçage', () => {
     render(
       <RatioPicker
         framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
@@ -216,6 +247,7 @@ describe('RatioPicker', () => {
         onRatio={vi.fn()}
       />,
     )
+    openForceDialog()
     expect(screen.getByText(/deux cellules empilées, sans fond/)).toBeTruthy()
   })
 
@@ -277,6 +309,7 @@ describe('doublage — porté par le ratio épinglé, comme le split', () => {
       shots: [shot(0, 100, '16:9', 0.5, 'manual', undefined, dubbingCells())],
     })
     render(<RatioPicker framing={withDubbing} ratio="9:16" onRatio={vi.fn()} />)
+    openForceDialog()
     expect(screen.queryByText(/doublage improvisé/)).toBeNull()
   })
 
@@ -287,6 +320,7 @@ describe('doublage — porté par le ratio épinglé, comme le split', () => {
       shots: [shot(0, 100, '16:9', 0.5, 'manual', undefined, dubbingCells())],
     })
     render(<RatioPicker framing={withDubbing} ratio="16:9" onRatio={vi.fn()} />)
+    openForceDialog()
     expect(screen.getByText(/doublage improvisé/)).toBeTruthy()
   })
 })

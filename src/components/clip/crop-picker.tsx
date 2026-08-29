@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import {
   isComputedFraming,
@@ -22,6 +22,8 @@ import {
   cropWidthFraction,
 } from '@/lib/crop-preview'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 /** Le pas du clavier, en fraction de la largeur de l'image. */
@@ -346,12 +348,12 @@ export function RatioPicker({
   /**
    * L'identifiant de la phrase qui dit pourquoi le rectangle de cadrage ne
    * bouge pas. Le rectangle la désigne par `aria-describedby` ; elle est rendue
-   * ici, sous le sélecteur, parce qu'une superposition sur l'image n'a pas de
-   * place pour du texte.
+   * dans la modale « Forcer un cadrage », qui est aussi le lieu où cette
+   * raison se lève.
    */
   cropReasonId?: string
 }) {
-  const values: (Ratio | 'auto')[] = ['auto', ...ORDER_RATIOS]
+  const [forceOpen, setForceOpen] = useState(false)
   const shot = useCurrentShot(framing)
   const effective = effectiveRatio(shot, ratio)
   const split = activeSplit(shot, framing, ratio)
@@ -375,16 +377,14 @@ export function RatioPicker({
   const variantDue = nativeRatio !== '9:16'
   const dubbing = activeDubbing(shot, framing, ratio)
   const cropReason = frozenCropReason(framing, effective, split, dubbing)
+  const forced = ratio !== 'auto'
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <ToggleGroup
-        value={[ratio]}
+        value={ratio === 'auto' ? ['auto'] : []}
         onValueChange={(chosen: string[]) => {
-          // En sélection unique, recliquer l'élément actif rend une liste vide.
-          // Un clip a toujours un ratio : on garde alors le précédent.
-          const next = chosen[0] as Ratio | 'auto' | undefined
-          if (next) onRatio(next)
+          if (chosen[0]) onRatio('auto')
         }}
         variant="outline"
         size="sm"
@@ -393,35 +393,120 @@ export function RatioPicker({
         // sélecteur n'en règle qu'une directement.
         aria-label="Ratio du cadre pris dans la source"
       >
-        {values.map((v) => (
-          <ToggleGroupItem key={v} value={v} className="font-mono text-xs">
-            {v}
-          </ToggleGroupItem>
-        ))}
+        <ToggleGroupItem value="auto" className="font-mono text-xs">
+          auto
+        </ToggleGroupItem>
       </ToggleGroup>
 
-      {/* **Un mot, au même endroit, dans les deux cas** (§3.5). Ce que le
-          sélecteur ne peut pas dire seul : ce que « auto » a choisi *pour le
-          plan qu'on regarde*, et qu'un ratio épinglé vaut pour tous. */}
-      <p className="font-mono text-[0.75rem] text-muted-foreground">
-        {ratio === 'auto'
-          ? `auto → ${split ? 'split' : dubbing ? 'doublage' : effective}`
-          : split
-            ? 'split · sur ce plan'
-            : dubbing
-              ? 'doublage · sur ce plan'
-              : `${effective} · épinglé partout`}
-        {' · natif '}
-        {nativeRatio}
-      </p>
+      <Dialog open={forceOpen} onOpenChange={setForceOpen}>
+        <DialogTrigger
+          render={
+            <Button type="button" size="sm" variant="ghost" className="w-fit gap-1.5 px-2">
+              Forcer un cadrage
+              {forced && (
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
+                  {ratio}
+                </span>
+              )}
+            </Button>
+          }
+        />
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Forcer un cadrage</DialogTitle>
+          </DialogHeader>
 
-      {/* **La ligne qui nomme les deux fichiers reste visible, toujours.**
-          `2026-08-18-parcours-utilisateur-design.md` §3.3 : c'est elle seule qui
-          empêche de croire que les six pastilles de ratio règlent la sortie
-          verticale plan par plan. Ce qui folde en dessous, ce sont les phrases
-          qui expliquent *comment* chacune se comporte (§4.1 du 23 août) — la
-          distinction est le point du geste : le nom ne se cache jamais, la
-          notice s'ouvre à la demande. (relevé par Aristarque) */}
+          {/* **Un mot, au même endroit, dans les deux cas** (§3.5) : ce que
+              « auto » a choisi *pour le plan qu'on regarde*, et qu'un ratio
+              épinglé vaut pour tous. */}
+          <p className="font-mono text-[0.75rem] text-muted-foreground">
+            {ratio === 'auto'
+              ? `auto → ${split ? 'split' : dubbing ? 'doublage' : effective}`
+              : split
+                ? 'split · sur ce plan'
+                : dubbing
+                  ? 'doublage · sur ce plan'
+                  : `${effective} · épinglé partout`}
+            {' · natif '}
+            {nativeRatio}
+          </p>
+
+          <ToggleGroup
+            value={forced ? [ratio] : []}
+            onValueChange={(chosen: string[]) => {
+              const next = chosen[0] as Ratio | undefined
+              if (next) {
+                onRatio(next)
+                setForceOpen(false)
+              }
+            }}
+            variant="outline"
+            size="sm"
+            spacing={0}
+            aria-label="Forcer ce ratio sur tous les plans"
+          >
+            {ORDER_RATIOS.map((v) => (
+              <ToggleGroupItem key={v} value={v} className="font-mono text-xs">
+                {v}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+
+          <p className="text-[0.75rem] text-muted-foreground">
+            {variantDue ? (
+              <>
+                Le <strong className="font-medium">fichier natif</strong> sort en{' '}
+                <span className="font-mono">{nativeRatio}</span>, le même d’un bout à l’autre, pour
+                le feed. La <strong className="font-medium">variante 9:16</strong> pose chaque plan
+                sur un canevas vertical, sur fond flouté
+                {varies && (
+                  <>
+                    {' '}
+                    — le cadre y change avec les plans (
+                    <span className="font-mono">{varied.join(', ')}</span>)
+                  </>
+                )}
+                {anySplit && (
+                  <>
+                    {' '}
+                    — un plan à deux personnes se pose en deux cellules empilées, sans fond
+                  </>
+                )}
+                {anyDubbing && (
+                  <>
+                    {' '}
+                    — un plan de doublage se recompose en trois pavés : le film, les comédiens et
+                    la bande synchro
+                  </>
+                )}{' '}
+                : elle suit le calcul et ne se règle pas ici.
+              </>
+            ) : (
+              <>
+                Le <strong className="font-medium">fichier natif</strong> est déjà vertical : c’est
+                la seule sortie, il n’y a pas de variante à produire.
+              </>
+            )}
+          </p>
+
+          {origin !== null && (
+            <p className="text-[0.75rem] text-amber-500 dark:text-amber-400">{origin}</p>
+          )}
+
+          {/* La raison d'un contrôle inerte s'écrit ici, et le rectangle la
+              désigne par `aria-describedby` — même texte que `frozenCropReason`
+              rend pour `CropOverlay`, jamais recopié. */}
+          {cropReason !== null && (
+            <p id={cropReasonId} className="text-[0.75rem] text-muted-foreground">
+              {cropReason}
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* **La ligne qui nomme les deux fichiers reste visible, toujours** — elle
+          seule empêche de croire que les pastilles de ratio règlent la sortie
+          verticale plan par plan (relevé par Aristarque). */}
       <p className="basis-full text-[0.75rem] text-muted-foreground">
         <strong className="font-medium">Fichier natif</strong>{' '}
         <span className="font-mono">{nativeRatio}</span>
@@ -437,82 +522,6 @@ export function RatioPicker({
               .join(', ')
           : 'aucune'}
       </p>
-
-      <details className="group/comportement basis-full">
-        <summary className="flex cursor-pointer list-none items-center gap-1 text-[0.75rem] text-muted-foreground marker:content-none hover:text-foreground">
-          <span className="inline-block transition-transform group-open/comportement:rotate-90">
-            ›
-          </span>
-          Comment chaque sortie se comporte
-        </summary>
-        <p className="mt-1 text-[0.75rem] text-muted-foreground">
-          {variantDue ? (
-            <>
-              Le <strong className="font-medium">fichier natif</strong> sort en{' '}
-              <span className="font-mono">{nativeRatio}</span>, le même d’un bout à l’autre, pour le
-              feed. La <strong className="font-medium">variante 9:16</strong> pose chaque plan sur
-              un canevas vertical, sur fond flouté
-              {varies && (
-                <>
-                  {' '}
-                  — le cadre y change avec les plans (
-                  <span className="font-mono">{varied.join(', ')}</span>)
-                </>
-              )}
-              {anySplit && (
-                <>
-                  {' '}
-                  — un plan à deux personnes se pose en deux cellules empilées, sans fond
-                </>
-              )}
-              {anyDubbing && (
-                <>
-                  {' '}
-                  — un plan de doublage se recompose en trois pavés : le film, les comédiens et la
-                  bande synchro
-                </>
-              )}{' '}
-              : elle suit le calcul et ne se règle pas ici.
-            </>
-          ) : (
-            <>
-              Le <strong className="font-medium">fichier natif</strong> est déjà vertical : c’est la
-              seule sortie, il n’y a pas de variante à produire.
-            </>
-          )}
-        </p>
-      </details>
-
-      {/* **Le repli se dit, il ne se subit pas** — mais il se lit à la demande.
-          `renders` ne dépend pas d'`analysis` dans le graphe : rien ne garantit
-          qu'un clip en « auto » ait des plans sous la main, et un 9:16 centré
-          posé sans un mot ne se verrait qu'à l'image, trois minutes d'export
-          plus tard. C'était la troisième prose permanente de l'écran de clip
-          (retour d'usage §4.1) ; elle passe derrière un dépliant plutôt que de
-          disparaître, parce que c'est un avertissement, pas une explication
-          qu'on apprend une fois. Le losange ambre sur le déclencheur porte le
-          même mot que le texte qu'il replie, pour qu'on n'ait pas à l'ouvrir
-          pour savoir qu'il y a quelque chose à lire. */}
-      {origin !== null && (
-        <details className="group/aide basis-full">
-          <summary className="flex cursor-pointer list-none items-center gap-1 text-[0.75rem] text-amber-500 marker:content-none hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300">
-            <span className="inline-block transition-transform group-open/aide:rotate-90">›</span>
-            Repli du cadrage automatique
-          </summary>
-          <p className="mt-1 text-[0.75rem] text-amber-500 dark:text-amber-400">{origin}</p>
-        </details>
-      )}
-
-      {/* **La raison d'un contrôle inerte s'écrit à côté de lui**, et le
-          rectangle la désigne par `aria-describedby` : l'adjacence se lit à
-          l'œil, pas à la voix. Le texte vient de `frozenCropReason`, appelée par
-          les deux, pour qu'aucune divergence ne fasse pointer vers un
-          paragraphe qui n'est plus rendu. */}
-      {cropReason !== null && (
-        <p id={cropReasonId} className="basis-full text-[0.75rem] text-muted-foreground">
-          {cropReason}
-        </p>
-      )}
     </div>
   )
 }

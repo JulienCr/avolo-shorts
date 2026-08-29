@@ -126,6 +126,17 @@ describe('la fenêtre', () => {
     expect(document.querySelector('[data-timeline]')).toBeNull()
     expect(screen.getByText(/réapparaîtra dès qu’un passage sera remonté/i)).toBeTruthy()
   })
+
+  it('garde le mode Mots atteignable quand tout a été retiré', async () => {
+    // Sans bornes, le seul chemin de retour est le mot retiré à remonter —
+    // c'est le mode Mots qui le porte, il ne peut pas disparaître avec la
+    // bande. (relevé par Codex, Aristarque)
+    const user = userEvent.setup()
+    mount({ segments: [] })
+
+    await user.click(screen.getByRole('tab', { name: 'Mots' }))
+    expect(screen.getByRole('group', { name: 'Transcript du clip' })).toBeTruthy()
+  })
 })
 
 describe('le ruban', () => {
@@ -250,7 +261,7 @@ describe('les champs de bornes', () => {
       ],
     })
 
-    const start = screen.getByLabelText<HTMLInputElement>('A')
+    const start = screen.getByRole<HTMLInputElement>('textbox', { name: 'Borne d’entrée' })
     expect(start.value).toBe('1:40')
     await user.clear(start)
     await user.type(start, '0:01:48{Enter}')
@@ -262,12 +273,38 @@ describe('les champs de bornes', () => {
     const user = userEvent.setup()
     const { onBoundary } = mount()
 
-    const end = screen.getByLabelText('B')
+    const end = screen.getByRole('textbox', { name: 'Borne de sortie' })
     await user.clear(end)
     await user.type(end, '1:50{Enter}')
 
     expect(onBoundary).toHaveBeenCalledTimes(1)
     expect(onBoundary.mock.calls[0]).toEqual([110, 'end'])
+  })
+
+  it('rejette une partie mm/ss qui dépasse 59, plutôt que de la relire à sa place', async () => {
+    // `1:90` ne vaut pas 150 s : la partie `ss` déborde de ce que le format
+    // permet, la saisie doit être refusée comme n'importe quelle ambiguïté.
+    const user = userEvent.setup()
+    const { onBoundary } = mount()
+
+    const end = screen.getByRole('textbox', { name: 'Borne de sortie' })
+    await user.clear(end)
+    await user.type(end, '1:90{Enter}')
+
+    expect(onBoundary).not.toHaveBeenCalled()
+  })
+
+  it('rejette une saisie dont la valeur déborde en Infinity', async () => {
+    // Un nombre de trois cents chiffres passe le regex `\d+` mais son
+    // `Number()` vaut `Infinity`, qu'`onBoundary` ne doit jamais recevoir.
+    const user = userEvent.setup()
+    const { onBoundary } = mount()
+
+    const end = screen.getByRole('textbox', { name: 'Borne de sortie' })
+    await user.clear(end)
+    await user.type(end, `${'9'.repeat(320)}{Enter}`)
+
+    expect(onBoundary).not.toHaveBeenCalled()
   })
 })
 
@@ -363,12 +400,10 @@ describe('la vignette de scrub', () => {
    * **Le défaut que ce test ferme ne levait rien et ne se voyait qu'à l'écran.**
    *
    * Le `<video>` caché n'existe pas au premier rendu : le store n'a pas encore
-   * chargé le clip, `clipBounds` rend `null`, la bande sort par son retour
-   * anticipé. Un effet qui branchait `seeked` sur une *référence* tournait alors
-   * dans le vide et ne se rejouait jamais — une référence ne réveille aucun
-   * effet. La vignette restait noire pendant tous les glissés, sur le seul
-   * composant dont c'est la raison d'être, et sans une erreur nulle part. Le
-   * montage en deux temps ci-dessous est la reproduction exacte.
+   * chargé le clip. Un effet qui branchait `seeked` sur une *référence*
+   * tournait alors dans le vide — une référence ne réveille aucun effet. La
+   * vignette restait noire pendant tous les glissés, sans erreur nulle part.
+   * Le montage en deux temps ci-dessous est la reproduction exacte.
    */
   it('peint la position demandée, même montée après le premier rendu', () => {
     measureTrack()

@@ -851,7 +851,14 @@ function useFramePreview(drag: Drag | null, proxyUrl: string | null) {
 function parseTimecode(text: string): number | null {
   const parts = text.trim().split(':')
   if (parts.length === 0 || parts.length > 3 || parts.some((p) => !/^\d+$/.test(p))) return null
-  return parts.reduce((total, part) => total * 60 + Number(part), 0)
+  // Les parties `mm`/`ss` sont strictement inférieures à 60 : `1:90` ne
+  // vaut rien, il ne se relit pas comme `2:30`. (relevé par Aristarque)
+  if (parts.slice(1).some((p) => Number(p) >= 60)) return null
+  const result = parts.reduce((total, part) => total * 60 + Number(part), 0)
+  // Une chaîne de centaines de chiffres passe le regex et déborde en
+  // `Infinity`, qu'`onCommit` écrirait comme borne — rejeté ici plutôt
+  // que laissé à l'autosave, qui le tournerait en `null`. (relevé par Aristarque)
+  return Number.isFinite(result) ? result : null
 }
 
 /**
@@ -888,9 +895,8 @@ function BoundField({
       {label}
       <input
         // Le libellé visible reste `A`/`B` ; le nom accessible reprend celui
-        // des oreilles (`Handle`, plus bas) pour qu'un lecteur d'écran qui
-        // parcourt le champ hors contexte sache laquelle des deux bornes il
-        // ajuste. (relevé par Copilot)
+        // des oreilles (`Handle`, plus bas), lisible hors contexte.
+        // (relevé par Copilot)
         aria-label={edge === 'start' ? 'Borne d’entrée' : 'Borne de sortie'}
         className="w-20 rounded border bg-background px-1.5 py-0.5 font-mono text-[0.75rem] text-foreground tabular-nums"
         value={draft ?? formatDuration(seconds)}

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { usePlayback } from '@/components/clip/playback'
 import { TranscriptDrawer } from '@/components/clip/transcript-drawer'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { normalizeSegments, type Segment } from '@/core/edl'
 import type { PublishedFraming } from '@/lib/api'
 import { clipBounds, type ClipWord, type IndexedLine } from '@/lib/editing'
@@ -112,7 +112,10 @@ export function Timeline({
   /** Place la lecture sur ce mot, depuis le mode Mots. */
   onPlay: (index: number) => void
 }) {
-  const [mode, setMode] = useState<BandMode>('time')
+  // `search` peut déjà valoir `true` au montage — retour depuis les Exports,
+  // Ctrl+F laissé ouvert. Le mode initial le reflète, sinon la bande s'ouvre
+  // en Temps sans champ de recherche alors que la recherche est demandée.
+  const [mode, setMode] = useState<BandMode>(search ? 'words' : 'time')
   // Ajustée pendant le rendu, pas dans un effet : `search` (`Ctrl+F`) porte
   // une demande externe, le mode la suit — jamais l'inverse.
   const [searchSeen, setSearchSeen] = useState(search)
@@ -230,17 +233,6 @@ export function Timeline({
     }
   }, [drag, commit])
 
-  if (bounds === null) {
-    // Tout a été retiré : il n'y a plus de bornes, donc pas de bande. Le
-    // transcript reste la façon d'en sortir, et l'écran le dit dans sa zone
-    // Montage — le répéter ici ferait deux phrases pour un seul état.
-    return (
-      <p className="text-[0.75rem] text-muted-foreground">
-        Plus rien n’est monté : la bande de temps réapparaîtra dès qu’un passage sera remonté.
-      </p>
-    )
-  }
-
   const span = view.end - view.start
   const toFraction = (t: number) => Math.min(Math.max((t - view.start) / span, 0), 1)
 
@@ -269,8 +261,10 @@ export function Timeline({
     const from = edge === 'start' ? current.start : current.end
     onBoundary(clampEdge(clampToSource(from + step, limit), edge), edge)
   }
-  const inTime = drag !== null && drag.edge === 'start' ? drag.time : bounds.start
-  const outTime = drag !== null && drag.edge === 'end' ? drag.time : bounds.end
+  // Lues seulement dans la branche `bounds !== null` du rendu ci-dessous ;
+  // le repli à 0 ne s'observe jamais, faute de bande à afficher sans bornes.
+  const inTime = drag !== null && drag.edge === 'start' ? drag.time : (bounds?.start ?? 0)
+  const outTime = drag !== null && drag.edge === 'end' ? drag.time : (bounds?.end ?? 0)
   const ghost = drag !== null && drag.edge === null ? drag.time : null
 
   // **Une coupe par trou entre segments consécutifs.** `normalizeSegments`
@@ -295,216 +289,243 @@ export function Timeline({
             <span aria-hidden>❞</span> Mots
           </TabsTrigger>
         </TabsList>
-      </Tabs>
 
-      {mode === 'time' ? (
-        <>
-          <div className="flex items-baseline justify-between text-[0.75rem] text-muted-foreground">
-            <span className="font-mono tabular-nums">{formatTimecode(view.start)}</span>
-            {/* Ce que la bande montre, dit une fois. Sans cette ligne, les creux
-                passent pour des blancs de rendu plutôt que pour les coupes. */}
-            <span>temps de l’émission — les creux sont les passages retirés</span>
-            <span className="font-mono tabular-nums">{formatTimecode(view.end)}</span>
-          </div>
-
-          <div
-            ref={track}
-            data-timeline
-            role="group"
-            aria-label="Bande de temps du clip"
-            className="relative h-12 w-full touch-none overflow-hidden rounded-md bg-muted/60 select-none"
-            onPointerDown={(e) => {
-              // La bande nue promène la tête de lecture ; les oreilles arrêtent la
-              // propagation, le même appui ne pouvant vouloir les deux. Pas de
-              // troisième `slider` ici : le transcript place déjà la lecture au clavier.
-              e.currentTarget.setPointerCapture(e.pointerId)
-              moveTo(e.clientX, null)
-            }}
-            onPointerMove={(e) => {
-              if (drag === null || !e.currentTarget.hasPointerCapture(e.pointerId)) return
-              moveTo(e.clientX, drag.edge)
-            }}
-            onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
-          >
-            {/* **La planche du proxy, en fond de piste** (route de la tâche 5) :
-                la bande cesse de dire seulement où on est pour dire quoi. Bornée
-                sur `bounds`, pas sur la fenêtre : c'est exactement ce que la
-                route tuile. */}
-            {proxyUrl !== null && (
-              <div
-                data-testid="filmstrip"
-                aria-hidden
-                className="pointer-events-none absolute inset-y-0"
-                style={{
-                  left: `${toFraction(bounds.start) * 100}%`,
-                  width: `${Math.max(0, toFraction(bounds.end) - toFraction(bounds.start)) * 100}%`,
-                  backgroundImage: `url(/api/clips/${encodeURIComponent(clipId)}/filmstrip)`,
-                  backgroundSize: '100% 100%',
-                }}
-              />
-            )}
-
-            {/* Ce qui reste du clip, à sa place dans la source — un voile
-                teinté, pas un aplat, sinon la planche ci-dessus disparaît
-                dessous. Les trous entre segments **sont** les passages
-                retirés, et c'est ce qui fait de cette bande autre chose qu'une
-                barre de progression. */}
-            {segments.map((s) => (
-              <span
-                key={`${s.start}-${s.end}`}
-                aria-hidden
-                className="absolute inset-y-0 border-y-[3px] border-stage bg-stage/25"
-                style={{
-                  left: `${toFraction(s.start) * 100}%`,
-                  width: `${Math.max(0, toFraction(s.end) - toFraction(s.start)) * 100}%`,
-                }}
-              />
-            ))}
-
-            {/* **La coupe : une encoche hachurée qui porte sa durée.** Un
-                passage que quelqu'un a retiré, et ça se défait — à l'inverse
-                de la frontière de plan ci-dessous, qui ne se défait pas. Rare
-                dans ce dépôt (aucun clip n'a plus d'un segment), donc quand il
-                y en a une, elle doit se voir. */}
-            {cuts.map((cut) => (
-              <div
-                key={`${cut.from}-${cut.to}`}
-                data-testid="cut"
-                aria-hidden
-                className="absolute inset-y-0 z-[6] grid place-items-center bg-[repeating-linear-gradient(135deg,currentColor_0,currentColor_2px,transparent_2px,transparent_6px)] text-foreground/30"
-                style={{
-                  left: `${toFraction(cut.from) * 100}%`,
-                  width: `${Math.max(0, toFraction(cut.to) - toFraction(cut.from)) * 100}%`,
-                }}
-              >
-                <b className="rounded bg-background/90 px-1 font-mono text-[0.75rem] whitespace-nowrap text-foreground">
-                  ✂ {formatSpan(cut.to - cut.from)}
-                </b>
+        {/* **Un seul panneau, associé aux onglets ci-dessus.** Un `tablist`
+            sans `tabpanel` s'annonce sans rien désigner — même contrat que
+            `src/components/review/feed.tsx:419-440`. (relevé par Copilot) */}
+        <TabsContent value={mode}>
+          {mode === 'words' ? (
+            <TranscriptDrawer
+              clipId={clipId}
+              lines={lines}
+              words={words}
+              firstLine={firstLine}
+              duration={duration}
+              search={search}
+              onSearch={onSearch}
+              onPlay={onPlay}
+            />
+          ) : bounds === null ? (
+            // Tout a été retiré : il n'y a plus de bornes, donc pas de bande.
+            // L'onglet Mots reste accessible ci-dessus — c'est par lui qu'on
+            // remonte un mot retiré. (relevé par Codex, Copilot)
+            <p className="text-[0.75rem] text-muted-foreground">
+              Plus rien n’est monté : la bande de temps réapparaîtra dès qu’un passage sera remonté.
+            </p>
+          ) : (
+            <>
+              <div className="flex items-baseline justify-between text-[0.75rem] text-muted-foreground">
+                <span className="font-mono tabular-nums">{formatTimecode(view.start)}</span>
+                {/* Ce que la bande montre, dit une fois. Sans cette ligne, les creux
+                    passent pour des blancs de rendu plutôt que pour les coupes. */}
+                <span>temps de l’émission — les creux sont les passages retirés</span>
+                <span className="font-mono tabular-nums">{formatTimecode(view.end)}</span>
               </div>
-            ))}
 
-            {/* Ce que le geste en cours ferait, avant qu'il ne soit fait. */}
-            {draggingHandle && (
-              <span
-                aria-hidden
-                className="absolute inset-y-0 border-x border-dashed border-foreground/40 bg-foreground/5"
-                style={{
-                  left: `${toFraction(Math.min(inTime, outTime)) * 100}%`,
-                  width: `${Math.max(0, toFraction(Math.max(inTime, outTime)) - toFraction(Math.min(inTime, outTime))) * 100}%`,
+              <div
+                ref={track}
+                data-timeline
+                role="group"
+                aria-label="Bande de temps du clip"
+                className="relative h-12 w-full touch-none rounded-md bg-muted/60 select-none"
+                onPointerDown={(e) => {
+                  // La bande nue promène la tête de lecture ; les oreilles arrêtent la
+                  // propagation, le même appui ne pouvant vouloir les deux. Pas de
+                  // troisième `slider` ici : le transcript place déjà la lecture au clavier.
+                  e.currentTarget.setPointerCapture(e.pointerId)
+                  moveTo(e.clientX, null)
                 }}
-              />
-            )}
-
-            {/* **Les frontières de plans, lues et non calculées, jamais
-                nommées.** `analysis.json` pèse deux à trois méga-octets ; le
-                serveur publie déjà le cadrage plan par plan. Un cadrage que
-                l'analyse a trouvé ne se défait pas — le repère n'a donc pas
-                besoin d'un nom (`cadrage`, le cadre est fixe à l'intérieur
-                d'un plan). */}
-            {framing.shots.slice(1).map((shot) => (
-              <span
-                key={shot.key}
-                data-testid="shot-mark"
-                aria-hidden
-                className="absolute inset-y-2 w-px bg-foreground/25"
-                style={{ left: `${toFraction(shot.shot.start) * 100}%` }}
-              />
-            ))}
-
-            <Playhead
-              view={view}
-              ghost={ghost}
-              onStep={(step) => stepPlayhead(step)}
-            />
-
-            <Handle
-              edge="start"
-              time={inTime}
-              left={toFraction(inTime)}
-              active={drag?.edge === 'start'}
-              onGrab={(clientX) => moveTo(clientX, 'start')}
-              onStep={(step) => stepBoundary('start', step)}
-              min={view.start}
-              max={view.end}
-            />
-            <Handle
-              edge="end"
-              time={outTime}
-              left={toFraction(outTime)}
-              active={drag?.edge === 'end'}
-              onGrab={(clientX) => moveTo(clientX, 'end')}
-              onStep={(step) => stepBoundary('end', step)}
-              min={view.start}
-              max={view.end}
-            />
-
-            {/* L'image de la position demandée, pendant le geste. Le lecteur
-                principal n'y touche pas : le faire chercher soixante fois par seconde
-                tuerait la lecture et ferait sauter l'aperçu de sortie, qui s'accroche
-                à ses trames. */}
-            {drag !== null && (
-              <span
-                aria-hidden
-                className="pointer-events-none absolute -top-2 z-20 -translate-x-1/2 -translate-y-full rounded border bg-popover p-1 shadow-lg"
-                // La vignette reste dans la bande : centrée sur une position au
-                // ras du bord, sa moitié se ferait rogner — vérifié à l'écran,
-                // sur le geste le plus courant, qui tire une oreille jusqu'au bout.
-                style={{ left: `clamp(4rem, ${toFraction(drag.time) * 100}%, calc(100% - 4rem))` }}
+                onPointerMove={(e) => {
+                  if (drag === null || !e.currentTarget.hasPointerCapture(e.pointerId)) return
+                  moveTo(e.clientX, drag.edge)
+                }}
+                onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
               >
-                <canvas
-                  ref={previewCanvas}
-                  width={160}
-                  height={90}
-                  className="block w-32 rounded-sm bg-zinc-950"
+                {/* **Le calque clipé, séparé de l'oreille et de l'aperçu.**
+                    L'aperçu de scrub sort du cadre par le haut (`-top-2
+                    -translate-y-full`, plus bas) ; le clip qui arrondit les
+                    coins de la planche ne peut donc pas porter sur le conteneur
+                    qui l'accueille. (relevé par Codex) */}
+                <div className="absolute inset-0 overflow-hidden rounded-md">
+                  {/* **La planche du proxy, en fond de piste** (route de la tâche 5) :
+                      la bande cesse de dire seulement où on est pour dire quoi. Bornée
+                      sur `bounds`, pas sur la fenêtre : c'est exactement ce que la
+                      route tuile. */}
+                  {proxyUrl !== null && (
+                    <div
+                      data-testid="filmstrip"
+                      aria-hidden
+                      className="pointer-events-none absolute inset-y-0"
+                      style={{
+                        left: `${toFraction(bounds.start) * 100}%`,
+                        width: `${Math.max(0, toFraction(bounds.end) - toFraction(bounds.start)) * 100}%`,
+                        // Bornée dans l'URL : sinon le navigateur garde une
+                        // planche déjà chargée, étirée, après que A ou B a
+                        // bougé. (relevé par Codex)
+                        backgroundImage: `url("/api/clips/${encodeURIComponent(clipId)}/filmstrip?bounds=${bounds.start.toFixed(2)}-${bounds.end.toFixed(2)}")`,
+                        backgroundSize: '100% 100%',
+                      }}
+                    />
+                  )}
+
+                  {/* Ce qui reste du clip, à sa place dans la source — un voile
+                      teinté, pas un aplat, sinon la planche ci-dessus disparaît
+                      dessous. Les trous entre segments **sont** les passages
+                      retirés, et c'est ce qui fait de cette bande autre chose qu'une
+                      barre de progression. */}
+                  {segments.map((s) => (
+                    <span
+                      key={`${s.start}-${s.end}`}
+                      aria-hidden
+                      className="absolute inset-y-0 border-y-[3px] border-stage bg-stage/25"
+                      style={{
+                        left: `${toFraction(s.start) * 100}%`,
+                        width: `${Math.max(0, toFraction(s.end) - toFraction(s.start)) * 100}%`,
+                      }}
+                    />
+                  ))}
+
+                  {/* **La coupe : une encoche hachurée qui porte sa durée.** Un
+                      passage que quelqu'un a retiré, et ça se défait — à l'inverse
+                      de la frontière de plan ci-dessous, qui ne se défait pas. Rare
+                      dans ce dépôt (aucun clip n'a plus d'un segment), donc quand il
+                      y en a une, elle doit se voir. */}
+                  {cuts.map((cut) => (
+                    <div
+                      key={`${cut.from}-${cut.to}`}
+                      data-testid="cut"
+                      aria-label={`Passage retiré, ${formatSpan(cut.to - cut.from)}`}
+                      className="absolute inset-y-0 z-[6] grid place-items-center bg-[repeating-linear-gradient(135deg,currentColor_0,currentColor_2px,transparent_2px,transparent_6px)] text-foreground/30"
+                      style={{
+                        left: `${toFraction(cut.from) * 100}%`,
+                        width: `${Math.max(0, toFraction(cut.to) - toFraction(cut.from)) * 100}%`,
+                      }}
+                    >
+                      <b
+                        aria-hidden
+                        className="rounded bg-background/90 px-1 font-mono text-[0.75rem] whitespace-nowrap text-foreground"
+                      >
+                        ✂ {formatSpan(cut.to - cut.from)}
+                      </b>
+                    </div>
+                  ))}
+
+                  {/* Ce que le geste en cours ferait, avant qu'il ne soit fait. */}
+                  {draggingHandle && (
+                    <span
+                      aria-hidden
+                      className="absolute inset-y-0 border-x border-dashed border-foreground/40 bg-foreground/5"
+                      style={{
+                        left: `${toFraction(Math.min(inTime, outTime)) * 100}%`,
+                        width: `${Math.max(0, toFraction(Math.max(inTime, outTime)) - toFraction(Math.min(inTime, outTime))) * 100}%`,
+                      }}
+                    />
+                  )}
+
+                  {/* **Les frontières de plans, lues et non calculées, jamais
+                      nommées.** `analysis.json` pèse deux à trois méga-octets ; le
+                      serveur publie déjà le cadrage plan par plan. Un cadrage que
+                      l'analyse a trouvé ne se défait pas — le repère n'a donc pas
+                      besoin d'un nom (`cadrage`, le cadre est fixe à l'intérieur
+                      d'un plan). */}
+                  {framing.shots.slice(1).map((shot) => (
+                    <span
+                      key={shot.key}
+                      data-testid="shot-mark"
+                      aria-hidden
+                      className="absolute inset-y-2 w-px bg-foreground/25"
+                      style={{ left: `${toFraction(shot.shot.start) * 100}%` }}
+                    />
+                  ))}
+                </div>
+
+                <Playhead
+                  view={view}
+                  ghost={ghost}
+                  onStep={(step) => stepPlayhead(step)}
                 />
-                <span className="mt-0.5 block text-center font-mono text-xs tabular-nums">
-                  {formatTimecode(drag.time)}
-                </span>
-              </span>
-            )}
-          </div>
 
-          {/* Le second `<video>`, **caché et sans son**. C'est la source des vignettes
-              de scrub : un élément à part plutôt que le lecteur, pour la raison écrite
-              juste au-dessus. Il ne charge que ses métadonnées tant que personne ne
-              tire. */}
-          {proxyUrl !== null && (
-            <video
-              ref={setPreviewVideo}
-              src={proxyUrl}
-              muted
-              preload="metadata"
-              aria-hidden
-              tabIndex={-1}
-              className="pointer-events-none absolute bottom-0 left-0 size-px opacity-0"
-            />
+                <Handle
+                  edge="start"
+                  time={inTime}
+                  left={toFraction(inTime)}
+                  active={drag?.edge === 'start'}
+                  onGrab={(clientX) => moveTo(clientX, 'start')}
+                  onStep={(step) => stepBoundary('start', step)}
+                  min={view.start}
+                  max={view.end}
+                />
+                <Handle
+                  edge="end"
+                  time={outTime}
+                  left={toFraction(outTime)}
+                  active={drag?.edge === 'end'}
+                  onGrab={(clientX) => moveTo(clientX, 'end')}
+                  onStep={(step) => stepBoundary('end', step)}
+                  min={view.start}
+                  max={view.end}
+                />
+
+                {/* L'image de la position demandée, pendant le geste. Le lecteur
+                    principal n'y touche pas : le faire chercher soixante fois par seconde
+                    tuerait la lecture et ferait sauter l'aperçu de sortie, qui s'accroche
+                    à ses trames. */}
+                {drag !== null && (
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute -top-2 z-20 -translate-x-1/2 -translate-y-full rounded border bg-popover p-1 shadow-lg"
+                    // La vignette reste dans la bande : centrée sur une position au
+                    // ras du bord, sa moitié se ferait rogner — vérifié à l'écran,
+                    // sur le geste le plus courant, qui tire une oreille jusqu'au bout.
+                    style={{ left: `clamp(4rem, ${toFraction(drag.time) * 100}%, calc(100% - 4rem))` }}
+                  >
+                    <canvas
+                      ref={previewCanvas}
+                      width={160}
+                      height={90}
+                      className="block w-32 rounded-sm bg-zinc-950"
+                    />
+                    <span className="mt-0.5 block text-center font-mono text-xs tabular-nums">
+                      {formatTimecode(drag.time)}
+                    </span>
+                  </span>
+                )}
+              </div>
+
+              {/* Le second `<video>`, **caché et sans son**. C'est la source des vignettes
+                  de scrub : un élément à part plutôt que le lecteur, pour la raison écrite
+                  juste au-dessus. Il ne charge que ses métadonnées tant que personne ne
+                  tire. */}
+              {proxyUrl !== null && (
+                <video
+                  ref={setPreviewVideo}
+                  src={proxyUrl}
+                  muted
+                  preload="metadata"
+                  aria-hidden
+                  tabIndex={-1}
+                  className="pointer-events-none absolute bottom-0 left-0 size-px opacity-0"
+                />
+              )}
+            </>
           )}
-        </>
-      ) : (
-        <TranscriptDrawer
-          clipId={clipId}
-          lines={lines}
-          words={words}
-          firstLine={firstLine}
-          duration={duration}
-          search={search}
-          onSearch={onSearch}
-          onPlay={onPlay}
-        />
-      )}
 
-      {/* **Le pied de la bande, dans les deux modes.** La poignée pour
-          approcher, le champ pour poser à l'image près (spec du 28 août,
-          §4.3) : les deux visent la même écriture, donc les deux valent quel
-          que soit le viseur choisi au-dessus. */}
-      <div className="flex items-center gap-3">
-        <BoundField label="A" seconds={bounds.start} edge="start" onCommit={commitBound} />
-        <BoundField label="B" seconds={bounds.end} edge="end" onCommit={commitBound} />
-        <span className="flex items-baseline gap-1 text-[0.75rem] text-muted-foreground">
-          durée
-          <span className="font-mono tabular-nums text-foreground">{formatDuration(duration)}</span>
-        </span>
-      </div>
+          {/* **Le pied de la bande, dans les deux modes.** La poignée pour
+              approcher, le champ pour poser à l'image près (spec du 28 août,
+              §4.3) : les deux visent la même écriture, donc les deux valent
+              quel que soit le viseur choisi au-dessus. */}
+          {bounds !== null && (
+            <div className="flex items-center gap-3">
+              <BoundField label="A" seconds={bounds.start} edge="start" onCommit={commitBound} />
+              <BoundField label="B" seconds={bounds.end} edge="end" onCommit={commitBound} />
+              <span className="flex items-baseline gap-1 text-[0.75rem] text-muted-foreground">
+                durée
+                <span className="font-mono tabular-nums text-foreground">{formatDuration(duration)}</span>
+              </span>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
@@ -805,14 +826,13 @@ function useFramePreview(drag: Drag | null, proxyUrl: string | null) {
   }, [drag])
 
   /**
-   * **La source qui change relâche tout.** Son `seeked` n'arrivera jamais :
-   * personne ne relâcherait le verrou, et plus aucune vignette ne se peindrait.
+   * **La source qui change relâche tout.** Son `seeked` n'arrivera jamais,
+   * donc personne ne relâcherait le verrou.
    *
-   * **Et « la source » n'est pas « le nœud ».** Naviguer vers un autre clip
-   * réutilise le même `<video>` — React le garde et ne change que son `src` —,
-   * donc un montage/démontage ne suffit pas à repérer le cas : une recherche
-   * en vol au moment de la navigation restait comptée pour toujours, et les
-   * demandes du clip suivant s'empilaient dans la file sans jamais partir.
+   * **« La source » n'est pas « le nœud ».** Naviguer vers un autre clip
+   * réutilise le même `<video>` — React ne change que son `src` — donc un
+   * montage/démontage ne repère pas le cas : une recherche en vol restait
+   * comptée pour toujours, et la file s'empilait sans jamais partir.
    * (relevé par Aristarque, précisé par Copilot)
    */
   useEffect(() => {
@@ -867,6 +887,11 @@ function BoundField({
     <label className="flex items-center gap-1 text-[0.75rem] text-muted-foreground">
       {label}
       <input
+        // Le libellé visible reste `A`/`B` ; le nom accessible reprend celui
+        // des oreilles (`Handle`, plus bas) pour qu'un lecteur d'écran qui
+        // parcourt le champ hors contexte sache laquelle des deux bornes il
+        // ajuste. (relevé par Copilot)
+        aria-label={edge === 'start' ? 'Borne d’entrée' : 'Borne de sortie'}
         className="w-20 rounded border bg-background px-1.5 py-0.5 font-mono text-[0.75rem] text-foreground tabular-nums"
         value={draft ?? formatDuration(seconds)}
         onChange={(e) => setDraft(e.target.value)}

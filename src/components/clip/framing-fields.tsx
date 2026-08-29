@@ -60,12 +60,20 @@ export function FramingFields({
 
   const loading = globals === undefined
   const resolved: FramingSettings = { ...(globals ?? FRAMING_SETTINGS_DEFAULTS), ...clip.framingStyle }
-  const overrideCount = NUMERIC_KEYS.filter((field) => hasOverrideOf(clip, field)).length
-  const hasOverride = Object.keys(clip.framingStyle).length > 0
+  // Toutes les clés de `framingStyle`, pas seulement `NUMERIC_KEYS` : depuis
+  // que `dubbingLayout` vit lui aussi dans cette modale, un clip dont la
+  // seule surcharge est `dubbingLayout: false` doit se voir sur le
+  // déclencheur. (relevé par Copilot et Codex)
+  const overrideCount = Object.keys(clip.framingStyle).length
+  const hasOverride = overrideCount > 0
 
   const { setStyle, resetField, resetAll } = useStyleWrites(
     clip.framingStyle,
     useCallback((framingStyle: FramingStyleOverride) => onWrite({ framingStyle }), [onWrite]),
+    // Une écriture refusée ferme la modale : le bandeau d'échec et « Réessayer »
+    // vivent dans l'AppBar, rendue inerte tant que la modale reste ouverte.
+    // (relevé par Copilot)
+    useCallback(() => setOpen(false), []),
   )
 
   const dubbingCount = dubbingShotCount(framing)

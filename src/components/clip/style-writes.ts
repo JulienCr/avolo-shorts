@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef } from 'react'
 export function useStyleWrites<S extends Record<string, unknown>>(
   style: S,
   writeStyle: (next: S) => Promise<unknown> | void,
+  onWriteFailure?: () => void,
 ) {
   const base = useRef(style)
   // Se resynchronise hors du rendu (une ref lue au rendu ne rejouerait pas le
@@ -25,9 +26,9 @@ export function useStyleWrites<S extends Record<string, unknown>>(
   const commit = useCallback(
     (next: S) => {
       base.current = next
-      void Promise.resolve(writeStyle(next)).catch(() => {})
+      void Promise.resolve(writeStyle(next)).catch(() => onWriteFailure?.())
     },
-    [writeStyle],
+    [writeStyle, onWriteFailure],
   )
 
   const setStyle = useCallback(

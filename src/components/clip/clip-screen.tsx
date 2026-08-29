@@ -715,8 +715,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
             <div className="shrink-0">
               <RenderSettings
                 clip={clip}
-                onBranding={(branding) => void write({ branding }).catch(() => {})}
-                onCaptions={(captions) => void write({ captions }).catch(() => {})}
+                onBranding={(branding) => write({ branding })}
+                onCaptions={(captions) => write({ captions })}
               />
             </div>
           </section>
@@ -870,8 +870,8 @@ function RenderSettings({
   onCaptions,
 }: {
   clip: Clip
-  onBranding: (branding: boolean) => void
-  onCaptions: (captions: boolean) => void
+  onBranding: (branding: boolean) => Promise<unknown>
+  onCaptions: (captions: boolean) => Promise<unknown>
 }) {
   const [open, setOpen] = useState(false)
   const overrideCount = (clip.branding ? 0 : 1) + (clip.captions ? 0 : 1)
@@ -899,7 +899,10 @@ function RenderSettings({
             type="checkbox"
             className="mt-0.5 size-3.5 accent-stage"
             checked={clip.branding}
-            onChange={(e) => onBranding(e.target.checked)}
+            // Ferme la modale sur un refus : le bandeau d'échec et
+            // « Réessayer » vivent dans l'AppBar, inerte tant qu'elle reste
+            // ouverte. (relevé par Copilot)
+            onChange={(e) => void onBranding(e.target.checked).catch(() => setOpen(false))}
           />
           <span>
             Incruster les marques
@@ -915,7 +918,7 @@ function RenderSettings({
             type="checkbox"
             className="mt-0.5 size-3.5 accent-stage"
             checked={clip.captions}
-            onChange={(e) => onCaptions(e.target.checked)}
+            onChange={(e) => void onCaptions(e.target.checked).catch(() => setOpen(false))}
           />
           <span>
             Incruster les sous-titres

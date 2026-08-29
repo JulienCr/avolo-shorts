@@ -141,6 +141,10 @@ export function HookFields({
   const { setStyle, resetField, resetAll } = useStyleWrites(
     clip.hookStyle,
     useCallback((hookStyle: Partial<HookSettings>) => onWrite({ hookStyle }), [onWrite]),
+    // Une écriture refusée ferme la modale : le bandeau d'échec et « Réessayer »
+    // vivent dans l'AppBar, rendue inerte tant que la modale reste ouverte.
+    // (relevé par Copilot et Codex)
+    useCallback(() => setOpen(false), []),
   )
 
   const regenerate = useRegenerateHook()
@@ -249,7 +253,11 @@ export function HookFields({
             </Button>
           }
         />
-        <DialogContent>
+        {/* **Bornée et défilable.** Cinq groupes de champs dépassent un
+            viewport bas sans hauteur maximale — le haut, le bouton Fermer ou
+            les derniers réglages sortaient de l'écran. (relevé par Copilot et
+            Codex) */}
+        <DialogContent className="flex max-h-[85vh] flex-col overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Hook — style avancé</DialogTitle>
           </DialogHeader>

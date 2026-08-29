@@ -37,6 +37,17 @@ describe('RatioPicker', () => {
     expect(screen.getByRole('button', { name: '4:5' })).toBeTruthy()
   })
 
+  it('forcer un ratio le transmet et referme la modale', () => {
+    const onRatio = vi.fn()
+    render(<RatioPicker framing={framing()} ratio="auto" onRatio={onRatio} />)
+
+    openForceDialog()
+    fireEvent.click(screen.getByRole('button', { name: '4:5' }))
+
+    expect(onRatio).toHaveBeenCalledWith('4:5')
+    expect(screen.queryByRole('button', { name: '4:5' })).toBeNull()
+  })
+
   it('dit pourquoi le cadre ne se déplace pas en 16:9', () => {
     render(
       <RatioPicker

@@ -21,7 +21,6 @@ import { FramingFields } from '@/components/clip/framing-fields'
 import { usePlayback } from '@/components/clip/playback'
 import { DialogueShortcuts, useShortcuts } from '@/components/clip/shortcuts'
 import { Timeline } from '@/components/clip/timeline'
-import { TranscriptDrawer } from '@/components/clip/transcript-drawer'
 import { outputNames } from '@/components/clip/texts'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -188,8 +187,6 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     )
   }, [])
   const [help, setHelp] = useState(false)
-  /** Le tiroir de montage. Le transcript n'occupe plus la moitié de l'écran. */
-  const [drawerOpen, setDrawerOpen] = useState(false)
   // La phrase qui dit pourquoi le rectangle de cadrage ne bouge pas : rendue par
   // le sélecteur de ratio, désignée par le rectangle. Un seul identifiant pour
   // les deux, sans quoi l'un décrirait un paragraphe que l'autre ne rend pas.
@@ -320,13 +317,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     poserBound: (edge) => {
       if (selection) editor.poserBound(words, selection.head, edge)
     },
-    // `Ctrl+F` ouvre le tiroir avec la recherche : le transcript n'est plus
-    // visible en permanence, et une barre ouverte sur une surface fermée ne
-    // chercherait nulle part.
-    find: () => {
-      setSearch(true)
-      setDrawerOpen(true)
-    },
+    // `Ctrl+F` demande la recherche : la bande bascule elle-même en mode
+    // Mots, sinon une barre ouverte sur une surface fermée ne chercherait
+    // nulle part.
+    find: () => setSearch(true),
     help: () => setHelp(true),
     aSelection: selection !== null,
   })
@@ -651,8 +645,13 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               <ClipTransport video={video} proxyUrl={proxyUrl} segments={segments} />
             </div>
 
+            {/* **Deux viseurs d'un même montage** (spec du 28 août, §4.1) :
+                `Temps` peint la piste et ses repères, `Mots` lui substitue le
+                transcript — la surface d'édition du clip (spec §13,
+                `CLAUDE.md`), qui ne monte plus derrière un tiroir. */}
             <div className="shrink-0">
               <Timeline
+                clipId={clip.id}
                 segments={segments}
                 framing={framing}
                 proxyUrl={proxyUrl}
@@ -664,6 +663,13 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                   placePlayback(video, segments, time)
                 }}
                 onBoundary={editor.setBoundaryAt}
+                lines={linesIndexed}
+                words={words}
+                firstLine={firstLine}
+                duration={duration}
+                search={search}
+                onSearch={setSearch}
+                onPlay={(index) => placePlayback(video, segments, words[index].start)}
               />
             </div>
 
@@ -682,34 +688,13 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
 
             {duration === 0 && (
               // Le cas prévu côté serveur et qui n'avait pas de rendu propre :
-              // tout a été retiré. **Il se dit hors du tiroir**, sinon il faudrait
-              // ouvrir le montage pour apprendre qu'il n'y a plus de montage.
+              // tout a été retiré. **Il se dit hors du mode Mots**, sinon il
+              // faudrait y passer pour apprendre qu'il n'y a plus de montage.
               <p className="shrink-0 text-[0.75rem] text-muted-foreground">
-                Il ne reste rien du clip. Ouvrir le montage pour le reconstruire : cliquer un mot
+                Il ne reste rien du clip. Passer en mode Mots pour le reconstruire : cliquer un mot
                 barré le fait recommencer là.
               </p>
             )}
-
-            {/* **Le transcript reste la surface d'édition, il cesse d'être
-                toujours visible.** Il occupait la moitié de l'écran pour un geste
-                ponctuel, pendant que le geste courant — vérifier, ajuster deux
-                textes, exporter — se faisait sur l'autre moitié. Ce n'est pas une
-                timeline qui le remplace : la bande plus haut ajoute le geste que
-                le texte ne sait pas exprimer, elle ne monte pas les mots. */}
-            <div className="shrink-0">
-              <TranscriptDrawer
-                open={drawerOpen}
-                onOpenChange={setDrawerOpen}
-                clipId={clip.id}
-                lines={linesIndexed}
-                words={words}
-                firstLine={firstLine}
-                duration={duration}
-                search={search}
-                onSearch={setSearch}
-                onPlay={(index) => placePlayback(video, segments, words[index].start)}
-              />
-            </div>
 
             <div className="shrink-0">
               <RenderSettings

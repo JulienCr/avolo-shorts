@@ -1,10 +1,10 @@
 'use client'
 
-import { ChevronDown, RotateCcw } from 'lucide-react'
+import { RotateCcw } from 'lucide-react'
 import { useCallback, useId, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { dubbingShotCount } from '@/components/clip/framing'
@@ -74,90 +74,88 @@ export function FramingFields({
   const dubbingDisabledForClip = hasOverrideOf(clip, 'dubbingLayout')
 
   return (
-    <div className="flex flex-col gap-3">
-      {dubbingDisabledForClip ? (
-        <div className="flex items-center gap-2 text-[0.75rem] text-muted-foreground">
-          <span>Montage doublage — composition désactivée pour ce clip</span>
-          <button
-            type="button"
-            aria-label="Montage doublage : revenir à l’héritage"
-            onClick={() => resetField('dubbingLayout')}
-            className="flex items-center gap-1 hover:text-foreground"
-          >
-            <RotateCcw aria-hidden className="size-3" />
-            revenir à l’héritage
-          </button>
-        </div>
-      ) : (
-        dubbingCount > 0 && (
-          <div className="flex items-center gap-2 text-[0.75rem]">
-            <span>
-              Montage doublage — {dubbingCount} plan{dubbingCount > 1 ? 's' : ''}
-            </span>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          <Button type="button" size="sm" variant="ghost" className="w-fit gap-1.5 px-2">
+            Personnaliser
+            {overrideCount > 0 && (
+              <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
+                {overrideCount}
+              </span>
+            )}
+          </Button>
+        }
+      />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Cadrage — réglages avancés</DialogTitle>
+        </DialogHeader>
+
+        {dubbingDisabledForClip ? (
+          <div className="flex items-center gap-2 text-[0.75rem] text-muted-foreground">
+            <span>Montage doublage — composition désactivée pour ce clip</span>
             <button
               type="button"
-              onClick={() => setStyle('dubbingLayout', false)}
-              className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+              aria-label="Montage doublage : revenir à l’héritage"
+              onClick={() => resetField('dubbingLayout')}
+              className="flex items-center gap-1 hover:text-foreground"
             >
-              désactiver pour ce clip
+              <RotateCcw aria-hidden className="size-3" />
+              revenir à l’héritage
             </button>
           </div>
-        )
-      )}
+        ) : (
+          dubbingCount > 0 && (
+            <div className="flex items-center gap-2 text-[0.75rem]">
+              <span>
+                Montage doublage — {dubbingCount} plan{dubbingCount > 1 ? 's' : ''}
+              </span>
+              <button
+                type="button"
+                onClick={() => setStyle('dubbingLayout', false)}
+                className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+              >
+                désactiver pour ce clip
+              </button>
+            </div>
+          )
+        )}
 
-      <Collapsible open={open} onOpenChange={setOpen}>
-        <CollapsibleTrigger
-          render={
-            <Button type="button" size="sm" variant="ghost" className="w-fit gap-1.5 px-2">
-              <ChevronDown
-                aria-hidden
-                className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
-              />
-              Personnaliser
-              {overrideCount > 0 && (
-                <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
-                  {overrideCount}
-                </span>
-              )}
-            </Button>
-          }
-        />
-        <CollapsiblePanel className="flex flex-col gap-3 pt-2">
-          <div className="flex flex-wrap items-end gap-x-4 gap-y-3 rounded-xl border px-3 py-2.5">
-            {NUMERIC_KEYS.map((key) => (
-              <NumberField
-                key={key}
-                label={NUMERIC_LABELS[key].label}
-                unit={NUMERIC_LABELS[key].unit}
-                value={resolved[key]}
-                min={FRAMING_BOUNDS[key].min}
-                max={FRAMING_BOUNDS[key].max}
-                disabled={loading}
-                overridden={hasOverrideOf(clip, key)}
-                onCommit={(value) => setStyle(key, value)}
-                onReset={() => resetField(key)}
-              />
-            ))}
-          </div>
-
-          {/* N'apparaît que s'il y a de quoi défaire, même règle que le
-              « Revenir à … » de l'écran des réglages. */}
-          {hasOverride && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-3 rounded-xl border px-3 py-2.5">
+          {NUMERIC_KEYS.map((key) => (
+            <NumberField
+              key={key}
+              label={NUMERIC_LABELS[key].label}
+              unit={NUMERIC_LABELS[key].unit}
+              value={resolved[key]}
+              min={FRAMING_BOUNDS[key].min}
+              max={FRAMING_BOUNDS[key].max}
               disabled={loading}
-              className="w-fit"
-              onClick={resetAll}
-            >
-              <RotateCcw aria-hidden />
-              Réinitialiser avec les paramètres globaux
-            </Button>
-          )}
-        </CollapsiblePanel>
-      </Collapsible>
-    </div>
+              overridden={hasOverrideOf(clip, key)}
+              onCommit={(value) => setStyle(key, value)}
+              onReset={() => resetField(key)}
+            />
+          ))}
+        </div>
+
+        {/* N'apparaît que s'il y a de quoi défaire, même règle que le
+            « Revenir à … » de l'écran des réglages. */}
+        {hasOverride && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={loading}
+            className="w-fit"
+            onClick={resetAll}
+          >
+            <RotateCcw aria-hidden />
+            Réinitialiser avec les paramètres globaux
+          </Button>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }
 

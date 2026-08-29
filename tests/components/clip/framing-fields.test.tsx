@@ -65,11 +65,12 @@ describe('split-screen', () => {
 })
 
 describe('montage doublage — état 1 : rien à dire', () => {
-  it('ne rend aucune ligne sans plan de doublage ni surcharge', () => {
+  it('ne rend aucune ligne sans plan de doublage ni surcharge, même le pli ouvert', () => {
     mount({
       framing: framing({ shots: [shot(0, 20, '1:1', 0.5)] }),
       clip: clip({ framingStyle: {} }),
     })
+    openPersonalize()
     expect(screen.queryByText(/Split-screen/)).toBeNull()
     expect(screen.queryByText(/Montage doublage/)).toBeNull()
   })
@@ -86,6 +87,7 @@ describe('montage doublage — état 2 : plans détectés', () => {
         ],
       }),
     })
+    openPersonalize()
     const row = within(screen.getByText(/Montage doublage/).parentElement!)
     expect(row.getByText(/Montage doublage — 2 plans/)).toBeTruthy()
   })
@@ -96,6 +98,7 @@ describe('montage doublage — état 2 : plans détectés', () => {
       framing: framing({ shots: [shot(0, 5, '1:1', 0.5, 'auto', undefined, dubbingCells())] }),
       onWrite,
     })
+    openPersonalize()
 
     fireEvent.click(screen.getByRole('button', { name: /désactiver pour ce clip/ }))
     expect(onWrite).toHaveBeenCalledWith({ framingStyle: { dubbingLayout: false } })
@@ -114,6 +117,7 @@ describe('montage doublage — état 3 : désactivé pour ce clip', () => {
       framing: framing({ shots: [shot(0, 20, '1:1', 0.5)] }),
       clip: clip({ framingStyle: { dubbingLayout: false } }),
     })
+    openPersonalize()
     const row = within(screen.getByText(/Montage doublage/).parentElement!)
     expect(row.getByText(/composition désactivée pour ce clip/)).toBeTruthy()
   })
@@ -125,6 +129,7 @@ describe('montage doublage — état 3 : désactivé pour ce clip', () => {
       clip: clip({ framingStyle: { dubbingLayout: false } }),
       onWrite,
     })
+    openPersonalize()
 
     fireEvent.click(screen.getByRole('button', { name: /revenir à l’héritage/ }))
     expect(onWrite).toHaveBeenCalledWith({ framingStyle: {} })

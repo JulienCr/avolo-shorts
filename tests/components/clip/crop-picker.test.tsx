@@ -34,7 +34,9 @@ describe('RatioPicker', () => {
     expect(screen.getByRole('button', { name: /forcer un cadrage/i })).toBeTruthy()
 
     openForceDialog()
-    expect(screen.getByRole('button', { name: '4:5' })).toBeTruthy()
+    for (const forced of ['9:16', '4:5', '1:1', '16:9']) {
+      expect(screen.getByRole('button', { name: forced })).toBeTruthy()
+    }
   })
 
   it('forcer un ratio le transmet et referme la modale', () => {

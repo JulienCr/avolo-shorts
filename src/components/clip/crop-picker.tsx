@@ -329,10 +329,9 @@ export function CropOverlay({
  * tromperait, et rien dans la géométrie de l'écran ne l'en empêche — les deux
  * aperçus montrent le cadre de la *variante*, qui est celui qui bouge.
  *
- * D'où deux lignes sous le sélecteur, et non une : la première dit ce qu'il vaut
- * ici et maintenant, la seconde **nomme les deux fichiers**. Elle est longue
- * parce qu'elle a deux choses à dire ; la raccourcir en supprimant l'un des deux
- * noms rouvre exactement le piège, et c'est la refonte suivante qui le paierait.
+ * **Une seule ligne reste sous le sélecteur**, celle qui nomme les deux
+ * fichiers : la ligne résolue `auto → …` expliquait un mécanisme, elle a
+ * rejoint la modale de forçage puis en a été retirée (spec du 28 août, §4.5).
  */
 export function RatioPicker({
   framing,

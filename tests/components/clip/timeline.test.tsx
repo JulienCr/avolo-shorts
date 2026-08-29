@@ -73,6 +73,7 @@ function mount(overrides: Partial<Parameters<typeof Timeline>[0]> = {}) {
     <Timeline
       clipId="c1"
       segments={[{ start: 100, end: 120 }]}
+      savedSegments={[{ start: 100, end: 120 }]}
       framing={framing({ shots: [shot(0, 110, '1:1', 0.5), shot(110, 200, '16:9', 0.5)] })}
       proxyUrl="/api/projects/p1/proxy"
       sourceDuration={5940}
@@ -152,6 +153,18 @@ describe('le ruban', () => {
     mount({ proxyUrl: null })
     expect(screen.queryByTestId('filmstrip')).toBeNull()
   })
+
+  it('recharge sur la borne confirmée par le serveur, pas sur celle qui glisse encore', () => {
+    // `segments` bouge à chaque frappe, `savedSegments` seulement une fois
+    // `useAutosave` parti : lier l'URL au premier redemanderait une image
+    // que le serveur ne connaît pas encore. (relevé par Copilot)
+    mount({
+      segments: [{ start: 100, end: 150 }],
+      savedSegments: [{ start: 100, end: 120 }],
+    })
+    const film = screen.getByTestId('filmstrip')
+    expect(film.style.backgroundImage).toContain('bounds=100.00-120.00')
+  })
 })
 
 describe('les deux familles de repères', () => {
@@ -211,6 +224,7 @@ describe('Temps | Mots', () => {
       <Timeline
         clipId="c1"
         segments={[{ start: 100, end: 120 }]}
+        savedSegments={[{ start: 100, end: 120 }]}
         framing={framing()}
         proxyUrl="/api/projects/p1/proxy"
         sourceDuration={5940}
@@ -230,6 +244,7 @@ describe('Temps | Mots', () => {
       <Timeline
         clipId="c1"
         segments={[{ start: 100, end: 120 }]}
+        savedSegments={[{ start: 100, end: 120 }]}
         framing={framing()}
         proxyUrl="/api/projects/p1/proxy"
         sourceDuration={5940}
@@ -416,6 +431,7 @@ describe('la vignette de scrub', () => {
       <Timeline
         clipId="c1"
         segments={[]}
+        savedSegments={[]}
         framing={framing()}
         proxyUrl="/api/projects/p1/proxy"
         sourceDuration={5940}
@@ -434,6 +450,7 @@ describe('la vignette de scrub', () => {
       <Timeline
         clipId="c1"
         segments={[{ start: 100, end: 120 }]}
+        savedSegments={[{ start: 100, end: 120 }]}
         framing={framing()}
         proxyUrl="/api/projects/p1/proxy"
         sourceDuration={5940}

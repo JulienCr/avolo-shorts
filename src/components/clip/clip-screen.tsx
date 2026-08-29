@@ -653,6 +653,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               <Timeline
                 clipId={clip.id}
                 segments={segments}
+                savedSegments={clip.segments}
                 framing={framing}
                 proxyUrl={proxyUrl}
                 sourceDuration={project.durationSec}

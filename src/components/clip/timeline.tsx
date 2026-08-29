@@ -75,6 +75,7 @@ export type BandMode = 'time' | 'words'
 export function Timeline({
   clipId,
   segments,
+  savedSegments,
   framing,
   proxyUrl,
   sourceDuration,
@@ -91,6 +92,14 @@ export function Timeline({
   /** L'identifiant du clip : construit l'URL de la planche, sépare le transcript d'un clip à l'autre. */
   clipId: string
   segments: Segment[]
+  /**
+   * Le montage tel que le serveur le connaît — la référence de
+   * `useAutosave`, jamais `segments`. La planche ne se recharge qu'une
+   * fois la borne confirmée : la lier au montage optimiste la ferait
+   * demander une image que le serveur n'a pas encore, pendant les 600 ms
+   * de temporisation. (relevé par Copilot)
+   */
+  savedSegments: Segment[]
   /** Les plans traversés, publiés par le serveur. On les lit, on ne les calcule pas. */
   framing: PublishedFraming
   proxyUrl: string | null
@@ -233,6 +242,7 @@ export function Timeline({
     }
   }, [drag, commit])
 
+  const savedBounds = clipBounds(savedSegments)
   const span = view.end - view.start
   const toFraction = (t: number) => Math.min(Math.max((t - view.start) / span, 0), 1)
 
@@ -359,10 +369,10 @@ export function Timeline({
                       style={{
                         left: `${toFraction(bounds.start) * 100}%`,
                         width: `${Math.max(0, toFraction(bounds.end) - toFraction(bounds.start)) * 100}%`,
-                        // Bornée dans l'URL : sinon le navigateur garde une
-                        // planche déjà chargée, étirée, après que A ou B a
-                        // bougé. (relevé par Codex)
-                        backgroundImage: `url("/api/clips/${encodeURIComponent(clipId)}/filmstrip?bounds=${bounds.start.toFixed(2)}-${bounds.end.toFixed(2)}")`,
+                        // `savedBounds`, pas `bounds` : sinon le navigateur
+                        // garde une planche déjà chargée pendant les 600 ms
+                        // où le serveur ne les connaît pas encore.
+                        backgroundImage: `url("/api/clips/${encodeURIComponent(clipId)}/filmstrip${savedBounds !== null ? `?bounds=${savedBounds.start.toFixed(2)}-${savedBounds.end.toFixed(2)}` : ''}")`,
                         backgroundSize: '100% 100%',
                       }}
                     />
@@ -810,16 +820,12 @@ function useFramePreview(drag: Drag | null, proxyUrl: string | null) {
 
   /**
    * Le geste fini, **la file se vide mais le verrou reste** : une recherche
-   * restée en attente ferait repartir le décodeur pour une image que plus
-   * personne ne regarde, alors que celle qui est *réellement en vol*, elle,
-   * n'est pas terminée pour autant.
+   * en attente ferait repartir le décodeur pour une image que plus personne
+   * ne regarde, alors que celle *réellement en vol* n'est pas terminée.
    *
-   * **Relâcher le verrou ici casserait la garantie d'une seule recherche à la
-   * fois.** Un second glissé qui commence avant le `seeked` du premier
-   * réécrirait `currentTime` sur-le-champ et abandonnerait la requête `Range` en
-   * cours — c'est-à-dire le chemin que l'issue #75 a rendu sûr, mais qu'on n'a
-   * aucune raison d'emprunter deux fois par geste. Seul `onSeeked` relâche.
-   * (relevé par Copilot)
+   * **Le relâcher ici casserait la garantie d'une seule recherche à la fois** :
+   * un second glissé avant le `seeked` du premier abandonnerait la requête
+   * `Range` en cours (issue #75). Seul `onSeeked` relâche. (relevé par Copilot)
    */
   useEffect(() => {
     if (drag === null) queued.current = null

@@ -1,7 +1,7 @@
 'use client'
 
 import { RotateCcw } from 'lucide-react'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useId, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -242,15 +242,6 @@ function NumberField({
     setDraft(String(bounded))
     if (bounded !== value) onCommit(bounded)
   }
-
-  // Échap démonte le champ sans laisser React déclencher `onBlur` : sans ce
-  // filet, une valeur tapée non validée se perdait à la fermeture de la
-  // modale par Échap. (relevé par Aristarque)
-  const commitRef = useRef(commit)
-  useEffect(() => {
-    commitRef.current = commit
-  })
-  useEffect(() => () => commitRef.current(), [])
 
   return (
     <div className="flex flex-col gap-1.5">

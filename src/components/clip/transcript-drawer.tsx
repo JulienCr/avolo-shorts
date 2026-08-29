@@ -11,22 +11,14 @@ import { formatSpan } from '@/lib/format'
 import { useEditor, useSegments } from '@/store/editor'
 
 /**
- * Le transcript, en mode Mots de la bande (spec du 28 août, §4.1).
- *
- * Il ne perd rien de ce qu'il avait derrière son ancien tiroir : chercher,
- * placer la lecture, retirer, poser les bornes, restaurer un mot, et le suivi
- * de lecture. Annuler et rétablir n'y vivent plus en double — la barre d'app
- * les porte déjà, et rien ne les rend plus inatteignables à la souris
- * maintenant qu'il n'y a plus de tiroir modal pour le faire.
- *
- * **Ce n'est pas une timeline qui le remplace.** Le transcript reste la surface
- * d'édition du clip (spec §13, `CLAUDE.md`) ; il change seulement de viseur
+ * Le transcript, en mode Mots de la bande (spec du 28 août, §4.1) — la
+ * surface d'édition du clip (spec §13, `CLAUDE.md`), qui change de viseur
  * plutôt que de visibilité.
  *
- * **Un élément de défilement réel.** `TranscriptSurface` virtualise par
- * `useVirtualizer`, qui mesure la hauteur de son conteneur de défilement : ce
- * panneau lui donne donc une boîte à hauteur définie (`min-h-0 flex-1`) et ne
- * défile pas lui-même.
+ * Rien n'est perdu de son ancien tiroir : chercher, placer la lecture,
+ * retirer, poser les bornes, restaurer un mot, suivre la lecture. Annuler et
+ * rétablir n'y vivent plus en double : la barre d'app les porte déjà,
+ * redevenue atteignable à la souris sans tiroir modal.
  */
 export function TranscriptDrawer({
   clipId,
@@ -71,10 +63,9 @@ export function TranscriptDrawer({
     [words, segments, editor],
   )
 
-  // **La sélection et la recherche ne survivent pas à la sortie du mode
-  // Mots.** Elles vivent ici, dans le panneau qui vient de disparaître : les
-  // laisser vivantes ferait agir `Suppr` sur des mots que plus personne ne
-  // voit. (relevé par Aristarque, pour l'ancien tiroir modal)
+  // La sélection et la recherche ne survivent pas à la sortie du mode Mots :
+  // les laisser vivantes ferait agir `Suppr` sur des mots que plus personne
+  // ne voit (relevé par Aristarque, pour l'ancien tiroir modal).
   const { clearSelection } = editor
   useEffect(() => {
     return () => {

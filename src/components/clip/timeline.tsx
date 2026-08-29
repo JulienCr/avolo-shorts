@@ -312,16 +312,9 @@ export function Timeline({
             aria-label="Bande de temps du clip"
             className="relative h-12 w-full touch-none overflow-hidden rounded-md bg-muted/60 select-none"
             onPointerDown={(e) => {
-              // La bande nue promène la tête de lecture. Les oreilles arrêtent la
-              // propagation : le même appui ne peut pas vouloir les deux.
-              //
-              // **Ce geste-ci n'a pas d'équivalent au clavier ici, et c'est réglé
-              // ailleurs** : l'organe de navigation temporelle est le transcript, où
-              // `Entrée` sur un mot place la lecture (parcours §3.3). Poser un
-              // troisième `slider` sur la tête de lecture doublerait ce chemin sans
-              // rien ajouter. Les deux gestes que le transcript ne sait pas
-              // exprimer — les bornes — sont, eux, des `slider` atteignables.
-              // (relevé par Copilot)
+              // La bande nue promène la tête de lecture ; les oreilles arrêtent la
+              // propagation, le même appui ne pouvant vouloir les deux. Pas de
+              // troisième `slider` ici : le transcript place déjà la lecture au clavier.
               e.currentTarget.setPointerCapture(e.pointerId)
               moveTo(e.clientX, null)
             }}

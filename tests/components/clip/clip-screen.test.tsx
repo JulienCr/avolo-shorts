@@ -337,6 +337,17 @@ describe('le geste courant', () => {
     await waitFor(() => expect(useEditor.getState().selection).toBeNull())
   })
 
+  it('vide aussi la sélection en quittant Édition par Exports', async () => {
+    // Le commutateur Temps/Mots n'est pas le seul chemin de sortie : l'onglet
+    // Exports démonte `Timeline` directement, sans passer par lui. (relevé par Copilot)
+    await openEditing()
+    fireEvent.pointerDown(screen.getByText(/m0-0/))
+    expect(useEditor.getState().selection).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Exports' }))
+    expect(useEditor.getState().selection).toBeNull()
+  })
+
   it('bascule en mode Mots avec la recherche sur Ctrl+F', async () => {
     // Le transcript n'est plus visible en permanence : une barre de recherche
     // ouverte sur une surface fermée ne chercherait nulle part.

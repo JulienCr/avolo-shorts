@@ -199,6 +199,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     charger(clip)
   }, [charger, clip])
 
+
   const { words, lines: linesIndexed } = useMemo(
     () => indexTranscript(lines, segments),
     [lines, segments],
@@ -502,6 +503,13 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         <Tabs
           value={view}
           onValueChange={(v) => {
+            // Quitter Édition démonte `Timeline` directement, sans passer
+            // par le commutateur Temps/Mots interne : une sélection y
+            // resterait sinon, atteignable par `Suppr`. (relevé par Copilot)
+            if (view === 'edition' && v !== 'edition') {
+              editor.clearSelection()
+              setSearch(false)
+            }
             const query = writeClipView(searchParams.toString(), v as ClipView)
             router.replace(`${pathname}${query}`, { scroll: false })
           }}

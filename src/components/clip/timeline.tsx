@@ -444,10 +444,9 @@ export function Timeline({
               <span
                 aria-hidden
                 className="pointer-events-none absolute -top-2 z-20 -translate-x-1/2 -translate-y-full rounded border bg-popover p-1 shadow-lg"
-                // La vignette reste dans la bande : centrée sur une position au ras
-                // du bord, sa moitié sortirait du cadre et se ferait rogner —
-                // vérifié à l'écran, sur le geste le plus courant, qui est justement
-                // de tirer une oreille jusqu'au bout.
+                // La vignette reste dans la bande : centrée sur une position au
+                // ras du bord, sa moitié se ferait rogner — vérifié à l'écran,
+                // sur le geste le plus courant, qui tire une oreille jusqu'au bout.
                 style={{ left: `clamp(4rem, ${toFraction(drag.time) * 100}%, calc(100% - 4rem))` }}
               >
                 <canvas

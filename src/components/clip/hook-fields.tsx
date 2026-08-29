@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown, RotateCcw, Sparkles } from 'lucide-react'
+import { RotateCcw, Sparkles } from 'lucide-react'
 import { useCallback, useId, useState } from 'react'
 
 import {
@@ -17,7 +17,7 @@ import { useTextDeferred } from '@/components/clip/text-fields'
 import { useStyleWrites } from '@/components/clip/style-writes'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -236,14 +236,10 @@ export function HookFields({
         />
       </div>
 
-      <Collapsible open={open} onOpenChange={setOpen}>
-        <CollapsibleTrigger
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger
           render={
             <Button type="button" size="sm" variant="ghost" className="w-fit gap-1.5 px-2">
-              <ChevronDown
-                aria-hidden
-                className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
-              />
               Personnaliser
               {overrideCount > 0 && (
                 <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
@@ -253,7 +249,10 @@ export function HookFields({
             </Button>
           }
         />
-        <CollapsiblePanel className="flex flex-col gap-3 pt-2">
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Hook — style avancé</DialogTitle>
+          </DialogHeader>
           <div className="flex flex-wrap items-end gap-x-4 gap-y-3 rounded-xl border px-3 py-2.5">
             <SelectField
               label="Police"
@@ -419,8 +418,8 @@ export function HookFields({
               Réinitialiser avec les paramètres globaux
             </Button>
           )}
-        </CollapsiblePanel>
-      </Collapsible>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

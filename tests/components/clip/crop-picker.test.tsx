@@ -9,7 +9,7 @@
  * dans une bulle d'aide : elle serait invisible au clavier.
  */
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CropOverlay, RatioPicker, frozenCropReason } from '@/components/clip/crop-picker'
@@ -17,7 +17,39 @@ import { framing, manualFraming, shot, splitCells, dubbingCells } from '../../fi
 
 afterEach(cleanup)
 
+/**
+ * Le sélecteur ne montre plus que « auto » : les quatre ratios forçables
+ * vivent derrière « Forcer un cadrage ». La raison d'un curseur figé et le
+ * repli du calcul restent visibles en permanence, hors de la modale.
+ */
+function openForceDialog() {
+  fireEvent.click(screen.getByRole('button', { name: /forcer un cadrage/i }))
+}
+
 describe('RatioPicker', () => {
+  it('ne garde que « auto », le forçage derrière un déclencheur discret', () => {
+    render(<RatioPicker framing={framing()} ratio="auto" onRatio={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'auto' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '4:5' })).toBeNull()
+    expect(screen.getByRole('button', { name: /forcer un cadrage/i })).toBeTruthy()
+
+    openForceDialog()
+    for (const forced of ['9:16', '4:5', '1:1', '16:9']) {
+      expect(screen.getByRole('button', { name: forced })).toBeTruthy()
+    }
+  })
+
+  it('forcer un ratio le transmet et referme la modale', () => {
+    const onRatio = vi.fn()
+    render(<RatioPicker framing={framing()} ratio="auto" onRatio={onRatio} />)
+
+    openForceDialog()
+    fireEvent.click(screen.getByRole('button', { name: '4:5' }))
+
+    expect(onRatio).toHaveBeenCalledWith('4:5')
+    expect(screen.queryByRole('button', { name: '4:5' })).toBeNull()
+  })
+
   it('dit pourquoi le cadre ne se déplace pas en 16:9', () => {
     render(
       <RatioPicker
@@ -35,52 +67,11 @@ describe('RatioPicker', () => {
   })
 
   /**
-   * **Le message de l'itération 0 disait « auto vaut 9:16 », et c'était faux dès
-   * que le calcul est entré en service.** §3.5 demande un mot au même endroit
-   * dans les deux cas : ce que « auto » a choisi, ou que le ratio est épinglé.
-   */
-  it('dit ce que « auto » a choisi pour le plan qu’on regarde', () => {
-    render(
-      <RatioPicker
-        framing={framing({ ratio: '4:5', shots: [shot(0, 100, '4:5', 0.5)] })}
-        ratio="auto"
-        onRatio={vi.fn()}
-      />,
-    )
-    expect(screen.getByText(/auto → 4:5/)).toBeTruthy()
-    expect(screen.queryByText(/itération 0/i)).toBeNull()
-  })
-
-  it('marque un ratio épinglé au lieu de le laisser passer pour un calcul', () => {
-    render(<RatioPicker framing={framing()} ratio="1:1" onRatio={vi.fn()} />)
-    expect(screen.getByText(/1:1 · épinglé/)).toBeTruthy()
-  })
-
-  /**
-   * **Le ratio se choisit par plan, et un cadre qui change de taille en cours de
-   * lecture passe pour un défaut de rendu si personne ne le dit.** C'est
-   * pourtant le bénéfice qu'on cherche : un ratio unique écraserait chaque plan
-   * serré sous le plus large.
-   */
-  it('annonce que le cadre change avec les plans', () => {
-    render(
-      <RatioPicker
-        framing={framing({
-          ratio: '16:9',
-          shots: [shot(0, 50, '9:16', 0.5), shot(50, 100, '16:9', 0.5)],
-        })}
-        ratio="auto"
-        onRatio={vi.fn()}
-      />,
-    )
-    expect(screen.getByText(/change avec les plans/i)).toBeTruthy()
-  })
-
-  /**
    * **Le repli se dit, il ne se subit pas.** `renders` ne dépend pas
    * d'`analysis` dans le graphe : rien ne garantit qu'un clip en « auto » ait des
    * plans sous la main, et un 9:16 centré posé sans un mot ne se verrait qu'à
-   * l'image, trois minutes d'export plus tard.
+   * l'image, trois minutes d'export plus tard. Un fait sur ce clip, donc visible
+   * en permanence, jamais derrière la modale de forçage.
    */
   it.each([
     ['no-analysis', /n’a pas tourné/i],
@@ -99,58 +90,9 @@ describe('RatioPicker', () => {
     expect(screen.getByText(/calculé pour chaque plan/i)).toBeTruthy()
   })
 
-  /**
-   * **Une seule ligne par question, et elles ne sont pas la même.**
-   *
-   * Ce test disait l'inverse : quand les cadres variaient, la raison du curseur
-   * figé disparaissait pour ne pas empiler deux paragraphes. La conséquence
-   * était qu'un curseur inerte cessait de dire pourquoi précisément dans le cas
-   * le plus fréquent — le cadrage calculé sur une émission à plusieurs plans.
-   * L'arbitrage a changé : la variation des cadres et l'inertie du curseur sont
-   * deux faits distincts, et chacun se dit dans **une** phrase. Ce qui reste
-   * interdit, c'est de répéter l'un des deux.
-   */
-  it('dit la variation des cadres et l’inertie du curseur, chacune une fois', () => {
-    render(
-      <RatioPicker
-        framing={framing({
-          ratio: '16:9',
-          shots: [shot(0, 50, '4:5', 0.5), shot(50, 100, '16:9', 0.5)],
-        })}
-        ratio="auto"
-        onRatio={vi.fn()}
-      />,
-    )
-    expect(screen.getAllByText(/change avec les plans/i)).toHaveLength(1)
-    expect(screen.getAllByText(/calculé pour chaque plan/i)).toHaveLength(1)
-  })
-
-  /**
-   * **Le sélecteur choisit le natif, pas la sortie verticale plan par plan**, et
-   * rien dans la géométrie de l'écran ne l'empêche de faire croire le contraire :
-   * les deux aperçus montrent le cadre de la *variante*, qui est celui qui bouge.
-   * La ligne qui nomme les deux fichiers est donc la seule chose qui ferme le
-   * piège — la raccourcir en supprimant l'un des deux noms le rouvre.
-   */
-  it('nomme les deux fichiers que le choix décide', () => {
-    render(
-      <RatioPicker
-        framing={framing({
-          ratio: '16:9',
-          shots: [shot(0, 50, '4:5', 0.5), shot(50, 100, '16:9', 0.5)],
-        })}
-        ratio="auto"
-        onRatio={vi.fn()}
-      />,
-    )
-    const line = screen.getByText(/ne se règle pas ici/i)
-    expect(line.textContent).toContain('fichier natif')
-    expect(line.textContent).toContain('variante 9:16')
-  })
-
   it('ne promet pas de variante quand le natif est déjà vertical', () => {
-    // Un clip dont le natif est 9:16 n'a qu'une sortie (spec §11). Annoncer une
-    // variante ici la ferait attendre sur le clip le mieux livré.
+    // Un clip dont le natif est 9:16 n'a qu'une sortie (spec §11) : la ligne
+    // qui nomme les deux fichiers le dit « aucune » plutôt que d'en taire une.
     render(
       <RatioPicker
         framing={framing({ ratio: '9:16', shots: [shot(0, 100, '9:16', 0.5)] })}
@@ -158,36 +100,8 @@ describe('RatioPicker', () => {
         onRatio={vi.fn()}
       />,
     )
-    expect(screen.getByText(/déjà vertical/i)).toBeTruthy()
-    expect(screen.queryByText(/ne se règle pas ici/i)).toBeNull()
-  })
-
-  /**
-   * Le split (spec du 25 août) n'existe que sur la variante : « auto → split »
-   * dit ce que ce plan-là rend, pas un ratio de crop qui n'y correspond plus.
-   */
-  it('dit « split » sur un plan splitté plutôt qu’un ratio de crop', () => {
-    render(
-      <RatioPicker
-        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
-        ratio="auto"
-        onRatio={vi.fn()}
-      />,
-    )
-    expect(screen.getByText(/auto → split/)).toBeTruthy()
-  })
-
-  it('dit « split · sur ce plan » quand le ratio est épinglé sur un plan splitté', () => {
-    // Un ratio épinglé vaut « pour tous » (§ ci-dessus) — sauf sur un plan
-    // splitté, où ce n'est justement plus un ratio de crop qui s'applique.
-    render(
-      <RatioPicker
-        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
-        ratio="1:1"
-        onRatio={vi.fn()}
-      />,
-    )
-    expect(screen.getByText(/split · sur ce plan/)).toBeTruthy()
+    const line = screen.getByText(/Fichier natif/).closest('p')!
+    expect(line.textContent).toContain('aucune')
   })
 
   it('signale le split dans la ligne qui nomme les deux fichiers', () => {
@@ -206,17 +120,6 @@ describe('RatioPicker', () => {
   it('ne signale aucun split quand aucun plan n’en pose', () => {
     render(<RatioPicker framing={framing()} ratio="auto" onRatio={vi.fn()} />)
     expect(screen.queryByText(/en split sur certains plans/)).toBeNull()
-  })
-
-  it('détaille le split-screen dans le dépliant de comportement', () => {
-    render(
-      <RatioPicker
-        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
-        ratio="auto"
-        onRatio={vi.fn()}
-      />,
-    )
-    expect(screen.getByText(/deux cellules empilées, sans fond/)).toBeTruthy()
   })
 
   it('nomme le cadre pris dans la source, pas « le ratio de sortie »', () => {

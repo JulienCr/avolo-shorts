@@ -233,27 +233,34 @@ describe('hérité vs surchargé', () => {
 })
 
 describe('deux écritures avant que la première ne se pose (issue #189)', () => {
-  it('activer le hook puis changer la taille, sans attendre entre les deux, garde les deux surcharges', () => {
+  /**
+   * `Hook activé` vit hors de la modale (§6) et `Taille` dedans : les deux ne
+   * sont plus atteignables dans la même fenêtre d'interaction, la modale
+   * rendant le reste inerte pendant qu'elle est ouverte. Le test garde le
+   * mécanisme qu'il fixait — deux surcharges coalescées avant la première
+   * réponse — avec deux champs qui vivent bien tous deux dans la modale.
+   */
+  it('cocher Capitales puis changer la taille, sans attendre entre les deux, garde les deux surcharges', () => {
     const onWrite = vi.fn()
     mount({ clip: clip({ hookStyle: {} }), onWrite })
     openPersonalize()
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /Hook activé/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Capitales/ }))
     const input = screen.getByLabelText('Taille')
     fireEvent.change(input, { target: { value: '150' } })
     fireEvent.blur(input)
 
     expect(onWrite).toHaveBeenLastCalledWith({
-      hookStyle: expect.objectContaining({ enabled: expect.any(Boolean), sizePermille: 150 }),
+      hookStyle: expect.objectContaining({ uppercase: expect.any(Boolean), sizePermille: 150 }),
     })
   })
 
-  it('rendre « Hook activé » à l’héritage pendant qu’une autre surcharge n’est pas posée ne le fait pas réapparaître', () => {
+  it('rendre « Capitales » à l’héritage pendant qu’une autre surcharge n’est pas posée ne le fait pas réapparaître', () => {
     const onWrite = vi.fn()
-    mount({ clip: clip({ hookStyle: { enabled: true } }), onWrite })
+    mount({ clip: clip({ hookStyle: { uppercase: true } }), onWrite })
     openPersonalize()
 
-    fireEvent.click(screen.getByRole('button', { name: /Hook activé.*revenir à l’héritage/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Capitales.*revenir à l’héritage/ }))
     const input = screen.getByLabelText('Taille')
     fireEvent.change(input, { target: { value: '150' } })
     fireEvent.blur(input)
@@ -297,6 +304,10 @@ describe('Durée', () => {
     const user = userEvent.setup({ delay: null })
     mount({ onWrite })
     openPersonalize()
+    // La modale porte son propre focus initial au montage (Base UI) ; le
+    // laisser se poser avant de taper évite qu'il ne vole le focus en cours
+    // de frappe.
+    await act(async () => {})
 
     const field = screen.getByLabelText('Durée')
     await user.clear(field)
@@ -312,6 +323,7 @@ describe('Durée', () => {
     const user = userEvent.setup({ delay: null })
     mount({ onWrite })
     openPersonalize()
+    await act(async () => {})
 
     const field = screen.getByLabelText('Durée')
     await user.clear(field)

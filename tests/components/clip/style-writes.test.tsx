@@ -32,4 +32,18 @@ describe('useStyleWrites', () => {
     act(() => result.current.setStyle('c', 3))
     expect(writeStyle).toHaveBeenLastCalledWith({ a: 1, c: 3 })
   })
+
+  it('appelle onWriteFailure sur un rejet, jamais sur un succès', async () => {
+    const onWriteFailure = vi.fn()
+    const writeStyle = vi.fn().mockRejectedValueOnce(new Error('refused')).mockResolvedValueOnce(undefined)
+    const { result } = renderHook(() => useStyleWrites({ a: 1 }, writeStyle, onWriteFailure))
+
+    act(() => result.current.setStyle('a', 2))
+    await act(async () => {})
+    expect(onWriteFailure).toHaveBeenCalledTimes(1)
+
+    act(() => result.current.setStyle('a', 3))
+    await act(async () => {})
+    expect(onWriteFailure).toHaveBeenCalledTimes(1)
+  })
 })

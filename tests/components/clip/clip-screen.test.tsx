@@ -159,10 +159,19 @@ function handle(edge: 'start' | 'end') {
 
 /**
  * Ouvre « Réglages du rendu ». Les marques et les sous-titres y vivent,
- * repliés par défaut (spec du 23 août, §3.3).
+ * derrière une modale (spec §6 du 28 août).
  */
 function openRenderSettings() {
   fireEvent.click(screen.getByRole('button', { name: /réglages du rendu/i }))
+}
+
+/**
+ * Ferme la modale de réglages du rendu. Tant qu'elle est ouverte, le reste de
+ * l'écran est inerte (modale) : un test qui doit interroger un autre contrôle
+ * après avoir coché une case ici doit d'abord la refermer.
+ */
+function closeRenderSettings() {
+  fireEvent.click(screen.getByRole('button', { name: /fermer/i }))
 }
 
 beforeEach(() => {
@@ -422,7 +431,9 @@ describe('les marques', () => {
 
     const zone = screen.getByRole('region', { name: 'Image' })
     fireEvent.click(within(zone).getByRole('button', { name: /réglages du rendu/i }))
-    const markers = within(zone).getByRole<HTMLInputElement>('checkbox', { name: /marques/i })
+    // La case vit dans la modale, portée hors de la zone Image : `screen`,
+    // pas `within(zone)`.
+    const markers = screen.getByRole<HTMLInputElement>('checkbox', { name: /marques/i })
     expect(markers.checked).toBe(true)
 
     fireEvent.click(markers)
@@ -452,7 +463,8 @@ describe('les sous-titres', () => {
 
     const zone = screen.getByRole('region', { name: 'Image' })
     fireEvent.click(within(zone).getByRole('button', { name: /réglages du rendu/i }))
-    const captions = within(zone).getByRole<HTMLInputElement>('checkbox', { name: /sous-titres/i })
+    // Même raison que le test des marques : la case est portée hors de la zone.
+    const captions = screen.getByRole<HTMLInputElement>('checkbox', { name: /sous-titres/i })
     expect(captions.checked).toBe(true)
 
     fireEvent.click(captions)
@@ -659,7 +671,11 @@ describe('l’échec d’une écriture directe', () => {
 
     openRenderSettings()
     fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
+    // Pas de fermeture manuelle : c'est l'échec de l'écriture qui doit
+    // refermer la modale, sans quoi le bandeau et « Réessayer » restent
+    // inertes derrière elle. (relevé par Copilot)
     await screen.findByText(/échec de l’enregistrement/i)
+    expect(screen.queryByRole('button', { name: /fermer/i })).toBeNull()
 
     const before = fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length
     fireEvent.click(screen.getByRole('button', { name: /réessayer/i }))
@@ -700,6 +716,7 @@ describe('l’export et les écritures qui se chevauchent', () => {
 
       openRenderSettings()
       fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
+      closeRenderSettings()
       fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Un autre titre' } })
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000)
@@ -749,6 +766,7 @@ describe('un texte resté non enregistré', () => {
       })
       openRenderSettings()
       fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
+      closeRenderSettings()
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000)
       })

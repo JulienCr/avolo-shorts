@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown, ChevronLeft, ChevronRight, Keyboard, RotateCw, Redo2, TriangleAlert, Undo2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Keyboard, RotateCw, Redo2, TriangleAlert, Undo2 } from 'lucide-react'
 import { useIsMutating } from '@tanstack/react-query'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -24,7 +24,6 @@ import { Timeline } from '@/components/clip/timeline'
 import { outputNames } from '@/components/clip/texts'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Dialog,
   DialogContent,
@@ -32,6 +31,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -715,8 +715,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
             <div className="shrink-0">
               <RenderSettings
                 clip={clip}
-                onBranding={(branding) => void write({ branding }).catch(() => {})}
-                onCaptions={(captions) => void write({ captions }).catch(() => {})}
+                onBranding={(branding) => write({ branding })}
+                onCaptions={(captions) => write({ captions })}
               />
             </div>
           </section>
@@ -856,9 +856,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
 }
 
 /**
- * « Réglages du rendu » : les marques et les sous-titres, repliés par
- * défaut (spec du 23 août, §3.3, point 3) — le badge compte les cases
- * décochées, seul écart qui vaille d'être su sans ouvrir le pli.
+ * « Réglages du rendu » : les marques et les sous-titres, derrière une
+ * modale (spec §6) — le badge compte les cases décochées, seul écart qui
+ * vaille d'être su sans l'ouvrir.
  *
  * La phrase sous la case des marques n'est pas décorative : un clip qui
  * incruste refuse de se rendre quand aucune marque n'est exploitable, et
@@ -870,21 +870,17 @@ function RenderSettings({
   onCaptions,
 }: {
   clip: Clip
-  onBranding: (branding: boolean) => void
-  onCaptions: (captions: boolean) => void
+  onBranding: (branding: boolean) => Promise<unknown>
+  onCaptions: (captions: boolean) => Promise<unknown>
 }) {
   const [open, setOpen] = useState(false)
   const overrideCount = (clip.branding ? 0 : 1) + (clip.captions ? 0 : 1)
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
         render={
           <Button type="button" size="sm" variant="ghost" className="w-fit gap-1.5 px-2">
-            <ChevronDown
-              aria-hidden
-              className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
-            />
             Réglages du rendu
             {overrideCount > 0 && (
               <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
@@ -894,13 +890,19 @@ function RenderSettings({
           </Button>
         }
       />
-      <CollapsiblePanel className="flex flex-col gap-2 pt-2">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Réglages du rendu</DialogTitle>
+        </DialogHeader>
         <label className="flex items-start gap-2 text-[0.75rem]">
           <input
             type="checkbox"
             className="mt-0.5 size-3.5 accent-stage"
             checked={clip.branding}
-            onChange={(e) => onBranding(e.target.checked)}
+            // Ferme la modale sur un refus : le bandeau d'échec et
+            // « Réessayer » vivent dans l'AppBar, inerte tant qu'elle reste
+            // ouverte. (relevé par Copilot)
+            onChange={(e) => void onBranding(e.target.checked).catch(() => setOpen(false))}
           />
           <span>
             Incruster les marques
@@ -916,7 +918,7 @@ function RenderSettings({
             type="checkbox"
             className="mt-0.5 size-3.5 accent-stage"
             checked={clip.captions}
-            onChange={(e) => onCaptions(e.target.checked)}
+            onChange={(e) => void onCaptions(e.target.checked).catch(() => setOpen(false))}
           />
           <span>
             Incruster les sous-titres
@@ -926,7 +928,7 @@ function RenderSettings({
             </span>
           </span>
         </label>
-      </CollapsiblePanel>
-    </Collapsible>
+      </DialogContent>
+    </Dialog>
   )
 }

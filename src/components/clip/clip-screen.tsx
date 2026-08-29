@@ -199,6 +199,14 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     charger(clip)
   }, [charger, clip])
 
+  // `charger` ne vide pas la sélection à `clipId` égal (`store/editor.ts:113-126`) :
+  // revenir sur ce même clip par un lien la laisserait active, atteignable
+  // par `Suppr`. (relevé par Copilot)
+  const clearSelection = editor.clearSelection
+  useEffect(() => {
+    clearSelection()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- une fois par montage
+  }, [])
 
   const { words, lines: linesIndexed } = useMemo(
     () => indexTranscript(lines, segments),
@@ -311,10 +319,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     restore: editor.restore,
     remove: () => editor.removeSelection(words),
     escape: () => (search ? setSearch(false) : editor.clearSelection()),
-    // **« Le mot sous le curseur » est le mot sélectionné.** Cliquer un mot le
-    // sélectionne, `Entrée` aussi : les deux chemins font coïncider le curseur
-    // du clavier et la sélection, et `I`/`O` n'ont donc pas besoin d'un troisième
-    // repère.
+    // **« Le mot sous le curseur » est le mot sélectionné.** Cliquer ou `Entrée`
+    // font coïncider le curseur et la sélection ; `I`/`O` n'ont donc pas besoin
+    // d'un troisième repère.
     poserBound: (edge) => {
       if (selection) editor.poserBound(words, selection.head, edge)
     },

@@ -17,6 +17,7 @@ import { framing, shot, splitCells } from '../../fixtures/framing'
 import { DUBBING_ANCHORS, dubbingCellsFor } from '@/core/dubbing'
 import { defaultPlatformAvailability } from '@/core/publication'
 import type { CandidateClip, ClipDetail } from '@/lib/api'
+import { startHistory } from '@/lib/history'
 import { useEditor } from '@/store/editor'
 import { usePlayback } from '@/components/clip/playback'
 
@@ -346,6 +347,24 @@ describe('le geste courant', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Exports' }))
     expect(useEditor.getState().selection).toBeNull()
+  })
+
+  it('vide une sélection laissée par un montage précédent du même clip', async () => {
+    // `charger` ne réinitialise rien à `clipId` égal (store délibéré) : un
+    // aller-retour vers ce même clip doit être couvert par le montage
+    // lui-même. (relevé par Copilot)
+    useEditor.setState({
+      clipId: 'c2',
+      history: startHistory(detail('c2').clip.segments),
+      selection: { anchor: 0, head: 0 },
+    })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    render(<ClipScreen detail={detail('c2')} />, {
+      wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
+    })
+    await waitFor(() => expect(useEditor.getState().selection).toBeNull())
   })
 
   it('bascule en mode Mots avec la recherche sur Ctrl+F', async () => {

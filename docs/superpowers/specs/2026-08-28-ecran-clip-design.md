@@ -1,8 +1,10 @@
 # L'écran de clip : la forme arrêtée le 28 août
 
-Date : 28 août 2026.
-Statut : arrêté. Sept décisions tranchées sur fiche, six points déjà acquis.
-Rien n'est implémenté à cette date ; la maquette est le seul artefact.
+Date : 28 août 2026. **Implémentée le 29 août 2026.**
+Statut : **implémenté**, en quatre PR — #272 la planche, #273 l'ossature, #278 la
+bande, #281 la soustraction. Les chiffres de la section 3 ont été repris dans le
+DOM après la dernière fusion ; ceux de la colonne « arrêté » étaient la maquette,
+ceux de la colonne « mesuré » sont l'écran.
 
 Ce document **remplace le §3.3 de
 `docs/superpowers/specs/2026-08-23-hierarchie-ui-design.md`** — « l'établi » — et
@@ -70,12 +72,17 @@ Deux écrans, atteints par des onglets dans la barre d'app : **Édition** et
 
 Mesuré à 2560 × 1320, sur la maquette, contre l'écran rendu au commit `9361cb7` :
 
-| Région | Aujourd'hui | Arrêté | Facteur |
+| Région | Avant | Arrêté | Mesuré le 29 août |
 |---|---|---|---|
-| sortie 9:16 | 296 × 526 | **600 × 1067** | ×4,1 en surface |
-| source 16:9 | 935 × 526 | **1322 × 744** | ×2,0 |
-| bande de temps | ~1200 px | **1912 px** | ×1,6 |
-| fiche éditoriale | 480 px | 574 px | ×1,2 |
+| sortie 9:16 | 285 × 508 | 600 × 1067 | **616 × 1035** |
+| source 16:9 | 902 × 508 | 1322 × 744 | **1311 × 738** |
+| volet gauche | — | 1912 px | **1896 px** |
+| fiche éditoriale | 480 px | 574 px | **620 px** (son plafond) |
+
+Le « avant » a été relevé au commit `6745e28`, pas au `9361cb7` de la maquette :
+la PR #270 avait déjà bougé `output-preview.tsx`, d'où 285 × 508 et non 296 × 526.
+La surface de la sortie est multipliée par **4,4**. L'écart entre l'arrêté et le
+mesuré reste sous 1 % sur la source et le volet gauche.
 
 Ces chiffres supposent le rail du bas supprimé et le primaire monté dans la
 barre d'app (§4.7) : les soixante pixels qu'il occupait vont à la hauteur du
@@ -308,17 +315,30 @@ supprimés : ils se déplacent avec le lot qui les casse, jamais après.
 
 ## 9. Comment on saura que c'est fait
 
-Trois relevés et deux questions, devant l'écran rendu, à 2560 × 1320.
+Trois relevés et deux questions, devant l'écran rendu, à 2560 × 1320. **Relevés
+le 29 août 2026 sur `b434a63`, dans une iframe pincée à 2560 × 1320** — la fenêtre
+Chrome refuse de descendre sous 5120 × 1440 et `resize_window` rend « success »
+sans que le viewport bouge.
 
 1. `document.scrollingElement.scrollHeight` vaut la hauteur de la fenêtre, et le
-   `main` ne déborde pas. Inchangé depuis le 23 août.
-2. La sortie 9:16 mesure au moins 560 px de large — la maquette en donne 600.
-   Elle en fait 296 aujourd'hui ; un chiffre qui n'a pas bougé est un lot qui
-   n'a pas été fait.
-3. Il existe **un seul** `variant="default"` sur l'écran, et c'est l'élément
-   interactif le plus à droite de la première ligne.
+   `main` ne déborde pas. ✅ — 0 et 0, y compris en mode Mots.
+2. La sortie 9:16 mesure au moins 560 px de large. ✅ — **616**, débordement nul.
+   Elle en faisait 285 avant.
+3. Il existe **un seul** `variant="default"` sur l'écran. ✅ — « Publier ».
+
+   **La seconde moitié du critère était infaisable telle qu'écrite**, et c'est le
+   critère qu'il faut amender, pas l'écran. « L'élément interactif le plus à
+   droite de la première ligne » n'est pas le primaire mais les icônes
+   **Planning** (bord droit 2504) et **Paramètres** (2544), qui vivent dans la
+   barre d'app et que le §7 met explicitement hors périmètre. « Publier » s'arrête
+   à 2464. Le critère se lit donc : *le primaire est l'élément le plus à droite
+   parmi ceux qui appartiennent à cet écran*, et à ce titre il est tenu.
 4. Sur un clip de doublage, l'image du viseur et une image du fichier rendu au
-   même instant se superposent. C'est la recette de la PR #270, reprise ici
-   parce que la refonte peut la casser.
+   même instant se superposent. **Non relevé automatiquement** — la sortie base64
+   du canvas est bloquée par l'outillage. Ce qui a été établi à la place : le
+   chemin de composition de `paintOutput` n'est **pas touché** par la refonte,
+   `canvasSize()` dérivant d'un `PETIT_SIDE` fixe et non de la boîte CSS
+   redimensionnée, et `output-preview.test.tsx` reste vert. Le contrôle à l'œil
+   reste à faire.
 5. Un inconnu peut-il dire en trois secondes ce qu'on vient faire sur cet écran,
-   et où cliquer pour le faire ?
+   et où cliquer pour le faire ? **Question humaine, non tranchée.**

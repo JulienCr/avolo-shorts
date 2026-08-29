@@ -32,14 +32,27 @@ on the same PR and the same sha posted seven seconds later, so the action, the
 quota and Ollama were all healthy — the run was simply never created. A second
 case the same night on #223. Cause unknown, upstream of the action.
 
-So ask whether a run exists **before** asking why it said nothing:
+So ask whether a run exists **before** asking why it said nothing — **et sans
+filtre de branche** :
 
 ```bash
-gh run list --workflow=pr-review.yml --branch <branch>
+gh run list --workflow=pr-review.yml --limit 6 \
+  --json createdAt,event,headBranch,status,conclusion
 ```
 
 Zero runs means the event never fired: re-dispatch with
 `gh workflow run pr-review.yml -f pr=<N>`, and do not go looking at the secret.
+
+**Le filtre `--branch` ne voit pas les runs dispatchés à la main**, et c'est le
+piège que ce paragraphe tendait lui-même. Un `workflow_dispatch` s'exécute sur la
+branche par défaut : son run est enregistré avec `headBranch: main`, quelle que
+soit la PR qu'il relit via `-f pr=`. Donc `--branch <branche>` rend « zéro run »
+pour le chemin même que la ligne suivante recommande. Mesuré le 29 août 2026 sur
+la PR #273 : deux runs `workflow_dispatch` en `completed/success`, une review
+d'Aristarque publiée sur la PR, et `--branch feat/clip-screen-shell` n'en montrait
+aucun — un orchestrateur y a perdu une ronde, en réveillant un intégrateur pour
+lui annoncer un silence qui n'existait pas. Lire `event` et `headBranch` ligne par
+ligne plutôt que filtrer.
 A run that completed with no comment is the other half, and only then are
 `gh secret list` and the quota worth reading. Prefer the dispatch to an
 `@aristarque review` comment: same result, no public trace on a public repo.

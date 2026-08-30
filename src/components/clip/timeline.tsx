@@ -928,10 +928,8 @@ function BoundField({
     <label className="flex items-center gap-1 text-[0.75rem] text-muted-foreground">
       {label}
       <input
-        // Le nom accessible **commence** par le libellé visible (`A`/`B`),
-        // suivi de celui des oreilles (`Handle`, plus bas) : WCAG 2.5.3 veut
-        // le libellé visible contenu dans le nom accessible, sans quoi « dire
-        // A » ne trouve rien à la commande vocale.
+        // WCAG 2.5.3 : le nom accessible commence par le libellé visible
+        // (`A`/`B`), sans quoi « dire A » ne trouve rien à la commande vocale.
         aria-label={`${label} — ${edge === 'start' ? 'Borne d’entrée' : 'Borne de sortie'}`}
         className="w-20 rounded border bg-background px-1.5 py-0.5 font-mono text-[0.75rem] text-foreground tabular-nums"
         value={draft ?? formatBoundTimecode(seconds)}

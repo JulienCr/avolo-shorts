@@ -23,10 +23,9 @@ export function useStyleWrites<S extends Record<string, unknown>>(
     base.current = style
   }, [style])
 
-  // Le dernier jeton distribué, sur le modèle de `usePatchClip` : ignorer le
-  // rejet d'une écriture qui n'est plus la dernière partie évite qu'une
-  // réponse tardive ferme la modale sur un échec qu'une écriture plus
-  // récente a déjà réparé. (issue #283)
+  // Sur le modèle de `usePatchClip` : ignore le rejet d'une écriture qui
+  // n'est plus la dernière, sinon une réponse tardive ferme la modale sur un
+  // échec déjà réparé par la suivante. (issue #283)
   const lastToken = useRef(0)
 
   const commit = useCallback(

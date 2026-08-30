@@ -273,6 +273,47 @@ describe('le libellé du cadre, quand le natif est déjà 9:16', () => {
   })
 })
 
+describe('les faits de montage sous la bande (issue #277)', () => {
+  it('affiche les bornes et le compte de segments', async () => {
+    const d = detail('c2', [
+      { start: 100, end: 110 },
+      { start: 112, end: 120 },
+    ])
+    await mount('c2', d)
+    expect(screen.getByText('Bornes').nextElementSibling?.textContent).toBe('0:01:40 → 0:02:00')
+    expect(screen.getByText('Segments').nextElementSibling?.textContent).toBe('2')
+  })
+
+  it('avertit sur le plan que la lecture traverse quand rien n’y a été mesuré', async () => {
+    const d = detail()
+    d.framing = framing({ shots: [shot(0, 200, '1:1', 0.5, 'default')] })
+    await mount('c2', d)
+    expect(screen.getByText(/rien mesuré sur ce plan/)).toBeTruthy()
+  })
+
+  // Même règle qu'à la légende de la sortie (ci-dessus), sur cette seconde
+  // surface : ni ratio ni pourcentage n'a de sens sur un plan splitté ou de
+  // doublage, où le renderer ne suit pas un crop unique.
+  it('ne dit ni ratio ni pourcentage sur un plan splitté', async () => {
+    const d = detail()
+    d.framing = framing({ shots: [shot(0, 200, '16:9', 0.5, 'auto', splitCells())] })
+    await mount('c2', d)
+    const value = screen.getByText('Cadre (9:16)').nextElementSibling?.textContent ?? ''
+    expect(value).toContain('split')
+    expect(value).not.toMatch(/%/)
+  })
+
+  it('ne dit ni ratio ni pourcentage sur un plan de doublage', async () => {
+    const d = detail()
+    const cells = dubbingCellsFor(DUBBING_ANCHORS[0], DUBBING_ANCHORS[0].pip.y0)
+    d.framing = framing({ shots: [shot(0, 200, '4:5', 0.5, 'auto', undefined, cells)] })
+    await mount('c2', d)
+    const value = screen.getByText('Cadre (9:16)').nextElementSibling?.textContent ?? ''
+    expect(value).toContain('doublage')
+    expect(value).not.toContain('4:5')
+  })
+})
+
 describe('le geste courant', () => {
   beforeEach(async () => {
     await mount('c2')

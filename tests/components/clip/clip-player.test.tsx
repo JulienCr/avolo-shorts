@@ -93,10 +93,8 @@ describe('ClipTransport', () => {
   })
 
   it('va au dernier segment du montage, pas à la durée de la source', () => {
-    // Pas exactement `bounds.end` : cette position tombe hors de tout segment
-    // (`segmentAt` teste `<`), et `playbackAction` y lirait une lecture finie —
-    // le lecteur repartirait alors du premier segment. `toBeCloseTo` accepte
-    // le cran sous-image que ça demande, sans figer sa valeur exacte.
+    // Pas exactement `bounds.end` (hors de tout segment, `playbackAction` y
+    // ramènerait au premier) : `toBeCloseTo` accepte le cran sous-image requis.
     const v = player(0)
     transport(v)
     fireEvent.click(screen.getByRole('button', { name: 'Aller à la fin du clip' }))

@@ -249,10 +249,8 @@ export function ClipTransport({
         <Button
           size="icon-sm"
           variant="outline"
-          // **Les bornes du montage, jamais 0 ni la durée de la source.** Le
-          // clip est une liste de segments (`CLAUDE.md`) : `clipBounds` rend
-          // ses vraies extrémités, celles du premier et du dernier segment
-          // gardé, pas les bords de l'émission.
+          // Les bornes du montage, jamais 0 ni la durée de la source : le clip
+          // est une liste de segments (`CLAUDE.md`).
           onClick={() => bounds && placePlayback(video, segments, bounds.start)}
           disabled={bounds === null}
           aria-describedby={bounds === null ? emptyReasonId : undefined}

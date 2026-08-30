@@ -193,6 +193,9 @@ describe('vignette', () => {
     putClip(getDb(), clip)
     writeProxy()
 
+    // Le mock n'est jamais nettoyé entre les tests (relevé par Copilot) :
+    // sans ce `mockClear`, l'appel lu ici peut être celui d'un test précédent.
+    vi.mocked(runFfmpeg).mockClear()
     await vignette(clip)
 
     const args = vi.mocked(runFfmpeg).mock.calls[0][0]

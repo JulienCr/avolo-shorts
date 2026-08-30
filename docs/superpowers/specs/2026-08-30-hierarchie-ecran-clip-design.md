@@ -347,6 +347,15 @@ référence (137 mots, ≈ 138 px estimés au prorata du relevé de 287 px pour
 l'émission n'oblige à agrandir ce chiffre — il borne le pire cas, pas la
 moyenne.
 
+**Amendement de mise en œuvre (phase 2) : ce n'est pas ce chiffre qui a été
+posé.** `TranscriptDrawer` porte déjà sa propre borne de hauteur (`h-56`,
+224 px) et son défilement interne, hérités de son ancienne vie derrière un
+tiroir modal — les réutiliser évite de dupliquer le point de repère ARIA
+(`role="group" aria-label="Transcript du clip"`) sur un second panneau. Les
+~150 px ci-dessus restaient l'estimation de confort avant ce choix ; la
+valeur livrée est 224 px, et les paragraphes qui la citent plus loin (§3.4,
+§3.6) portent ce chiffre corrigé.
+
 **Second amendement, du 30 août (nuit) : le découpage ci-dessous ne tient
 plus, et se simplifie.** Il reposait sur « la colonne qui défile n'a pas la
 place pour les deux blocs à la fois » — or le propriétaire vient d'accepter
@@ -373,7 +382,7 @@ visible (`shortcuts.tsx:172` ; `clip-screen.tsx:314-317`), qu'on soit
 au-dessus ou en dessous du seuil `workbench` — puisque rien ne démonte plus
 rien nulle part.
 
-**Conséquence chiffrée, revue au §3.4.** Le panneau de 150 px ajouté en
+**Conséquence chiffrée, revue au §3.4.** Le panneau de 224 px ajouté en
 permanence n'entre plus dans le calcul du seuil : il allonge simplement la
 colonne gauche, qui défile pour l'absorber. Ce n'est plus « le plus gros
 ajout au budget » — il n'y a plus de budget à charger, seulement une colonne
@@ -545,7 +554,7 @@ réduire le panneau transcript sous 150 px pour limiter la casse.
 
 **Cette tension n'existe plus.** Elle reposait sur l'hypothèse que le volet
 gauche devait tenir sans défiler ; l'arbitrage du 30 août (nuit) lève cette
-hypothèse. Le panneau transcript reste à ~150 px (§2.5) pour de bonnes raisons
+hypothèse. Le panneau transcript reste à 224 px (§2.5) pour de bonnes raisons
 de confort d'affichage, mais son coût ne remonte plus dans le calcul du seuil
 — il allonge la colonne gauche, qui défile pour l'absorber (§2.1). Le seuil
 recalculé au §3.4 (~640 px) ne porte donc plus trace de ce panneau, et n'a
@@ -579,10 +588,13 @@ correctif porte sur la ligne `flex ... items-start ... aspect-ratio`
 (`clip-screen.tsx:626` et `:635`) : sous Chromium, cette combinaison peut
 rendre une rangée plus courte que son plus grand enfant, sans qu'aucune règle
 ne le clippe — c'est le mécanisme derrière les deux débordements du §1.1.
-Le correctif exact (`items-stretch`, ou une disposition qui ne mélange pas
-`aspect-ratio` et calcul flex de hauteur) est un détail d'implémentation à
-trancher en phase 2 ; ce qui est acquis ici, c'est le résultat attendu : la
-rangée rend toujours la hauteur réelle de son plus grand enfant, et
+**Correctif retenu en phase 2 : retirer `min-h-0`, pas changer `items-start`.**
+`items-stretch` a été essayé et écarté — il écrase l'aspect-ratio de la vidéo
+à la hauteur de la fiche ; une grille reproduit le même bug. La vraie cause
+était `min-h-0` sur la rangée elle-même, indépendamment de flex ou grid : le
+retirer suffit, sur la disposition flex d'origine (`items-start` reste). Le
+résultat attendu tient : la rangée rend toujours la hauteur réelle de son
+plus grand enfant, et
 **`workbench:overflow-y-auto`, déjà posé sur la section (`clip-screen.tsx:615`)
 mais jusqu'ici sans effet utile**, absorbe le reste si la rangée pousse la
 carte Montage hors de la fenêtre. **Conséquence visible pour l'utilisateur** :

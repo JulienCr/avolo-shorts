@@ -142,7 +142,7 @@ async function mount(id = 'c2', data?: ClipDetail) {
  * condition de seuil). Gardée sous ce nom : la plupart des appelants
  * l'attendaient déjà après un geste, et rien ne change de leur point de vue.
  */
-async function openEditing() {
+async function findTranscript() {
   return screen.findByRole('group', { name: 'Transcript du clip' })
 }
 
@@ -338,7 +338,7 @@ describe('le geste courant', () => {
     // **Ne pas retirer des capacités, ne les afficher que lorsqu'on en a
     // besoin.** Chercher, retirer, poser les bornes, annuler, rétablir — ces
     // deux derniers vivent dans la barre d'app, toujours atteignable.
-    await openEditing()
+    await findTranscript()
     expect(screen.getByText(/m0-0/)).toBeTruthy()
     expect(screen.getByRole('button', { name: /annuler/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /rétablir/i })).toBeTruthy()
@@ -348,7 +348,7 @@ describe('le geste courant', () => {
     // Rien ne fait plus écran entre le transcript et les raccourcis de la
     // garde. Le clip va de 100 à 120 ; `I` sur le premier mot du contexte
     // le fait commencer au début du transcript.
-    await openEditing()
+    await findTranscript()
     const word = screen.getByText(/m0-0/)
     fireEvent.pointerDown(word)
     fireEvent.pointerUp(word)
@@ -360,7 +360,7 @@ describe('le geste courant', () => {
     // Sans tiroir modal à refermer, `Échap` n'a plus qu'un niveau à dépiler :
     // la barre de recherche ferme sur sa propre touche
     // (`transcript-surface.tsx`), le transcript reste monté.
-    await openEditing()
+    await findTranscript()
     fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
     await screen.findByLabelText('Chercher dans le transcript')
 
@@ -384,7 +384,7 @@ describe('le geste courant', () => {
     // Amendé le 30 août (nuit) : il n'y a plus de porte à quitter, ni de
     // bouton pour y passer — la bande et le transcript coexistent, donc
     // rien ne clôt plus la sélection que le transcript porte.
-    await openEditing()
+    await findTranscript()
     // L'appui suffit à sélectionner : le relâchement sur un mot barré le
     // remonterait, ce qui vide la sélection par un autre chemin.
     fireEvent.pointerDown(screen.getByText(/m0-0/))
@@ -395,7 +395,7 @@ describe('le geste courant', () => {
     // L'onglet Exports démonte `Timeline` directement — le seul chemin qui
     // vide encore la sélection, depuis que la bande et le transcript
     // coexistent sans mode à quitter. (relevé par Copilot)
-    await openEditing()
+    await findTranscript()
     fireEvent.pointerDown(screen.getByText(/m0-0/))
     expect(useEditor.getState().selection).not.toBeNull()
 
@@ -523,7 +523,7 @@ describe('le mot barré cliqué loin devant', () => {
     // trou. Le remonter veut dire « le clip commence là », pas « ajoute trois
     // dixièmes de seconde à quatre-vingt-dix secondes d'ici ».
     await mount('c2')
-    await openEditing()
+    await findTranscript()
     const word = screen.getByText(/m1-0/)
     fireEvent.pointerDown(word)
     fireEvent.pointerUp(word)
@@ -706,10 +706,10 @@ describe('le surlignage, dès l’ouverture', () => {
     // Rouvert : `charger` n'a rien à faire, donc l'écran ne rend qu'une fois et
     // l'ordre des deux effets décide seul de ce qui reste publié.
     await mount('c2')
-    await openEditing()
+    await findTranscript()
     cleanup()
     await mount('c2')
-    await openEditing()
+    await findTranscript()
     act(() => usePlayback.getState().definePosition(3.2))
     expect(screen.getByText(/m0-3/).getAttribute('aria-current')).toBe('location')
   })
@@ -721,7 +721,7 @@ describe('le curseur du clavier et les bornes', () => {
     // sélection : `I` posait donc la borne sur un mot cliqué trois gestes plus
     // tôt, sans que rien ne le dise. (relevé par Copilot)
     await mount('c2')
-    await openEditing()
+    await findTranscript()
     const word = screen.getByText(/m0-0/)
     fireEvent.pointerDown(word)
     fireEvent.pointerUp(word)

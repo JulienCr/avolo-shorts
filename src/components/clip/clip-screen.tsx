@@ -795,10 +795,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                 framing={framing}
                 ratio={editor.ratio}
                 cropX={editor.cropX}
-                // Largeur **et** hauteur explicites, jamais l'une déduite de
-                // l'autre ici : le volet est déjà 9:16, le canevas n'a plus
-                // qu'à le remplir plutôt que se mesurer lui-même.
-                frame="h-72 w-auto workbench:h-full workbench:min-h-0 workbench:w-full"
+                // Hauteur explicite, largeur déduite : le volet est 9:16,
+                // pas la boîte — légende et interrupteur lui retirent 60 px,
+                // `aspect-ratio` doit dériver la largeur, pas remplir `w-full`.
+                frame="h-72 w-auto workbench:h-full workbench:min-h-0 workbench:w-auto"
                 figureClassName="workbench:w-full workbench:min-h-0 workbench:flex-1"
                 captionCards={clip.captions ? captionCards : undefined}
                 captionStyle={DEFAULT_CAPTION_STYLE}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 
 import type { Measure } from '@/core/captions/wrap'
 
@@ -54,30 +54,33 @@ function fontIsReady(fontFamily: string): boolean {
 
 /**
  * Vrai une fois `fontFamily` confirmée chargée par `document.fonts` — jamais
- * avant, pour ne jamais mesurer avec la police de repli du système en
- * silence (CLAUDE.md, échec silencieux proscrit). Re-rend au chargement.
+ * avant, pour ne jamais mesurer avec la police de repli en silence.
  *
- * **Hors d'un navigateur qui expose `document.fonts`** (tests jsdom, moteurs
- * anciens), rend vrai immédiatement : rien n'y permet de détecter la course,
- * donc bloquer indéfiniment casserait le calque plutôt que de le dégrader.
+ * `useSyncExternalStore`, pas un `useState`+effet : serveur et hydratation
+ * lisent `getServerSnapshot` (toujours vrai), React ne relit le vrai statut
+ * qu'une fois monté — sans `setState` synchrone en effet
+ * (`react-hooks/set-state-in-effect`). Sans `document.fonts` (jsdom),
+ * `getSnapshot` rend vrai d'emblée : rien n'y détecte la course.
  */
 export function useFontReady(fontFamily: string): boolean {
-  const [ready, setReady] = useState(() => fontIsReady(fontFamily))
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      if (typeof document === 'undefined' || document.fonts === undefined) return () => {}
+      let cancelled = false
+      document.fonts
+        .load(probeFont(fontFamily))
+        .then(() => {
+          if (!cancelled) onStoreChange()
+        })
+        .catch(() => {})
+      return () => {
+        cancelled = true
+      }
+    },
+    [fontFamily],
+  )
+  const getSnapshot = useCallback(() => fontIsReady(fontFamily), [fontFamily])
+  const getServerSnapshot = () => true
 
-  useEffect(() => {
-    if (ready) return
-    if (typeof document === 'undefined' || document.fonts === undefined) return
-    let cancelled = false
-    document.fonts
-      .load(probeFont(fontFamily))
-      .then(() => {
-        if (!cancelled) setReady(fontIsReady(fontFamily))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [fontFamily, ready])
-
-  return ready
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 }

@@ -40,6 +40,7 @@ import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
 import { clipDuration } from '@/core/edl'
+import { RATIOS } from '@/core/framing'
 import { resolveHook } from '@/core/hook'
 import { isGuard } from '@/core/phase'
 import { clipExportEligibility, composeDescription } from '@/core/publication'
@@ -824,6 +825,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                   // de la hauteur, `self-center` empêche `align-items:
                   // stretch` de l'écraser — sinon l'interrupteur changeait la taille du cadre.
                   className="h-72 w-auto self-center rounded-lg bg-zinc-950 workbench:h-full workbench:min-h-0 workbench:w-auto"
+                  // `RATIOS['9:16']` en dur, pas l'intrinsèque (300 px par
+                  // défaut tant que les métadonnées ne sont pas chargées) :
+                  // vrai des deux sources, `mp4Url` inclus — `RENDER_NATIVE`
+                  // à faux n'y laisse un clip natif que s'il est déjà 9:16.
+                  style={{ aspectRatio: String(RATIOS['9:16']) }}
                 />
               </figure>
             )}

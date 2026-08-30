@@ -239,6 +239,23 @@ export function Timeline({
     window.removeEventListener('pointercancel', release)
   }).current
 
+  /**
+   * **Le filet, pour le geste qui ne se referme jamais par `pointerup`.**
+   * Naviguer vers un autre clip démonte `Timeline` au milieu d'un glissé — un
+   * `click` clavier sur « Clip précédent » n'émet ni `pointerup` ni
+   * `pointercancel`. Sans ce filet, `release` restait posé sur `window`, et
+   * le prochain `pointerup` réel — sur le clip suivant — rappelait ce
+   * `commit`-là avec le `dragRef` du clip démonté, écrivant sa borne dans le
+   * montage du nouveau clip. `release` est stable (`useRef`), donc cet effet
+   * ne tourne qu'au montage et au démontage.
+   */
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('pointerup', release)
+      window.removeEventListener('pointercancel', release)
+    }
+  }, [release])
+
   // Réarmer avec la même référence est sans effet si elle est déjà posée :
   // `arm` peut donc s'appeler à chaque `pointermove` sans empiler d'écouteurs.
   const arm = useCallback(() => {

@@ -72,7 +72,7 @@ function measureTrack() {
 function mount(overrides: Partial<Parameters<typeof Timeline>[0]> = {}) {
   const onScrub = vi.fn()
   const onBoundary = vi.fn()
-  render(
+  const { unmount } = render(
     <Timeline
       clipId="c1"
       segments={[{ start: 100, end: 120 }]}
@@ -93,7 +93,7 @@ function mount(overrides: Partial<Parameters<typeof Timeline>[0]> = {}) {
       {...overrides}
     />,
   )
-  return { onScrub, onBoundary }
+  return { onScrub, onBoundary, unmount }
 }
 
 /** Une réponse HTTP, réduite à ce que `@/lib/api` en lit. */
@@ -750,5 +750,24 @@ describe('le scrub', () => {
     })
     expect(onScrub).toHaveBeenCalledTimes(1)
     expect(onScrub.mock.calls[0][0]).toBeCloseTo(110, 5)
+  })
+
+  /**
+   * **Le geste qui ne se referme jamais.** Naviguer ailleurs démonte `Timeline`
+   * au milieu d'un glissé, sans `pointerup` ni `pointercancel` — un `click`
+   * clavier sur un lien, par exemple. Sans le retrait au démontage, l'écouteur
+   * posé sur `window` survit au composant : un `pointerup` bien plus tard,
+   * destiné à un tout autre clip monté à la même place, rappellerait ce
+   * `commit`-là avec la position figée du geste abandonné. Échoue sur
+   * `a66cb89` (le correctif du clic, sans son filet de démontage).
+   */
+  it('un pointerup après démontage ne commet plus rien', () => {
+    measureTrack()
+    const { onScrub, onBoundary, unmount } = mount()
+    pointerAt(track(), 'pointerdown', 500)
+    unmount()
+    pointerAt(window, 'pointerup', 500)
+    expect(onScrub).not.toHaveBeenCalled()
+    expect(onBoundary).not.toHaveBeenCalled()
   })
 })

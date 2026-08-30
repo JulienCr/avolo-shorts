@@ -184,6 +184,22 @@ describe('vignette', () => {
   })
 
   /**
+   * #275 : `momentVignette` doit normaliser avant de lire `segments[0]`. Un
+   * clip écrit par `putClip` (non gardé) peut porter des segments non
+   * triés — la seule voie qui atteint réellement le défaut visé.
+   */
+  it('vise le début du premier segment une fois trié, même écrit non trié', async () => {
+    const clip = { ...baseClip(), segments: [{ start: 70, end: 90 }, { start: 60, end: 65 }] }
+    putClip(getDb(), clip)
+    writeProxy()
+
+    await vignette(clip)
+
+    const args = vi.mocked(runFfmpeg).mock.calls[0][0]
+    expect(args[args.indexOf('-ss') + 1]).toBe('60')
+  })
+
+  /**
    * Alignement avec `filmstrip` : un clip disparu pendant l'extraction ne
    * publie rien — `vignette` publiait auparavant sur ce cas (`toDay !==
    * undefined && …`), au lieu de fermer comme `filmstrip`.

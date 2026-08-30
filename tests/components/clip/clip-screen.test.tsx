@@ -773,6 +773,36 @@ describe('deux écritures directes indépendantes (issue #283)', () => {
       expect(fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length).toBe(before + 1),
     )
   })
+
+  it('un rejet dépassé ne ferme pas la modale et n’annonce rien (relevé par Aristarque)', async () => {
+    let rejectFirst!: (e: Error) => void
+    let calls = 0
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') {
+        calls += 1
+        if (calls === 1) return new Promise<Response>((_resolve, reject) => (rejectFirst = reject))
+        return response({ applied: true, clip: detail('c2').clip, outputs: detail('c2').outputs, seq: 2 })
+      }
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    await mount('c2')
+
+    openRenderSettings()
+    fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
+    await waitFor(() =>
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length).toBe(2),
+    )
+
+    await act(async () => rejectFirst(new Error('réseau coupé')))
+
+    expect(screen.getByRole('button', { name: /fermer/i })).toBeTruthy()
+    expect(screen.queryByText(/échec de l’enregistrement/i)).toBeNull()
+  })
 })
 
 describe('l’export et les écritures qui se chevauchent', () => {

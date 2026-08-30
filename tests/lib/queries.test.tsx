@@ -11,7 +11,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
+import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -462,6 +462,35 @@ describe('useClipRevision (issue #280)', () => {
     })
 
     expect(result.current.confirmed.revision).toBe(1)
+  })
+
+  it('notifie un abonné déjà monté à l’amorçage (relevé par Copilot et par Aristarque)', () => {
+    // `Child` imbriqué dans `Parent` reproduit l'ordre réel : les effets d'un
+    // descendant partent avant ceux de son parent, donc l'abonnement de
+    // `useClipRevision` s'installe avant l'amorçage de `useClip` — sans
+    // notification à l'amorçage, `Child` resterait sur `EMPTY_CONFIRMED`.
+    const id = 'c-280-mount-order'
+    const { client, envelope } = harness()
+    client.setQueryData<ClipDetail>(keys.clip(id), {
+      clip: clipOf(id, [{ start: 5, end: 25 }]),
+      project: { id: 'p1', title: 'p1', durationSec: 60, createdAt: '' },
+      lines: [],
+      proxyUrl: null,
+      outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+      framing: framing({ shots: [shot(0, 20, '1:1', 0.5)] }),
+    })
+
+    function Child() {
+      const { bounds } = useClipRevision(id)
+      return <div data-testid="bounds">{bounds ? `${bounds.start}-${bounds.end}` : 'vide'}</div>
+    }
+    function Parent() {
+      useClip(id)
+      return <Child />
+    }
+    render(<Parent />, { wrapper: envelope })
+
+    expect(screen.getByTestId('bounds').textContent).toBe('5-25')
   })
 })
 

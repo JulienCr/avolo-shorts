@@ -328,7 +328,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
    * sous-titres. Un jeton par champ, sur le modèle de `usePatchClip` : une
    * réponse tardive d'une écriture dépassée ne doit ni effacer la marque
    * qu'une écriture plus récente vient de poser, ni réparer un échec qu'elle
-   * n'a pas causé. (issue #283)
+   * n'a pas causé, **ni se propager à l'appelant** — `RenderSettings` ferme
+   * sa modale sur tout rejet, et un rejet périmé la fermerait sur un échec
+   * déjà éclipsé. (issue #283, relevé par Aristarque)
    */
   const directWriteSeq = useRef<Partial<Record<'branding' | 'captions', number>>>({})
   const writeDirect = useCallback(
@@ -347,9 +349,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
           return result
         },
         (error: unknown) => {
-          if (directWriteSeq.current[field] === seq) {
-            setDirectWritesInFailure((prev) => ({ ...prev, [field]: fields }))
-          }
+          if (directWriteSeq.current[field] !== seq) return undefined
+          setDirectWritesInFailure((prev) => ({ ...prev, [field]: fields }))
           throw error
         },
       )

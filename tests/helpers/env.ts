@@ -10,7 +10,7 @@ export function snapshotEnv(): () => void {
   const start = { ...process.env }
   return function restoreEnv() {
     for (const name of Object.keys(process.env)) {
-      if (!(name in start)) delete process.env[name]
+      if (!Object.hasOwn(start, name)) delete process.env[name]
     }
     Object.assign(process.env, start)
   }

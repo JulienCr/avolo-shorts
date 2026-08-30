@@ -19,15 +19,18 @@ describe('snapshotEnv', () => {
     process.env.AVOLO_TEST_HELPER_PREEXISTING = 'avant'
     const restore = snapshotEnv()
 
-    process.env.AVOLO_TEST_HELPER_PREEXISTING = 'modifie'
-    process.env.AVOLO_TEST_HELPER_NOUVELLE = 'ajoutee'
+    try {
+      process.env.AVOLO_TEST_HELPER_PREEXISTING = 'modifie'
+      process.env.AVOLO_TEST_HELPER_ADDED = 'ajoutee'
 
-    restore()
+      restore()
 
-    expect(process.env.AVOLO_TEST_HELPER_PREEXISTING).toBe('avant')
-    expect(process.env.AVOLO_TEST_HELPER_NOUVELLE).toBeUndefined()
-
-    delete process.env.AVOLO_TEST_HELPER_PREEXISTING
+      expect(process.env.AVOLO_TEST_HELPER_PREEXISTING).toBe('avant')
+      expect(process.env.AVOLO_TEST_HELPER_ADDED).toBeUndefined()
+    } finally {
+      delete process.env.AVOLO_TEST_HELPER_PREEXISTING
+      delete process.env.AVOLO_TEST_HELPER_ADDED
+    }
   })
 
   /**

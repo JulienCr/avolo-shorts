@@ -40,14 +40,14 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
   )
   const burned = hookIsBurned(hook)
   const geometry = useMemo(
-    () => (burned ? hookGeometry(hook, CANVAS, measure) : null),
-    [burned, hook, measure],
+    () => (burned && ready ? hookGeometry(hook, CANVAS, measure) : null),
+    [burned, ready, hook, measure],
   )
 
   // Rien à incruster (désactivé, texte vide — voir `hookIsBurned`), ou la
   // police n'est pas encore confirmée chargée : jamais de calque mesuré sur
   // une police de repli en silence (`useFontReady`).
-  if (!burned || !ready || geometry === null) return null
+  if (geometry === null) return null
 
   const layout = hookLayout(hook)
 
@@ -91,13 +91,15 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
               height: cqwPx(geometry.cardHeightDrawn),
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: 'center',
+              justifyContent: 'flex-start',
               overflow: 'hidden',
               color: hook.textColor,
               backgroundColor: hookRgba(hook.backgroundColor, hook.backgroundOpacity),
               borderRadius: cqw(layout.radiusFraction),
               paddingLeft: cqwPx(geometry.paddingXPx),
               paddingRight: cqwPx(geometry.paddingXPx),
+              paddingTop: cqwPx(geometry.paddingYPx),
+              paddingBottom: cqwPx(geometry.paddingYPx),
               fontSize: cqwPx(geometry.fontSizePx),
               lineHeight: cqwPx(geometry.lineHeightPx),
               textAlign: hook.alignment,
@@ -105,7 +107,9 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
             }}
           >
             {geometry.lines.map((line, i) => (
-              <div key={i}>{line}</div>
+              <div key={i} style={{ flexShrink: 0 }}>
+                {line}
+              </div>
             ))}
           </div>
           {geometry.hasBadge && (

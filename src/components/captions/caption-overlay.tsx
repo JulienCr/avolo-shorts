@@ -54,12 +54,12 @@ export function CaptionOverlay({
   const index = useMemo(() => activeCardIndex(cards, time), [cards, time])
   const units = captionUnits(style)
   const measure = useMemo(
-    () => createDomMeasure(family, units.sizeUnits, { bold: true }),
-    [family, units.sizeUnits],
+    () => (ready ? createDomMeasure(family, units.sizeUnits, { bold: true }) : null),
+    [ready, family, units.sizeUnits],
   )
   const card = index === -1 ? null : cards[index]
   const lines = useMemo(
-    () => (card === null ? [] : captionLines(card, style, measure)),
+    () => (card === null || measure === null ? [] : captionLines(card, style, measure)),
     [card, style, measure],
   )
 

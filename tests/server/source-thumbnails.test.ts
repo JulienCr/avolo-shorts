@@ -17,6 +17,7 @@ import {
   vignetteSourcePath,
   sourceVerifyName,
 } from '@/server/source-thumbnails'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * La vignette d'une source, c'est-à-dire **la seule image que ce produit tire de
@@ -31,7 +32,7 @@ import {
 
 let root: string
 let replays: string
-const envStart = { ...process.env }
+const restoreEnv = snapshotEnv()
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-vignettes-'))
@@ -47,7 +48,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true })
-  process.env = { ...envStart }
+  restoreEnv()
   vi.restoreAllMocks()
 })
 
@@ -666,15 +667,21 @@ describe('GET /api/sources/thumb', () => {
     process.env.REPLAY_DIR = withSpaces
     const lstat = vi.spyOn(fs.promises, 'lstat').mockImplementation(() => new Promise(() => {}))
 
-    // Le délai de garde par défaut est de vingt secondes ; on passe par le
-    // module plutôt que par la route pour ne pas faire attendre la suite, et on
-    // vérifie le message que la route rendrait.
-    const error = await vignetteSource('e.mp4', { timeoutMs: 20 }).catch((c: unknown) => c)
-    lstat.mockRestore()
+    // Restaurée dans un `finally` : le test suivant ne doit pas dépendre de
+    // l'`afterEach` du fichier pour hériter d'un `REPLAY_DIR` correct.
+    try {
+      // Le délai de garde par défaut est de vingt secondes ; on passe par le
+      // module plutôt que par la route pour ne pas faire attendre la suite, et on
+      // vérifie le message que la route rendrait.
+      const error = await vignetteSource('e.mp4', { timeoutMs: 20 }).catch((c: unknown) => c)
+      lstat.mockRestore()
 
-    expect(messageSafe(error)).not.toContain(withSpaces)
-    expect(messageSafe(error)).not.toContain(root)
-    expect(messageSafe(error)).toContain('REPLAY_DIR')
+      expect(messageSafe(error)).not.toContain(withSpaces)
+      expect(messageSafe(error)).not.toContain(root)
+      expect(messageSafe(error)).toContain('REPLAY_DIR')
+    } finally {
+      process.env.REPLAY_DIR = replays
+    }
   })
 
   /**

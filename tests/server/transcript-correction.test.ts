@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Project } from '@/server/db'
 import { placeSidecar } from '@/server/paths'
 import { correctTranscript } from '@/server/steps/transcript'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * La correction manuelle, écrite sur un vrai sidecar.
@@ -23,7 +24,7 @@ const ID = '2026-03-08-caro-mdlm'
 let root: string
 let replay: string
 let project: Project
-const initialEnv = { ...process.env }
+const restoreEnv = snapshotEnv()
 
 function writeTranscript(segments: unknown[]): void {
   const placement = placeSidecar(SOURCE, ID)
@@ -82,7 +83,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true })
-  process.env = { ...initialEnv }
+  restoreEnv()
 })
 
 describe('correctTranscript', () => {

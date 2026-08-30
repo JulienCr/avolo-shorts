@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { applySettings, closeDb, getDb } from '@/server/db'
 import { forgetTikTokTokenCache } from '@/server/publication/tiktok-tokens'
 import { forgetAvailabilityCache } from '@/server/publication/upload-post'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * `src/server/publication/index.ts` — le registre canonique de la « SHARED
@@ -20,7 +21,7 @@ import { forgetAvailabilityCache } from '@/server/publication/upload-post'
  * `publish-route.test.ts`, pour ne pas hériter du réglage d'un autre test.
  */
 
-const envStart = { ...process.env }
+const restoreEnv = snapshotEnv()
 let root: string
 
 beforeEach(() => {
@@ -32,7 +33,7 @@ afterEach(() => {
   closeDb()
   forgetAvailabilityCache()
   forgetTikTokTokenCache()
-  process.env = { ...envStart }
+  restoreEnv()
   vi.unstubAllGlobals()
   fs.rmSync(root, { recursive: true, force: true })
 })

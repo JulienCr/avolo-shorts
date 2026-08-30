@@ -40,6 +40,7 @@ import {
 import { clipFraming, forgetAnalyses } from '@/server/clip-framing'
 import type { Cell } from '@/core/framing'
 import type { DubbingCells } from '@/core/dubbing'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * Ce que le rendu a de testable sans GPU, sans ffmpeg et sans vidéo : le choix
@@ -69,7 +70,7 @@ let projects: string
  * réduit en CI —, et le verdict de l'empreinte varierait avec la machine.
  */
 let fonts: string
-const envStart = { ...process.env }
+const restoreEnv = snapshotEnv()
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-render-'))
@@ -87,7 +88,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true })
-  process.env = { ...envStart }
+  restoreEnv()
   // **Le cache d'analyses se vide entre deux tests.** Il est indexé sur le
   // chemin, la taille et la date du fichier ; chaque test refabrique son
   // `PROJECTS_DIR` sous un nom neuf, mais un test qui poserait deux

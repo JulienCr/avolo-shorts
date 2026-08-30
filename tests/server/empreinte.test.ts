@@ -19,6 +19,7 @@ import {
 import type { ResolvedFraming } from '@/server/clip-framing'
 import type { DubbingCells } from '@/core/dubbing'
 import { DUBBING_ANCHORS, dubbingCellsFor } from '@/core/dubbing'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * L'empreinte de rendu (issue #48) : ce qui garde la valeur qu'avaient au rendu
@@ -140,7 +141,7 @@ let replay: string
 let stage: string
 let projects: string
 let brandDir: string
-const envStart = { ...process.env }
+const restoreEnv = snapshotEnv()
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-empreinte-'))
@@ -183,7 +184,7 @@ beforeEach(() => {
 afterEach(() => {
   closeDb()
   fs.rmSync(root, { recursive: true, force: true })
-  process.env = { ...envStart }
+  restoreEnv()
 })
 
 function clip(overrides: Partial<Clip> = {}): Clip {

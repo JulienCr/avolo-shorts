@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { closeDb } from '@/server/db'
 import { forgetAvailabilityCache } from '@/server/publication/upload-post'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * `GET /api/publication/availability` — même discipline que
@@ -15,7 +16,7 @@ import { forgetAvailabilityCache } from '@/server/publication/upload-post'
  * version LLM, synchrone). (relevé par Copilot)
  */
 
-const envStart = { ...process.env }
+const restoreEnv = snapshotEnv()
 
 /**
  * Les quatre plateformes sont portées par trois connecteurs, et Meta se dit
@@ -37,7 +38,7 @@ let root: string | undefined
 
 afterEach(() => {
   forgetAvailabilityCache()
-  process.env = { ...envStart }
+  restoreEnv()
   closeDb()
   if (root !== undefined) rmSync(root, { recursive: true, force: true })
   root = undefined

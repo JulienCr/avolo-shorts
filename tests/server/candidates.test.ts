@@ -7,6 +7,7 @@ import type { GenerateContentResponse } from '@google/genai'
 import { openDb, upsertProject, getClips, putClip, setSetting } from '@/server/db'
 import { wait, launch, lireStatus } from '@/server/run'
 import { candidatesPath, sidecarDir } from '@/server/paths'
+import { snapshotEnv } from '../helpers/env'
 import {
   callGemini,
   redact,
@@ -430,7 +431,7 @@ describe("l'étape de repérage", () => {
   let replay: string
   let projects: string
   let db: BetterSqlite3.Database
-  const envStart = { ...process.env }
+  const restoreEnv = snapshotEnv()
 
   /** Un transcript court, mais assez long pour construire plusieurs fenêtres. */
   const TRANSCRIPT = {
@@ -476,7 +477,7 @@ describe("l'étape de repérage", () => {
   afterEach(() => {
     db.close()
     fs.rmSync(root, { recursive: true, force: true })
-    process.env = { ...envStart }
+    restoreEnv()
   })
 
   /**

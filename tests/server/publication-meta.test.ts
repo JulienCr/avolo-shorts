@@ -13,6 +13,7 @@ import {
   refreshInstagramToken,
   writeMetaTokens,
 } from '@/server/publication/meta-tokens'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * Le connecteur Meta direct, contre un `fetch` injecté — jamais le réseau,
@@ -24,7 +25,7 @@ import {
 
 let root: string
 let videoPath: string
-const envStart = { ...process.env }
+const restoreEnv = snapshotEnv()
 
 function job(overrides: Partial<PublicationJob> = {}): PublicationJob {
   return {
@@ -62,7 +63,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  process.env = { ...envStart }
+  restoreEnv()
   fs.rmSync(root, { recursive: true, force: true })
 })
 

@@ -344,7 +344,12 @@ export function Timeline({
                             ? `?bounds=${confirmedBounds.start.toFixed(2)}-${confirmedBounds.end.toFixed(2)}&rev=${revision}`
                             : ''
                         }")`,
-                        backgroundSize: '100% 100%',
+                        // `auto 100%`, pas `100% 100%` : douze images 160×90
+                        // étirées sur la largeur passaient de 1,78 à 2,89
+                        // (mesuré). La planche couvre alors moins que la
+                        // bande sur un montage long ; `no-repeat` l'assume.
+                        backgroundSize: 'auto 100%',
+                        backgroundRepeat: 'no-repeat',
                       }}
                     />
                   )}

@@ -72,7 +72,7 @@ function measureTrack() {
 function mount(overrides: Partial<Parameters<typeof Timeline>[0]> = {}) {
   const onScrub = vi.fn()
   const onBoundary = vi.fn()
-  render(
+  const { unmount } = render(
     <Timeline
       clipId="c1"
       segments={[{ start: 100, end: 120 }]}
@@ -93,7 +93,7 @@ function mount(overrides: Partial<Parameters<typeof Timeline>[0]> = {}) {
       {...overrides}
     />,
   )
-  return { onScrub, onBoundary }
+  return { onScrub, onBoundary, unmount }
 }
 
 /** Une réponse HTTP, réduite à ce que `@/lib/api` en lit. */
@@ -730,5 +730,44 @@ describe('le scrub', () => {
     const time = onScrub.mock.calls[0][0]
     expect(time).toBeGreaterThan(105)
     expect(time).toBeLessThan(115)
+  })
+
+  /**
+   * **Le clic qui ne bouge rien.** Un `fireEvent` par appel referme l'effet
+   * React entre les deux (`act` vide sa file avant de rendre la main), ce
+   * qu'un clic réel ne garantit pas — l'écouteur `pointerup` posé par un
+   * effet peut encore être en vol quand le `pointerup` arrive. Un seul
+   * `act()` autour des deux événements reproduit exactement cette course :
+   * la mise à jour d'état de `pointerdown` est déjà appliquée, mais l'effet
+   * qui en dépend n'a pas encore tourné. Échoue sur `main`.
+   */
+  it('commet même quand pointerdown et pointerup tombent avant que l’effet ait tourné', () => {
+    measureTrack()
+    const { onScrub } = mount()
+    act(() => {
+      pointerAt(track(), 'pointerdown', 500)
+      pointerAt(window, 'pointerup', 500)
+    })
+    expect(onScrub).toHaveBeenCalledTimes(1)
+    expect(onScrub.mock.calls[0][0]).toBeCloseTo(110, 5)
+  })
+
+  /**
+   * **Le geste qui ne se referme jamais.** Naviguer ailleurs démonte `Timeline`
+   * au milieu d'un glissé, sans `pointerup` ni `pointercancel` — un `click`
+   * clavier sur un lien, par exemple. Sans le retrait au démontage, l'écouteur
+   * posé sur `window` survit au composant : un `pointerup` bien plus tard,
+   * destiné à un tout autre clip monté à la même place, rappellerait ce
+   * `commit`-là avec la position figée du geste abandonné. Échoue sur
+   * `a66cb89` (le correctif du clic, sans son filet de démontage).
+   */
+  it('un pointerup après démontage ne commet plus rien', () => {
+    measureTrack()
+    const { onScrub, onBoundary, unmount } = mount()
+    pointerAt(track(), 'pointerdown', 500)
+    unmount()
+    pointerAt(window, 'pointerup', 500)
+    expect(onScrub).not.toHaveBeenCalled()
+    expect(onBoundary).not.toHaveBeenCalled()
   })
 })

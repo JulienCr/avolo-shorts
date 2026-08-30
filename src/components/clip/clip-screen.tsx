@@ -202,6 +202,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   // le sélecteur de ratio, désignée par le rectangle. Un seul identifiant pour
   // les deux, sans quoi l'un décrirait un paragraphe que l'autre ne rend pas.
   const cropReasonId = useId()
+  // Même principe pour le transport : ses trois boutons se désactivent quand
+  // le montage est vide, et pointent vers le paragraphe qui le dit déjà plus
+  // bas — pas un second texte à tenir synchrone avec le premier.
+  const emptyClipReasonId = useId()
 
   // Le store se charge du clip une fois, et pas à chaque passage de la requête :
   // la garde est dans `charger`.
@@ -713,7 +717,12 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               </div>
 
               <div className="mt-4 shrink-0">
-                <ClipTransport video={video} proxyUrl={proxyUrl} segments={segments} />
+                <ClipTransport
+                  video={video}
+                  proxyUrl={proxyUrl}
+                  segments={segments}
+                  emptyReasonId={emptyClipReasonId}
+                />
               </div>
             </div>
 
@@ -721,7 +730,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               // Le cas prévu côté serveur et qui n'avait pas de rendu propre :
               // tout a été retiré. Le transcript, toujours visible, est déjà
               // là pour le dire (spec du 30 août, §2.5).
-              <p className="shrink-0 text-[0.75rem] text-muted-foreground">
+              <p id={emptyClipReasonId} className="shrink-0 text-[0.75rem] text-muted-foreground">
                 Il ne reste rien du clip. Cliquer un mot barré dans le transcript le fait
                 recommencer là.
               </p>

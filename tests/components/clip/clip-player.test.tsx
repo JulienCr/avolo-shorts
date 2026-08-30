@@ -12,10 +12,10 @@
  * décoder : le canevas de sortie se peint sur celui-ci.
  */
 
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ClipPlayer, togglePlayback, placePlayback } from '@/components/clip/clip-player'
+import { ClipPlayer, ClipTransport, togglePlayback, placePlayback } from '@/components/clip/clip-player'
 import { usePlayback } from '@/components/clip/playback'
 
 afterEach(cleanup)
@@ -73,6 +73,57 @@ describe('placePlayback', () => {
     const v = player(0)
     placePlayback(v, segments, 30)
     expect(v.currentTime).toBe(40)
+  })
+})
+
+describe('ClipTransport', () => {
+  function transport(video: ReturnType<typeof player> | null = player(0)) {
+    return render(
+      <ClipTransport video={video} proxyUrl="/proxy.mp4" segments={segments} />,
+    )
+  }
+
+  it('va au premier segment du montage, pas au début de la source', () => {
+    // Le clip est une liste de segments : ses bornes sont celles du premier et
+    // du dernier segment gardé, jamais 0 ni la durée de la source.
+    const v = player(0)
+    transport(v)
+    fireEvent.click(screen.getByRole('button', { name: 'Aller au début du clip' }))
+    expect(v.currentTime).toBe(10)
+  })
+
+  it('va au dernier segment du montage, pas à la durée de la source', () => {
+    // Pas exactement `bounds.end` : cette position tombe hors de tout segment
+    // (`segmentAt` teste `<`), et `playbackAction` y lirait une lecture finie —
+    // le lecteur repartirait alors du premier segment. `toBeCloseTo` accepte
+    // le cran sous-image que ça demande, sans figer sa valeur exacte.
+    const v = player(0)
+    transport(v)
+    fireEvent.click(screen.getByRole('button', { name: 'Aller à la fin du clip' }))
+    expect(v.currentTime).toBeCloseTo(50, 1)
+    expect(v.currentTime).toBeLessThan(50)
+  })
+
+  it('désactive les trois boutons quand le montage est vide, et dit pourquoi', () => {
+    render(
+      <>
+        <ClipTransport
+          video={player(0)}
+          proxyUrl="/proxy.mp4"
+          segments={[]}
+          emptyReasonId="raison-vide"
+        />
+        <p id="raison-vide">Il ne reste rien du clip.</p>
+      </>,
+    )
+    const debut = screen.getByRole('button', { name: 'Aller au début du clip' })
+    const fin = screen.getByRole('button', { name: 'Aller à la fin du clip' })
+    const lecture = screen.getByRole('button', { name: 'Lire' })
+    expect(debut.hasAttribute('disabled')).toBe(true)
+    expect(fin.hasAttribute('disabled')).toBe(true)
+    expect(lecture.hasAttribute('disabled')).toBe(true)
+    expect(debut.getAttribute('aria-describedby')).toBe('raison-vide')
+    expect(fin.getAttribute('aria-describedby')).toBe('raison-vide')
   })
 })
 

@@ -1,11 +1,11 @@
 'use client'
 
-import { Pause, Play, VideoOff } from 'lucide-react'
+import { Pause, Play, SkipBack, SkipForward, VideoOff } from 'lucide-react'
 import { useCallback, useEffect, useRef, type ReactNode } from 'react'
 
 import type { Segment } from '@/core/edl'
 import { usePlayback } from '@/components/clip/playback'
-import { playbackAction } from '@/lib/editing'
+import { clipBounds, playbackAction } from '@/lib/editing'
 import { formatTimecode } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -194,6 +194,16 @@ export function ClipPlayer({
 }
 
 /**
+ * **`bounds.end` tombe hors de tout segment**, par construction : `segmentAt`
+ * teste `position < s.end`, donc une position égale à la borne de fin n'est
+ * dans aucun segment et `playbackAction` y lit une lecture terminée — le
+ * lecteur revient alors au premier segment plutôt que d'y rester. Un cran
+ * en-deçà, bien sous `MIN_DURATION` (`timeline.tsx`), garde la dernière image
+ * sans déclencher ce retour.
+ */
+const END_EPSILON = 0.01
+
+/**
  * Le transport : lecture, position, ce que la lecture saute.
  *
  * **Séparé de `ClipPlayer`** (spec du 23 août, §3.3) : l'image est dans la
@@ -205,13 +215,22 @@ export function ClipTransport({
   video,
   proxyUrl,
   segments,
+  emptyReasonId,
 }: {
   video: Player | null
   proxyUrl: string | null
   segments: Segment[]
+  /**
+   * L'identifiant du paragraphe qui dit pourquoi le transport est désactivé
+   * quand le montage est vide — le même texte que le reste de l'écran affiche
+   * déjà (§ « Il ne reste rien du clip »), désigné par `aria-describedby`
+   * plutôt que dupliqué.
+   */
+  emptyReasonId?: string
 }) {
   const inPlayback = usePlayback((state) => state.inPlayback)
   const cuts = Math.max(0, segments.length - 1)
+  const bounds = clipBounds(segments)
 
   // Sans proxy, pas de transport : un bouton désactivé et une position à
   // `0:00:00` prétendraient qu'il y a quelque chose à lire.
@@ -230,11 +249,40 @@ export function ClipTransport({
         <Button
           size="icon-sm"
           variant="outline"
+          // **Les bornes du montage, jamais 0 ni la durée de la source.** Le
+          // clip est une liste de segments (`CLAUDE.md`) : `clipBounds` rend
+          // ses vraies extrémités, celles du premier et du dernier segment
+          // gardé, pas les bords de l'émission.
+          onClick={() => bounds && placePlayback(video, segments, bounds.start)}
+          disabled={bounds === null}
+          aria-describedby={bounds === null ? emptyReasonId : undefined}
+          aria-label="Aller au début du clip"
+        >
+          <SkipBack aria-hidden />
+        </Button>
+
+        <Button
+          size="icon-sm"
+          variant="outline"
           onClick={() => togglePlayback(video, segments)}
           disabled={segments.length === 0}
+          aria-describedby={segments.length === 0 ? emptyReasonId : undefined}
           aria-label={inPlayback ? 'Mettre en pause' : 'Lire'}
         >
           {inPlayback ? <Pause aria-hidden /> : <Play aria-hidden />}
+        </Button>
+
+        <Button
+          size="icon-sm"
+          variant="outline"
+          onClick={() =>
+            bounds && placePlayback(video, segments, Math.max(bounds.start, bounds.end - END_EPSILON))
+          }
+          disabled={bounds === null}
+          aria-describedby={bounds === null ? emptyReasonId : undefined}
+          aria-label="Aller à la fin du clip"
+        >
+          <SkipForward aria-hidden />
         </Button>
 
         <Position />

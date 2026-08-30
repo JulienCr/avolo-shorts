@@ -347,8 +347,8 @@ export function Timeline({
                             : ''
                         }")`,
                         // `filmstripCount` vues pour cette largeur
-                        // (`useFilmstripCount`) : `100% 100%` cale sans
-                        // étirer, l'image étant déjà au bon rapport.
+                        // (`useFilmstripCount`) : `100% 100%` cale sur la
+                        // boîte, résidu d'arrondi sous une demi-vignette.
                         backgroundSize: '100% 100%',
                       }}
                       ref={filmstripBox}

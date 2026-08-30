@@ -42,9 +42,10 @@ export function filmstripCountForBox(widthPx: number, heightPx: number): number 
 
 /**
  * Lit le compte demandé par la requête. **Toujours validé ici, jamais fait
- * confiance au client** : un entier hors bornes, ou qui n'en est pas un,
- * retombe sur `FILMSTRIP_COUNT_DEFAULT` plutôt que de lever — la planche reste
- * servie, seulement pas au meilleur rapport.
+ * confiance au client** : absent ou pas un entier, il retombe sur
+ * `FILMSTRIP_COUNT_DEFAULT` ; un entier hors bornes est ramené à `MIN`/`MAX`
+ * plutôt que rejeté — la planche reste servie, seulement pas au meilleur
+ * rapport.
  */
 export function parseFilmstripCount(raw: string | null): number {
   if (raw === null || raw === '') return FILMSTRIP_COUNT_DEFAULT

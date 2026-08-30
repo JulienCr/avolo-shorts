@@ -273,6 +273,56 @@ describe('le libellé du cadre, quand le natif est déjà 9:16', () => {
   })
 })
 
+describe('le pied de la bande (issue #277, deuxième lecture)', () => {
+  // « Bornes » retiré (doublon exact des champs A/B) ; segments, cadre et
+  // l'avertissement par plan rejoignent le pied existant, à côté de durée —
+  // plutôt qu'un `<dl>` séparé qui coûtait 62 px sans marge à dépenser.
+  it('affiche le compte de segments, accordé au pluriel', async () => {
+    const d = detail('c2', [
+      { start: 100, end: 110 },
+      { start: 112, end: 120 },
+    ])
+    await mount('c2', d)
+    expect(screen.getByTestId('band-footer').textContent).toContain('2 segments')
+  })
+
+  it('accorde au singulier avec un seul segment', async () => {
+    await mount('c2')
+    const text = screen.getByTestId('band-footer').textContent ?? ''
+    expect(text).toContain('1 segment')
+    expect(text).not.toContain('1 segments')
+  })
+
+  it('avertit sur le plan que la lecture traverse quand rien n’y a été mesuré', async () => {
+    const d = detail()
+    d.framing = framing({ shots: [shot(0, 200, '1:1', 0.5, 'default')] })
+    await mount('c2', d)
+    expect(screen.getByText(/rien mesuré sur ce plan/)).toBeTruthy()
+  })
+
+  // Même règle qu'à la légende de la sortie (ci-dessus), sur cette seconde
+  // surface : ni ratio ni pourcentage n'a de sens sur un plan splitté ou de
+  // doublage, où le renderer ne suit pas un crop unique.
+  it('ne dit ni ratio ni pourcentage sur un plan splitté', async () => {
+    const d = detail()
+    d.framing = framing({ shots: [shot(0, 200, '16:9', 0.5, 'auto', splitCells())] })
+    await mount('c2', d)
+    const value = screen.getByTestId('band-footer').textContent ?? ''
+    expect(value).toContain('split')
+    expect(value).not.toMatch(/%/)
+  })
+
+  it('ne dit ni ratio ni pourcentage sur un plan de doublage', async () => {
+    const d = detail()
+    const cells = dubbingCellsFor(DUBBING_ANCHORS[0], DUBBING_ANCHORS[0].pip.y0)
+    d.framing = framing({ shots: [shot(0, 200, '4:5', 0.5, 'auto', undefined, cells)] })
+    await mount('c2', d)
+    const value = screen.getByTestId('band-footer').textContent ?? ''
+    expect(value).toContain('doublage')
+    expect(value).not.toContain('4:5')
+  })
+})
+
 describe('le geste courant', () => {
   beforeEach(async () => {
     await mount('c2')
@@ -682,6 +732,76 @@ describe('l’échec d’une écriture directe', () => {
     await waitFor(() =>
       expect(fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length).toBe(before + 1),
     )
+  })
+})
+
+describe('deux écritures directes indépendantes (issue #283)', () => {
+  it('un échec sur les marques reste annoncé après un succès sur les sous-titres', async () => {
+    // `patch.isError` ne décrit que la dernière mutation de l'observateur
+    // partagé : sans un suivi par champ, l'écriture des sous-titres qui
+    // aboutit efface le seul signe que les marques, elles, ont échoué.
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') {
+        const body = JSON.parse(String(options.body)) as Record<string, unknown>
+        if ('branding' in body) throw new Error('réseau coupé')
+        return response({ applied: true, clip: detail('c2').clip, outputs: detail('c2').outputs, seq: 1 })
+      }
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    await mount('c2')
+
+    openRenderSettings()
+    fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
+    await screen.findByText(/échec de l’enregistrement/i)
+
+    openRenderSettings()
+    fireEvent.click(screen.getByRole('checkbox', { name: /sous-titres/i }))
+    await waitFor(() =>
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length).toBe(2),
+    )
+    closeRenderSettings()
+
+    expect(screen.getByText(/échec de l’enregistrement/i)).toBeTruthy()
+
+    const before = fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length
+    fireEvent.click(screen.getByRole('button', { name: /réessayer/i }))
+    await waitFor(() =>
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length).toBe(before + 1),
+    )
+  })
+
+  it('un rejet dépassé ne ferme pas la modale et n’annonce rien (relevé par Aristarque)', async () => {
+    let rejectFirst!: (e: Error) => void
+    let calls = 0
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') {
+        calls += 1
+        if (calls === 1) return new Promise<Response>((_resolve, reject) => (rejectFirst = reject))
+        return response({ applied: true, clip: detail('c2').clip, outputs: detail('c2').outputs, seq: 2 })
+      }
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    await mount('c2')
+
+    openRenderSettings()
+    fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
+    await waitFor(() =>
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length).toBe(2),
+    )
+
+    await act(async () => rejectFirst(new Error('réseau coupé')))
+
+    expect(screen.getByRole('button', { name: /fermer/i })).toBeTruthy()
+    expect(screen.queryByText(/échec de l’enregistrement/i)).toBeNull()
   })
 })
 

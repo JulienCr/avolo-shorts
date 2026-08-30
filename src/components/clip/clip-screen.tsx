@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Keyboard, RotateCw, Redo2, TriangleAlert, Un
 import { useIsMutating } from '@tanstack/react-query'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { AppBar } from '@/components/navigation/app-bar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -186,6 +186,17 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         : list.filter((other) => other !== field),
     )
   }, [])
+
+  /**
+   * Les écritures directes (marques, sous-titres) restées en échec, avec le
+   * patch exact à rejouer. Même raison que `textsInFailure` : `patch.isError`
+   * ne décrit que le dernier appel de l'observateur partagé, qu'une écriture
+   * suivante réussie efface — la modale se refermait alors sur un échec dont
+   * plus rien n'annonçait le sort. (issue #283)
+   */
+  const [directWritesInFailure, setDirectWritesInFailure] = useState<
+    Partial<Record<'branding' | 'captions', ClipPatch>>
+  >({})
   const [help, setHelp] = useState(false)
   // La phrase qui dit pourquoi le rectangle de cadrage ne bouge pas : rendue par
   // le sélecteur de ratio, désignée par le rectangle. Un seul identifiant pour
@@ -275,13 +286,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     reconcile: editor.reconcile,
   })
 
-  // **L'échec d'une écriture directe ne remonte pas par `useAutosave`.**
-  // Celui-ci ne compare que les segments, le ratio et le cadrage ; le titre, la
-  // description et les marques partent par la même mutation sans y figurer. Sans
-  // ce raccord, la barre affiche « enregistré » sur une écriture que le serveur
-  // vient de refuser, et son rollback a déjà remis la valeur d'avant à l'écran.
-  // (relevé par Copilot)
-  const writeInFailure = patch.isError || textsInFailure.length > 0
+  // `useAutosave` ne compare que les segments, le ratio et le cadrage : le
+  // titre, la description et les marques partent par la même mutation sans y
+  // figurer, d'où les deux raccords ci-dessous. (relevé par Copilot)
+  const directFailureCount = Object.keys(directWritesInFailure).length
+  const writeInFailure = patch.isError || textsInFailure.length > 0 || directFailureCount > 0
   const inFailure = autosave === 'failed' || writeInFailure
   const lastRejection = patch.isError ? patch.variables : undefined
 
@@ -290,7 +299,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   // court encore, et l'export partirait contre un état pas encore reçu.
   const canReturn =
     differences(clip, segments, editor.ratio, editor.cropX) !== null ||
-    (lastRejection !== undefined && lastRejection.clipId === clip.id)
+    (lastRejection !== undefined && lastRejection.clipId === clip.id) ||
+    directFailureCount > 0
 
   const writesInFlight = useIsMutating({
     predicate: (mutation) =>
@@ -311,6 +321,41 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     (fields: ClipPatch) =>
       patch.mutateAsync({ clipId: clip.id, projectId: clip.projectId, patch: fields }),
     [patch, clip.id, clip.projectId],
+  )
+
+  /**
+   * Une écriture directe suivie par sa propre marque d'échec — marques et
+   * sous-titres. Un jeton par champ, sur le modèle de `usePatchClip` : une
+   * réponse tardive d'une écriture dépassée ne doit ni effacer la marque
+   * qu'une écriture plus récente vient de poser, ni réparer un échec qu'elle
+   * n'a pas causé, **ni se propager à l'appelant** — `RenderSettings` ferme
+   * sa modale sur tout rejet, et un rejet périmé la fermerait sur un échec
+   * déjà éclipsé. (issue #283, relevé par Aristarque)
+   */
+  const directWriteSeq = useRef<Partial<Record<'branding' | 'captions', number>>>({})
+  const writeDirect = useCallback(
+    (field: 'branding' | 'captions', fields: ClipPatch) => {
+      const seq = (directWriteSeq.current[field] ?? 0) + 1
+      directWriteSeq.current[field] = seq
+      return write(fields).then(
+        (result) => {
+          if (directWriteSeq.current[field] !== seq) return result
+          setDirectWritesInFailure((prev) => {
+            if (!(field in prev)) return prev
+            const rest = { ...prev }
+            delete rest[field]
+            return rest
+          })
+          return result
+        },
+        (error: unknown) => {
+          if (directWriteSeq.current[field] !== seq) return undefined
+          setDirectWritesInFailure((prev) => ({ ...prev, [field]: fields }))
+          throw error
+        },
+      )
+    },
+    [write],
   )
 
   useShortcuts({
@@ -456,13 +501,23 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
             size="sm"
             variant="outline"
             onClick={() => {
-              // Le montage d'abord — c'est l'écart que l'écriture différée
-              // refuse de rejouer telle quelle, sans quoi elle bouclerait. À
-              // défaut, la dernière écriture directe : elle n'a pas d'écart à
-              // recalculer, seulement une requête à refaire.
+              // Le montage d'abord — l'écriture différée refuse de rejouer
+              // son écart tel quel, sans quoi elle bouclerait. Les écritures
+              // directes ensuite, qui n'ont pas cet écart à recalculer.
               const change = differences(clip, segments, editor.ratio, editor.cropX)
               if (change) {
                 void write(change).catch(() => {})
+                return
+              }
+              // Les écritures directes en échec ensuite : chacune garde son
+              // propre patch, contrairement à `patch.variables` qui ne porte
+              // que la dernière tentative de l'observateur partagé.
+              const directEntries = Object.entries(directWritesInFailure) as [
+                'branding' | 'captions',
+                ClipPatch,
+              ][]
+              if (directEntries.length > 0) {
+                directEntries.forEach(([field, fields]) => void writeDirect(field, fields).catch(() => {}))
                 return
               }
               const rejected = patch.variables
@@ -668,8 +723,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               <Timeline
                 clipId={clip.id}
                 segments={segments}
-                savedSegments={clip.segments}
                 framing={framing}
+                ratio={editor.ratio}
+                cropX={editor.cropX}
                 proxyUrl={proxyUrl}
                 sourceDuration={project.durationSec}
                 onScrub={(time) => {
@@ -715,8 +771,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
             <div className="shrink-0">
               <RenderSettings
                 clip={clip}
-                onBranding={(branding) => write({ branding })}
-                onCaptions={(captions) => write({ captions })}
+                onBranding={(branding) => writeDirect('branding', { branding })}
+                onCaptions={(captions) => writeDirect('captions', { captions })}
               />
             </div>
           </section>
@@ -932,3 +988,4 @@ function RenderSettings({
     </Dialog>
   )
 }
+

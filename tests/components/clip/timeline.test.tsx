@@ -11,12 +11,15 @@
  * trois secondes de contexte.
  */
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { Timeline } from '@/components/clip/timeline'
 import { usePlayback } from '@/components/clip/playback'
+import { keys, useClip, usePatchClip } from '@/lib/queries'
+import type { Clip, ClipDetail, PatchClipResult } from '@/lib/api'
 import { framing, shot } from '../../fixtures/framing'
 
 // jsdom n'implémente pas la capture de pointeur : sans ces bouchons, le premier
@@ -73,8 +76,9 @@ function mount(overrides: Partial<Parameters<typeof Timeline>[0]> = {}) {
     <Timeline
       clipId="c1"
       segments={[{ start: 100, end: 120 }]}
-      savedSegments={[{ start: 100, end: 120 }]}
       framing={framing({ shots: [shot(0, 110, '1:1', 0.5), shot(110, 200, '16:9', 0.5)] })}
+      ratio="1:1"
+      cropX={0.5}
       proxyUrl="/api/projects/p1/proxy"
       sourceDuration={5940}
       onScrub={onScrub}
@@ -90,6 +94,93 @@ function mount(overrides: Partial<Parameters<typeof Timeline>[0]> = {}) {
     />,
   )
   return { onScrub, onBoundary }
+}
+
+/** Une réponse HTTP, réduite à ce que `@/lib/api` en lit. */
+function response(body: unknown): Response {
+  return { ok: true, status: 200, statusText: '', json: async () => body } as Response
+}
+
+function clipFixture(id: string, segments = [{ start: 100, end: 120 }]): Clip {
+  return {
+    id,
+    projectId: 'p1',
+    segments,
+    ratio: '1:1',
+    cropX: 0.5,
+    captions: true,
+    branding: true,
+    footer: true,
+    title: 'La chute',
+    description: '',
+    status: 'kept',
+    pass: 1,
+    hookText: '',
+    hookBadge: '',
+    hookStyle: {},
+    framingStyle: {},
+  }
+}
+
+/**
+ * `Timeline` en présence d'un vrai `usePatchClip`, pour les tests de la
+ * révision confirmée (issue #280) : `useClipRevision` lit un état de module
+ * que seul un `PATCH` réel fait avancer, un bouchon `onBoundary` ne le
+ * pourrait pas.
+ */
+function clipDetailFixture(id: string, segments = [{ start: 100, end: 120 }]): ClipDetail {
+  return {
+    clip: clipFixture(id, segments),
+    project: { id: 'p1', title: 'p1', durationSec: 5940, createdAt: '' },
+    lines: [],
+    proxyUrl: '/api/projects/p1/proxy',
+    outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+    framing: framing({ shots: [shot(0, 200, '1:1', 0.5)] }),
+  }
+}
+
+function mountWithPatch(
+  clipId: string,
+  overrides: Partial<Parameters<typeof Timeline>[0]> = {},
+  confirmedSegments = [{ start: 100, end: 120 }],
+) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  // Amorce la révision confirmée comme le ferait `useClip` en production,
+  // avant que `ClipScreen`/`Timeline` ne montent (`src/app/clips/[id]/page.tsx`).
+  client.setQueryData(keys.clip(clipId), clipDetailFixture(clipId, confirmedSegments))
+  const patchRef: { current: ReturnType<typeof usePatchClip> | null } = { current: null }
+  function Capture() {
+    patchRef.current = usePatchClip()
+    useClip(clipId)
+    return null
+  }
+  render(
+    <QueryClientProvider client={client}>
+      <Capture />
+      <Timeline
+        clipId={clipId}
+        segments={[{ start: 100, end: 120 }]}
+        framing={framing({ shots: [shot(0, 200, '1:1', 0.5)] })}
+        ratio="1:1"
+        cropX={0.5}
+        proxyUrl="/api/projects/p1/proxy"
+        sourceDuration={5940}
+        onScrub={vi.fn()}
+        onBoundary={vi.fn()}
+        lines={[]}
+        words={[]}
+        firstLine={0}
+        duration={20}
+        search={false}
+        onSearch={vi.fn()}
+        onPlay={vi.fn()}
+        {...overrides}
+      />
+    </QueryClientProvider>,
+  )
+  return { patchRef }
 }
 
 function track() {
@@ -154,16 +245,99 @@ describe('le ruban', () => {
     expect(screen.queryByTestId('filmstrip')).toBeNull()
   })
 
-  it('recharge sur la borne confirmée par le serveur, pas sur celle qui glisse encore', () => {
-    // `segments` bouge à chaque frappe, `savedSegments` seulement une fois
-    // `useAutosave` parti : lier l'URL au premier redemanderait une image
-    // que le serveur ne connaît pas encore. (relevé par Copilot)
-    mount({
-      segments: [{ start: 100, end: 150 }],
-      savedSegments: [{ start: 100, end: 120 }],
+  /**
+   * Un rechargement de page réévalue le module et remet la révision à 0 pour
+   * tout clip — une clé qui ne porterait que ce compteur serait alors
+   * byte-identique avant et après une édition faite dans une session
+   * précédente. Les bornes confirmées, elles, reviennent du `GET` initial.
+   */
+  it('deux clips jamais retouchés dans cette session affichent des planches distinctes si leurs bornes confirmées diffèrent', () => {
+    // Deux identifiants, pas le même clip rechargé : l'id figure dans le
+    // chemin et les distinguerait de toute façon. Seule la partie requête
+    // — après `filmstrip` — dit si le mécanisme, lui, fait la différence.
+    const query = (url: string) => url.split('/filmstrip')[1]
+
+    mountWithPatch('c-280-reload-a', {}, [{ start: 100, end: 120 }])
+    const first = query(screen.getByTestId('filmstrip').style.backgroundImage)
+    cleanup()
+
+    mountWithPatch('c-280-reload-b', {}, [{ start: 200, end: 260 }])
+    const second = query(screen.getByTestId('filmstrip').style.backgroundImage)
+
+    expect(first).not.toBe(second)
+  })
+
+  /**
+   * Sur le modèle de `usePatchClip.onSuccess` (issue #280) : `onMutate`
+   * écrit l'optimiste dans le même cache que `clip.segments`, de façon
+   * synchrone, au départ même du `PATCH` — avant même que le serveur ait
+   * répondu. La planche ne doit bouger qu'à la réponse, pas à ce départ.
+   */
+  it('ne recharge pas la planche tant que le PATCH n’est pas confirmé par le serveur', async () => {
+    const id = 'c-timeline-280-a'
+    let resolveFetch!: (r: Response) => void
+    const pending = new Promise<Response>((resolve) => {
+      resolveFetch = resolve
     })
-    const film = screen.getByTestId('filmstrip')
-    expect(film.style.backgroundImage).toContain('bounds=100.00-120.00')
+    vi.stubGlobal('fetch', vi.fn(() => pending))
+
+    const { patchRef } = mountWithPatch(id)
+    const before = screen.getByTestId('filmstrip').style.backgroundImage
+
+    act(() => {
+      void patchRef.current!.mutateAsync({
+        clipId: id,
+        projectId: 'p1',
+        patch: { segments: [{ start: 100, end: 150 }] },
+      }).catch(() => {})
+    })
+    // Le cache optimiste a déjà bougé ; la planche, elle, ne doit pas suivre.
+    expect(screen.getByTestId('filmstrip').style.backgroundImage).toBe(before)
+
+    await act(async () => {
+      resolveFetch(
+        response({
+          applied: true,
+          clip: clipFixture(id, [{ start: 100, end: 150 }]),
+          outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+          framing: framing({ shots: [shot(100, 150, '1:1', 0.5)] }),
+          seq: 1,
+        } satisfies PatchClipResult),
+      )
+    })
+
+    expect(screen.getByTestId('filmstrip').style.backgroundImage).not.toBe(before)
+  })
+
+  /**
+   * L'amendement à #280 : un compteur qui avancerait sur **toute** écriture
+   * confirmée busterait le cache sur une couleur de hook ou les
+   * sous-titres — un coût réel pour fermer une fenêtre de quelques dizaines
+   * de ms.
+   */
+  it('un champ sans rapport avec les bornes laisse la planche intacte', async () => {
+    const id = 'c-timeline-280-b'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        response({
+          applied: true,
+          clip: clipFixture(id),
+          outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+          framing: framing({ shots: [shot(0, 200, '1:1', 0.5)] }),
+          seq: 1,
+        } satisfies PatchClipResult),
+      ),
+    )
+
+    const { patchRef } = mountWithPatch(id)
+    const before = screen.getByTestId('filmstrip').style.backgroundImage
+
+    await act(async () => {
+      await patchRef.current!.mutateAsync({ clipId: id, projectId: 'p1', patch: { branding: false } })
+    })
+
+    expect(screen.getByTestId('filmstrip').style.backgroundImage).toBe(before)
   })
 })
 
@@ -227,8 +401,9 @@ describe('Temps | Mots', () => {
       <Timeline
         clipId="c1"
         segments={[{ start: 100, end: 120 }]}
-        savedSegments={[{ start: 100, end: 120 }]}
         framing={framing()}
+        ratio="1:1"
+        cropX={0.5}
         proxyUrl="/api/projects/p1/proxy"
         sourceDuration={5940}
         onScrub={vi.fn()}
@@ -247,8 +422,9 @@ describe('Temps | Mots', () => {
       <Timeline
         clipId="c1"
         segments={[{ start: 100, end: 120 }]}
-        savedSegments={[{ start: 100, end: 120 }]}
         framing={framing()}
+        ratio="1:1"
+        cropX={0.5}
         proxyUrl="/api/projects/p1/proxy"
         sourceDuration={5940}
         onScrub={vi.fn()}
@@ -279,19 +455,19 @@ describe('les champs de bornes', () => {
       ],
     })
 
-    const start = screen.getByRole<HTMLInputElement>('textbox', { name: 'Borne d’entrée' })
-    expect(start.value).toBe('1:40')
+    const start = screen.getByRole<HTMLInputElement>('textbox', { name: /Borne d’entrée/ })
+    expect(start.value).toBe('0:01:40:00')
     await user.clear(start)
-    await user.type(start, '0:01:48{Enter}')
+    await user.type(start, '0:01:48:00{Enter}')
 
-    expect(start.value).toBe('1:40')
+    expect(start.value).toBe('0:01:40:00')
   })
 
   it('écrit par le même chemin qu’un glissé, une fois validé', async () => {
     const user = userEvent.setup()
     const { onBoundary } = mount()
 
-    const end = screen.getByRole('textbox', { name: 'Borne de sortie' })
+    const end = screen.getByRole('textbox', { name: /Borne de sortie/ })
     await user.clear(end)
     await user.type(end, '1:50{Enter}')
 
@@ -305,7 +481,7 @@ describe('les champs de bornes', () => {
     const user = userEvent.setup()
     const { onBoundary } = mount()
 
-    const end = screen.getByRole('textbox', { name: 'Borne de sortie' })
+    const end = screen.getByRole('textbox', { name: /Borne de sortie/ })
     await user.clear(end)
     await user.type(end, '1:90{Enter}')
 
@@ -318,11 +494,45 @@ describe('les champs de bornes', () => {
     const user = userEvent.setup()
     const { onBoundary } = mount()
 
-    const end = screen.getByRole('textbox', { name: 'Borne de sortie' })
+    const end = screen.getByRole('textbox', { name: /Borne de sortie/ })
     await user.clear(end)
     await user.type(end, `${'9'.repeat(320)}{Enter}`)
 
     expect(onBoundary).not.toHaveBeenCalled()
+  })
+})
+
+describe('précision à l’image dans les champs de bornes (issue #279)', () => {
+  it('affiche l’image plutôt que de l’arrondir à la seconde', () => {
+    // 100,4 s tombe sur l'image 12 ; arrondi à la seconde, `formatDuration`
+    // affichait « 1:40 » et retaper cette valeur déplaçait la borne de 13
+    // images.
+    mount({ segments: [{ start: 100.4, end: 120 }] })
+    const start = screen.getByRole<HTMLInputElement>('textbox', { name: /Borne d’entrée/ })
+    expect(start.value).toBe('0:01:40:12')
+  })
+
+  it('retaper la valeur affichée reconstitue exactement la même borne', async () => {
+    const user = userEvent.setup()
+    const { onBoundary } = mount({ segments: [{ start: 100.4, end: 120 }] })
+
+    const start = screen.getByRole<HTMLInputElement>('textbox', { name: /Borne d’entrée/ })
+    const displayed = start.value
+    await user.clear(start)
+    await user.type(start, `${displayed}{Enter}`)
+
+    expect(onBoundary).toHaveBeenCalledTimes(1)
+    expect(onBoundary.mock.calls[0][0]).toBeCloseTo(100.4, 5)
+  })
+
+  it('le nom accessible commence par le libellé visible (WCAG 2.5.3)', () => {
+    mount()
+    expect(
+      screen.getByRole('textbox', { name: /^A —/ }).getAttribute('aria-label'),
+    ).toBe('A — Borne d’entrée')
+    expect(
+      screen.getByRole('textbox', { name: /^B —/ }).getAttribute('aria-label'),
+    ).toBe('B — Borne de sortie')
   })
 })
 
@@ -434,8 +644,9 @@ describe('la vignette de scrub', () => {
       <Timeline
         clipId="c1"
         segments={[]}
-        savedSegments={[]}
         framing={framing()}
+        ratio="1:1"
+        cropX={0.5}
         proxyUrl="/api/projects/p1/proxy"
         sourceDuration={5940}
         onScrub={vi.fn()}
@@ -453,8 +664,9 @@ describe('la vignette de scrub', () => {
       <Timeline
         clipId="c1"
         segments={[{ start: 100, end: 120 }]}
-        savedSegments={[{ start: 100, end: 120 }]}
         framing={framing()}
+        ratio="1:1"
+        cropX={0.5}
         proxyUrl="/api/projects/p1/proxy"
         sourceDuration={5940}
         onScrub={vi.fn()}

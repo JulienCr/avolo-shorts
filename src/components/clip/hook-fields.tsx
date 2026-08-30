@@ -15,6 +15,7 @@ import {
 } from '@/core/hook'
 import { useTextDeferred } from '@/components/clip/text-fields'
 import { useStyleWrites } from '@/components/clip/style-writes'
+import { useCommitOnUnmount } from '@/components/clip/use-commit-on-unmount'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -567,18 +568,23 @@ function NumberField({
   const id = useId()
   const [draft, setDraft] = useState(String(value))
   const [seen, setSeen] = useState(value)
+  const [dirty, setDirty] = useState(false)
   if (seen !== value) {
     setSeen(value)
     setDraft(String(value))
+    setDirty(false)
   }
 
   function commit() {
+    setDirty(false)
     const parsed = draft.trim() === '' ? Number.NaN : Number(draft)
     if (!Number.isFinite(parsed)) return setDraft(String(value))
     const bounded = Math.min(max, Math.max(min, Math.round(parsed)))
     setDraft(String(bounded))
     if (bounded !== value) onCommit(bounded)
   }
+
+  useCommitOnUnmount(dirty, commit)
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -594,7 +600,10 @@ function NumberField({
           max={max}
           disabled={disabled}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            setDirty(true)
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -639,12 +648,15 @@ function DurationField({
 
   const [draft, setDraft] = useState(String(seconds))
   const [seen, setSeen] = useState(seconds)
+  const [dirty, setDirty] = useState(false)
   if (seen !== seconds) {
     setSeen(seconds)
     setDraft(String(seconds))
+    setDirty(false)
   }
 
   function commit() {
+    setDirty(false)
     const parsed = draft.trim() === '' ? Number.NaN : Number(draft)
     if (!Number.isFinite(parsed)) return setDraft(String(seconds))
     const bounded = Math.min(maxSeconds, Math.max(minSeconds, parsed))
@@ -652,6 +664,8 @@ function DurationField({
     setDraft(String(ms / 1000))
     if (ms !== value) onCommit(ms)
   }
+
+  useCommitOnUnmount(dirty, commit)
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -671,7 +685,10 @@ function DurationField({
           max={maxSeconds}
           disabled={disabled}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            setDirty(true)
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -706,17 +723,22 @@ function ColorField({
   const id = useId()
   const [draft, setDraft] = useState(value)
   const [seen, setSeen] = useState(value)
+  const [dirty, setDirty] = useState(false)
   if (seen !== value) {
     setSeen(value)
     setDraft(value)
+    setDirty(false)
   }
 
   function commit() {
+    setDirty(false)
     const trimmed = draft.trim().toUpperCase()
     if (!/^#[0-9A-F]{6}$/.test(trimmed)) return setDraft(value)
     setDraft(trimmed)
     if (trimmed !== value) onCommit(trimmed)
   }
+
+  useCommitOnUnmount(dirty, commit)
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -733,7 +755,10 @@ function ColorField({
           id={id}
           disabled={disabled}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            setDirty(true)
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {

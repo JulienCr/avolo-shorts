@@ -46,4 +46,39 @@ describe('useStyleWrites', () => {
     await act(async () => {})
     expect(onWriteFailure).toHaveBeenCalledTimes(1)
   })
+
+  /**
+   * Le rejet d'une écriture périmée (issue #283) : sur le modèle de
+   * `usePatchClip`, un jeton par écriture fait ignorer le rejet d'une
+   * écriture qui n'est plus la dernière partie — sans quoi une réponse
+   * tardive fermerait la modale sur un échec déjà réparé par la suivante.
+   */
+  it('ignore le rejet d’une écriture devenue périmée, mais pas celui de la dernière', async () => {
+    const onWriteFailure = vi.fn()
+    let rejectStale!: (error: Error) => void
+    const stale = new Promise<void>((_resolve, reject) => {
+      rejectStale = reject
+    })
+    const writeStyle = vi.fn().mockReturnValueOnce(stale).mockResolvedValueOnce(undefined)
+    const { result } = renderHook(() => useStyleWrites({ a: 1 }, writeStyle, onWriteFailure))
+
+    // Deux écritures parties avant que la première ne se règle : la seconde
+    // aboutit, puis la première — toujours en vol — est rejetée.
+    act(() => result.current.setStyle('a', 2))
+    act(() => result.current.setStyle('a', 3))
+    await act(async () => {})
+    rejectStale(new Error('stale'))
+    await act(async () => {})
+
+    expect(onWriteFailure).not.toHaveBeenCalled()
+
+    // Un rejet sur la dernière écriture, lui, doit toujours s'annoncer.
+    const writeStyleLast = vi.fn().mockRejectedValueOnce(new Error('refused'))
+    const { result: lastResult } = renderHook(() =>
+      useStyleWrites({ a: 1 }, writeStyleLast, onWriteFailure),
+    )
+    act(() => lastResult.current.setStyle('a', 4))
+    await act(async () => {})
+    expect(onWriteFailure).toHaveBeenCalledTimes(1)
+  })
 })

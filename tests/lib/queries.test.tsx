@@ -11,14 +11,16 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
+import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { DEFAULT_DESCRIPTION_FOOTER, DEFAULT_SCHEDULE_HOURS, FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
-import type { ClipDetail, ExportResult, PatchClipResult, RunPlan, Settings } from '@/lib/api'
+import type { Clip, ClipDetail, ExportResult, PatchClipResult, RunPlan, Settings } from '@/lib/api'
 import {
   keys,
+  useClip,
+  useClipRevision,
   useCreateProject,
   useExporter,
   usePatchClip,
@@ -328,6 +330,166 @@ describe('usePatchClip', () => {
     })
 
     expect(client.getQueryData<ClipDetail>(keys.clip('c1'))?.framing).toEqual(winner)
+  })
+})
+
+/**
+ * `Timeline` bâtit la clé de cache-busting de sa planche sur cette révision
+ * (issue #280) : `onMutate` écrit l'optimiste dans le même cache que
+ * `clip.segments`, de façon synchrone, au départ du `PATCH` — avant que le
+ * serveur ait répondu. Ces tests pincent la fenêtre que ça laissait ouverte,
+ * et l'amendement qui l'a suivie : un compteur qui avancerait sur toute
+ * écriture confirmée busterait le cache sur un champ sans rapport.
+ */
+describe('useClipRevision (issue #280)', () => {
+  function clipOf(id: string, segments: { start: number; end: number }[] = [{ start: 0, end: 20 }]): Clip {
+    return {
+      id,
+      projectId: 'p1',
+      segments,
+      ratio: 'auto',
+      cropX: 0.5,
+      captions: true,
+      branding: true,
+      footer: true,
+      title: 'Un titre',
+      description: '',
+      status: 'kept',
+      pass: 1,
+      hookText: '',
+      hookBadge: '',
+      hookStyle: {},
+      framingStyle: {},
+    }
+  }
+
+  function seedAndRender(id: string) {
+    const { client, envelope } = harness()
+    client.setQueryData<ClipDetail>(keys.clip(id), {
+      clip: clipOf(id),
+      project: { id: 'p1', title: 'p1', durationSec: 60, createdAt: '' },
+      lines: [],
+      proxyUrl: null,
+      outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+      framing: framing({ shots: [shot(0, 20, '1:1', 0.5)] }),
+    })
+    return {
+      client,
+      ...renderHook(
+        () => {
+          useClip(id) // amorce la révision confirmée, comme en production
+          return { patch: usePatchClip(), confirmed: useClipRevision(id) }
+        },
+        { wrapper: envelope },
+      ),
+    }
+  }
+
+  it('n’avance pas tant que le PATCH n’a pas de réponse — la fenêtre optimiste elle-même', () => {
+    const id = 'c-280-inflight'
+    let resolveFetch!: (r: Response) => void
+    const pending = new Promise<Response>((resolve) => {
+      resolveFetch = resolve
+    })
+    vi.stubGlobal('fetch', vi.fn(() => pending))
+    const { result } = seedAndRender(id)
+
+    act(() => {
+      void result.current.patch
+        .mutateAsync({ clipId: id, projectId: 'p1', patch: { segments: [{ start: 0, end: 30 }] } })
+        .catch(() => {})
+    })
+    // `onMutate` a déjà écrit l'optimiste dans le cache que lit `useClip` ;
+    // la révision **confirmée**, elle, ne doit pas avoir bougé.
+    expect(result.current.confirmed.revision).toBe(0)
+
+    act(() => {
+      resolveFetch(
+        response({
+          applied: true,
+          clip: clipOf(id, [{ start: 0, end: 30 }]),
+          outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+          framing: framing({ shots: [shot(0, 30, '1:1', 0.5)] }),
+          seq: 1,
+        } satisfies PatchClipResult),
+      )
+    })
+
+    return waitFor(() => expect(result.current.confirmed.revision).toBe(1))
+  })
+
+  it('n’avance pas sur un champ sans rapport avec les bornes', async () => {
+    const id = 'c-280-unrelated'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        response({
+          applied: true,
+          clip: clipOf(id),
+          outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+          framing: framing({ shots: [shot(0, 20, '1:1', 0.5)] }),
+          seq: 1,
+        } satisfies PatchClipResult),
+      ),
+    )
+    const { result } = seedAndRender(id)
+
+    await act(async () => {
+      await result.current.patch.mutateAsync({ clipId: id, projectId: 'p1', patch: { branding: false } })
+    })
+
+    expect(result.current.confirmed.revision).toBe(0)
+  })
+
+  it('avance quand les bornes confirmées par le serveur changent réellement', async () => {
+    const id = 'c-280-moved'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        response({
+          applied: true,
+          clip: clipOf(id, [{ start: 0, end: 15 }]),
+          outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+          framing: framing({ shots: [shot(0, 15, '1:1', 0.5)] }),
+          seq: 1,
+        } satisfies PatchClipResult),
+      ),
+    )
+    const { result } = seedAndRender(id)
+
+    await act(async () => {
+      await result.current.patch.mutateAsync({ clipId: id, projectId: 'p1', patch: { segments: [{ start: 0, end: 15 }] } })
+    })
+
+    expect(result.current.confirmed.revision).toBe(1)
+  })
+
+  it('notifie un abonné déjà monté à l’amorçage (relevé par Copilot et par Aristarque)', () => {
+    // `Child` imbriqué dans `Parent` reproduit l'ordre réel : l'abonnement
+    // de `useClipRevision` s'installe avant l'amorçage de `useClip`, ses
+    // effets partant en premier.
+    const id = 'c-280-mount-order'
+    const { client, envelope } = harness()
+    client.setQueryData<ClipDetail>(keys.clip(id), {
+      clip: clipOf(id, [{ start: 5, end: 25 }]),
+      project: { id: 'p1', title: 'p1', durationSec: 60, createdAt: '' },
+      lines: [],
+      proxyUrl: null,
+      outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+      framing: framing({ shots: [shot(0, 20, '1:1', 0.5)] }),
+    })
+
+    function Child() {
+      const { bounds } = useClipRevision(id)
+      return <div data-testid="bounds">{bounds ? `${bounds.start}-${bounds.end}` : 'vide'}</div>
+    }
+    function Parent() {
+      useClip(id)
+      return <Child />
+    }
+    render(<Parent />, { wrapper: envelope })
+
+    expect(screen.getByTestId('bounds').textContent).toBe('5-25')
   })
 })
 

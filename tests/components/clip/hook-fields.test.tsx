@@ -467,3 +467,47 @@ describe('le badge', () => {
     expect(screen.getByRole('button', { name: /Personnaliser/ }).textContent).toContain('2')
   })
 })
+
+describe('Échap sur un brouillon non validé (issue #282)', () => {
+  it('NumberField committe au démontage plutôt que de perdre la saisie', () => {
+    vi.useRealTimers()
+    const onWrite = vi.fn()
+    mount({ onWrite })
+    openPersonalize()
+
+    const input = screen.getByLabelText('Taille')
+    fireEvent.change(input, { target: { value: '120' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(screen.queryByLabelText('Taille')).toBeNull()
+    expect(onWrite).toHaveBeenCalledWith({ hookStyle: { sizePermille: 120 } })
+  })
+
+  it('DurationField committe au démontage plutôt que de perdre la saisie', () => {
+    vi.useRealTimers()
+    const onWrite = vi.fn()
+    mount({ onWrite })
+    openPersonalize()
+
+    const input = screen.getByLabelText('Durée')
+    fireEvent.change(input, { target: { value: '3.5' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(screen.queryByLabelText('Durée')).toBeNull()
+    expect(onWrite).toHaveBeenCalledWith({ hookStyle: { durationMs: 3_500 } })
+  })
+
+  it('ColorField committe au démontage plutôt que de perdre la saisie', () => {
+    vi.useRealTimers()
+    const onWrite = vi.fn()
+    mount({ onWrite })
+    openPersonalize()
+
+    const input = screen.getByLabelText('Badge — fond')
+    fireEvent.change(input, { target: { value: '#00FF00' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(screen.queryByLabelText('Badge — fond')).toBeNull()
+    expect(onWrite).toHaveBeenCalledWith({ hookStyle: { badgeBackground: '#00FF00' } })
+  })
+})

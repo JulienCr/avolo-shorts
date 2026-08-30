@@ -2,11 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import {
+  activeDubbing,
+  activeSplit,
+  effectiveRatio,
+  isComputedFraming,
+  useCurrentShot,
+} from '@/components/clip/framing'
 import { usePlayback } from '@/components/clip/playback'
+import { useClipRevision } from '@/lib/queries'
 import { TranscriptDrawer } from '@/components/clip/transcript-drawer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { normalizeSegments, type Segment } from '@/core/edl'
-import type { PublishedFraming } from '@/lib/api'
+import type { Clip, PublishedFraming } from '@/lib/api'
+import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
 import { clipBounds, type ClipWord, type IndexedLine } from '@/lib/editing'
 import { formatDuration, formatSpan, formatTimecode } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -76,8 +85,9 @@ export type BandMode = 'time' | 'words'
 export function Timeline({
   clipId,
   segments,
-  savedSegments,
   framing,
+  ratio,
+  cropX,
   proxyUrl,
   sourceDuration,
   onScrub,
@@ -93,16 +103,12 @@ export function Timeline({
   /** L'identifiant du clip : construit l'URL de la planche, sépare le transcript d'un clip à l'autre. */
   clipId: string
   segments: Segment[]
-  /**
-   * Le montage tel que le serveur le connaît — la référence de
-   * `useAutosave`, jamais `segments`. La planche ne se recharge qu'une
-   * fois la borne confirmée : la lier au montage optimiste la ferait
-   * demander une image que le serveur n'a pas encore, pendant les 600 ms
-   * de temporisation. (relevé par Copilot)
-   */
-  savedSegments: Segment[]
   /** Les plans traversés, publiés par le serveur. On les lit, on ne les calcule pas. */
   framing: PublishedFraming
+  /** Pour `ShotFrameLine`, dans le pied de la bande. */
+  ratio: Clip['ratio']
+  /** Idem, ignoré sur un plan split ou de doublage. */
+  cropX: number
   proxyUrl: string | null
   /** La durée de l'émission. Elle borne ce qu'un glissé peut demander. */
   sourceDuration: number
@@ -228,10 +234,9 @@ export function Timeline({
     setDrag(null)
   }, [drag, onScrub, onBoundary])
 
-  // Un glissé qui se termine hors de la bande — sur la marge, hors de la
-  // fenêtre — doit quand même se conclure. Même raison que dans le transcript :
-  // sans cet écouteur, le survol continuerait de déplacer au retour de la
-  // souris, bouton relâché.
+  // Un glissé qui finit hors de la bande doit quand même se conclure — sans
+  // cet écouteur, le survol continuerait de déplacer au retour de la souris,
+  // bouton relâché. Même raison que dans le transcript.
   useEffect(() => {
     if (drag === null) return
     const release = () => commit()
@@ -243,7 +248,10 @@ export function Timeline({
     }
   }, [drag, commit])
 
-  const savedBounds = clipBounds(savedSegments)
+  // `useClip` amorce l'état confirmé au premier chargement, `onSuccess` seul
+  // le fait avancer (issue #280) : ni la fenêtre optimiste du `PATCH` ni un
+  // champ sans rapport (couleur, sous-titres) ne rebustent la planche.
+  const { revision, bounds: confirmedBounds } = useClipRevision(clipId)
   const span = view.end - view.start
   const toFraction = (t: number) => Math.min(Math.max((t - view.start) / span, 0), 1)
 
@@ -381,10 +389,14 @@ export function Timeline({
                       style={{
                         left: `${toFraction(bounds.start) * 100}%`,
                         width: `${Math.max(0, toFraction(bounds.end) - toFraction(bounds.start)) * 100}%`,
-                        // `savedBounds`, pas `bounds` : sinon le navigateur
-                        // garde une planche déjà chargée pendant les 600 ms
-                        // où le serveur ne les connaît pas encore.
-                        backgroundImage: `url("/api/clips/${encodeURIComponent(clipId)}/filmstrip${savedBounds !== null ? `?bounds=${savedBounds.start.toFixed(2)}-${savedBounds.end.toFixed(2)}` : ''}")`,
+                        // `bounds` rend la clé correcte à travers un rechargement, que le
+                        // `GET` initial restaure avant tout `PATCH` ; `rev` est le compteur
+                        // générique que l'issue demandait, pour un futur consommateur sans bornes.
+                        backgroundImage: `url("/api/clips/${encodeURIComponent(clipId)}/filmstrip${
+                          confirmedBounds !== null
+                            ? `?bounds=${confirmedBounds.start.toFixed(2)}-${confirmedBounds.end.toFixed(2)}&rev=${revision}`
+                            : ''
+                        }")`,
                         backgroundSize: '100% 100%',
                       }}
                     />
@@ -532,18 +544,26 @@ export function Timeline({
             </>
           )}
 
-          {/* **Le pied de la bande, dans les deux modes.** La poignée pour
-              approcher, le champ pour poser à l'image près (spec du 28 août,
-              §4.3) : les deux visent la même écriture, donc les deux valent
-              quel que soit le viseur choisi au-dessus. */}
+          {/* **Le pied de la bande, dans les deux modes** (spec du 28 août,
+              §4.3), où segments et cadre rejoignent A/B et durée (issue
+              #277) : un `<dl>` séparé doublait « Bornes » et coûtait 62 px. */}
           {bounds !== null && (
-            <div className="flex items-center gap-3">
+            <div
+              data-testid="band-footer"
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.75rem] text-muted-foreground"
+            >
               <BoundField label="A" seconds={bounds.start} edge="start" onCommit={commitBound} />
               <BoundField label="B" seconds={bounds.end} edge="end" onCommit={commitBound} />
-              <span className="flex items-baseline gap-1 text-[0.75rem] text-muted-foreground">
+              <span className="flex items-baseline gap-1">
                 durée
                 <span className="font-mono tabular-nums text-foreground">{formatDuration(duration)}</span>
               </span>
+              <span aria-hidden>·</span>
+              <span>
+                {segments.length} segment{segments.length > 1 ? 's' : ''}
+              </span>
+              <span aria-hidden>·</span>
+              <ShotFrameLine framing={framing} ratio={ratio} cropX={cropX} />
             </div>
           )}
         </TabsContent>
@@ -860,21 +880,39 @@ function useFramePreview(drag: Drag | null, proxyUrl: string | null) {
 }
 
 /**
- * Un temps tapé au clavier — `h:mm:ss`, `m:ss` ou `ss`. `null` devant une
- * saisie qui ne s'y prête pas : une ambiguïté se rejette, elle ne se devine
- * pas au hasard.
+ * Un temps tapé au clavier — `h:mm:ss:ff`, `h:mm:ss`, `m:ss` ou `ss`. `null`
+ * devant une saisie qui ne s'y prête pas : une ambiguïté se rejette, elle ne
+ * se devine pas au hasard.
+ *
+ * **La composante d'image, en dernier**, garde le format réversible avec ce
+ * que `BoundField` affiche : sans elle, retaper une borne à l'image près la
+ * ramenait à la seconde pleine (issue #279).
  */
 function parseTimecode(text: string): number | null {
   const parts = text.trim().split(':')
-  if (parts.length === 0 || parts.length > 3 || parts.some((p) => !/^\d+$/.test(p))) return null
+  if (parts.length === 0 || parts.length > 4 || parts.some((p) => !/^\d+$/.test(p))) return null
+  const hasFrame = parts.length === 4
+  const frame = hasFrame ? Number(parts[parts.length - 1]) : 0
+  if (hasFrame && frame >= 30) return null
+  const timeParts = hasFrame ? parts.slice(0, -1) : parts
   // Les parties `mm`/`ss` sont strictement inférieures à 60 : `1:90` ne
   // vaut rien, il ne se relit pas comme `2:30`. (relevé par Aristarque)
-  if (parts.slice(1).some((p) => Number(p) >= 60)) return null
-  const result = parts.reduce((total, part) => total * 60 + Number(part), 0)
+  if (timeParts.slice(1).some((p) => Number(p) >= 60)) return null
+  const wholeSeconds = timeParts.reduce((total, part) => total * 60 + Number(part), 0)
+  const result = wholeSeconds + frame / 30
   // Une chaîne de centaines de chiffres passe le regex et déborde en
   // `Infinity`, qu'`onCommit` écrirait comme borne — rejeté ici plutôt
   // que laissé à l'autosave, qui le tournerait en `null`. (relevé par Aristarque)
   return Number.isFinite(result) ? result : null
+}
+
+/**
+ * Le timecode affiché par `BoundField`, à l'image près — `h:mm:ss:ff`,
+ * réversible avec `parseTimecode`. `formatDuration`, arrondi à la seconde,
+ * perdait jusqu'à 29 images à chaque saisie (issue #279).
+ */
+function formatBoundTimecode(seconds: number): string {
+  return `${formatTimecode(seconds)}:${String(frameWithinSecond(seconds)).padStart(2, '0')}`
 }
 
 /**
@@ -910,12 +948,14 @@ function BoundField({
     <label className="flex items-center gap-1 text-[0.75rem] text-muted-foreground">
       {label}
       <input
-        // Le libellé visible reste `A`/`B` ; le nom accessible reprend celui
-        // des oreilles (`Handle`, plus bas), lisible hors contexte.
-        // (relevé par Copilot)
-        aria-label={edge === 'start' ? 'Borne d’entrée' : 'Borne de sortie'}
-        className="w-20 rounded border bg-background px-1.5 py-0.5 font-mono text-[0.75rem] text-foreground tabular-nums"
-        value={draft ?? formatDuration(seconds)}
+        // WCAG 2.5.3 : le nom accessible commence par le libellé visible
+        // (`A`/`B`), sans quoi « dire A » ne trouve rien à la commande vocale.
+        aria-label={`${label} — ${edge === 'start' ? 'Borne d’entrée' : 'Borne de sortie'}`}
+        // 10 caractères pour `h:mm:ss:ff` (ex. `1:31:12:26`) + le rembourrage
+        // horizontal (`px-1.5`) et la bordure — pas le prochain cran Tailwind
+        // choisi à l'œil, qui tronquait la dernière image (issue #277).
+        className="w-[calc(10ch+0.875rem)] rounded border bg-background px-1.5 py-0.5 font-mono text-[0.75rem] text-foreground tabular-nums"
+        value={draft ?? formatBoundTimecode(seconds)}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         // **`Entrée` valide, sans forcer le flou.** Un `blur()` immédiat
@@ -928,5 +968,42 @@ function BoundField({
         }}
       />
     </label>
+  )
+}
+
+/**
+ * Le cadre du plan sous la lecture, en toutes lettres (issue #277).
+ *
+ * **Un composant à part** : il s'abonne à la position de lecture, qui change
+ * quatre fois par seconde — lu dans `Timeline`, il ferait re-rendre le
+ * transcript virtualisé et le lecteur à cette cadence.
+ *
+ * **Ni ratio ni pourcentage sur un plan split ou de doublage** : l'un n'a pas
+ * de position de crop unique, l'autre laisse la composition placer les tuiles.
+ */
+function ShotFrameLine({
+  framing,
+  ratio,
+  cropX,
+}: {
+  framing: PublishedFraming
+  ratio: Clip['ratio']
+  cropX: number
+}) {
+  const shot = useCurrentShot(framing)
+  const effective = effectiveRatio(shot, ratio)
+  const position = isComputedFraming(framing) ? (shot?.cropX ?? 0.5) : cropX
+  const percent = Math.round(clampCropX(position, cropWidthFraction(effective)) * 100)
+  const split = activeSplit(shot, framing, ratio)
+  const dubbing = activeDubbing(shot, framing, ratio)
+  return (
+    <span className="font-mono tabular-nums text-foreground">
+      {split ? 'split' : dubbing ? 'doublage' : `${effective} · ${percent} %`}
+      {shot?.source === 'default' && (
+        <span className="ml-1 font-sans text-amber-500 dark:text-amber-400">
+          rien mesuré sur ce plan
+        </span>
+      )}
+    </span>
   )
 }

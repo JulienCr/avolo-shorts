@@ -220,3 +220,33 @@ describe('sans réglages globaux chargés', () => {
     ).not.toBeNull()
   })
 })
+
+describe('Échap sur un brouillon non validé (issue #282)', () => {
+  it('committe le brouillon au démontage plutôt que de le perdre', () => {
+    const onWrite = vi.fn()
+    mount({ onWrite })
+    openPersonalize()
+
+    const input = screen.getByLabelText('Plancher de taille')
+    fireEvent.change(input, { target: { value: '250' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(screen.queryByLabelText('Plancher de taille')).toBeNull()
+    expect(onWrite).toHaveBeenCalledWith({ framingStyle: { sizeFloorPermille: 250 } })
+  })
+
+  it('un blur suivi d’Échap n’envoie qu’un seul PATCH (regression du commit 649d605)', () => {
+    const onWrite = vi.fn()
+    mount({ onWrite })
+    openPersonalize()
+
+    const input = screen.getByLabelText('Plancher de taille')
+    fireEvent.change(input, { target: { value: '250' } })
+    fireEvent.blur(input)
+    expect(onWrite).toHaveBeenCalledTimes(1)
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByLabelText('Plancher de taille')).toBeNull()
+    expect(onWrite).toHaveBeenCalledTimes(1)
+  })
+})

@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { dubbingShotCount } from '@/components/clip/framing'
 import { useStyleWrites } from '@/components/clip/style-writes'
+import { useCommitOnUnmount } from '@/components/clip/use-commit-on-unmount'
 import {
   FRAMING_BOUNDS,
   FRAMING_SETTINGS_DEFAULTS,
@@ -228,12 +229,15 @@ function NumberField({
   const id = useId()
   const [draft, setDraft] = useState(String(value))
   const [seen, setSeen] = useState(value)
+  const [dirty, setDirty] = useState(false)
   if (seen !== value) {
     setSeen(value)
     setDraft(String(value))
+    setDirty(false)
   }
 
   function commit() {
+    setDirty(false)
     const parsed = draft.trim() === '' ? Number.NaN : Number(draft)
     if (!Number.isFinite(parsed)) return setDraft(String(value))
     // `Math.trunc`, jamais `Math.round` : une valeur saisie se tronque vers le
@@ -242,6 +246,8 @@ function NumberField({
     setDraft(String(bounded))
     if (bounded !== value) onCommit(bounded)
   }
+
+  useCommitOnUnmount(dirty, commit)
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -257,7 +263,10 @@ function NumberField({
           max={max}
           disabled={disabled}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            setDirty(true)
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {

@@ -41,9 +41,6 @@ Object.defineProperty(HTMLElement.prototype, 'scrollHeight', { configurable: tru
 Element.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
   this.scrollTop = typeof options === 'object' ? (options.top ?? this.scrollTop) : this.scrollTop
 }
-// Ni `scrollIntoView` (boutons « Temps »/« Mots », spec §2.5) : jsdom ne
-// l'implémente pas du tout, contrairement à `scrollTo`.
-Element.prototype.scrollIntoView = function () {}
 // jsdom n'a pas de canevas : `getContext` y lève « Not implemented » et
 // salirait la sortie de la suite. Le rendre nul est ce qu'un navigateur sans
 // contexte 2D ferait, et l'aperçu s'en garde déjà.
@@ -328,30 +325,29 @@ describe('le geste courant', () => {
   })
 
   it('montre le transcript aux côtés du geste courant, plus derrière un mode', () => {
-    // Amendé le 30 août (nuit) : la bande et le transcript coexistent en
-    // permanence (spec §2.5) — le fond du changement (vérifier, ajuster deux
-    // textes, exporter) n'a plus à choisir entre les deux, ils sont montrés
-    // ensemble d'emblée.
+    // Amendé le 30 août (nuit) : bande et transcript coexistent en
+    // permanence (spec §2.5), plus besoin de choisir entre les deux pour
+    // vérifier, ajuster deux textes, exporter.
     expect(screen.queryByText(/m0-0/)).not.toBeNull()
     expect(screen.getByLabelText('Titre')).toBeTruthy()
     expect(screen.getByRole('button', { name: /exporter/i })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Mots/ })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Transcript du clip' })).toBeTruthy()
   })
 
   it('garde toutes les capacités du transcript derrière une action', async () => {
     // **Ne pas retirer des capacités, ne les afficher que lorsqu'on en a
     // besoin.** Chercher, retirer, poser les bornes, annuler, rétablir — ces
-    // deux derniers vivent dans la barre d'app, atteignable dans les deux modes.
+    // deux derniers vivent dans la barre d'app, toujours atteignable.
     await openEditing()
     expect(screen.getByText(/m0-0/)).toBeTruthy()
     expect(screen.getByRole('button', { name: /annuler/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /rétablir/i })).toBeTruthy()
   })
 
-  it('laisse les raccourcis vivre en mode Mots', async () => {
-    // Le mode Mots n'est plus un modal à exempter : rien ne fait plus écran
-    // entre lui et les raccourcis de la garde. Le clip va de 100 à 120 ; `I`
-    // sur le premier mot du contexte le fait commencer au début du transcript.
+  it('laisse les raccourcis vivre à côté du transcript', async () => {
+    // Rien ne fait plus écran entre le transcript et les raccourcis de la
+    // garde. Le clip va de 100 à 120 ; `I` sur le premier mot du contexte
+    // le fait commencer au début du transcript.
     await openEditing()
     const word = screen.getByText(/m0-0/)
     fireEvent.pointerDown(word)
@@ -360,10 +356,10 @@ describe('le geste courant', () => {
     expect(useEditor.getState().history.present[0].start).toBeCloseTo(0, 5)
   })
 
-  it('l’échap referme la recherche, pas le mode Mots', async () => {
+  it('l’échap referme la recherche, sans démonter le transcript', async () => {
     // Sans tiroir modal à refermer, `Échap` n'a plus qu'un niveau à dépiler :
-    // la barre de recherche ferme sur sa propre touche (`transcript-surface.tsx`),
-    // et le mode reste celui qu'on a choisi.
+    // la barre de recherche ferme sur sa propre touche
+    // (`transcript-surface.tsx`), le transcript reste monté.
     await openEditing()
     fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
     await screen.findByLabelText('Chercher dans le transcript')
@@ -384,24 +380,21 @@ describe('le geste courant', () => {
     await waitFor(() => expect(document.activeElement).toBe(field))
   })
 
-  it('garde une sélection agissante quand on regarde la bande à côté', async () => {
-    // Amendé le 30 août (nuit) : il n'y a plus de porte à quitter — le
-    // transcript reste visible, donc la sélection qu'il porte reste
-    // visible et agissante avec lui. `Suppr` doit encore retirer le
-    // passage sélectionné après un aller-retour par le bouton « Temps ».
+  it('garde une sélection agissante, la bande restant visible à côté', async () => {
+    // Amendé le 30 août (nuit) : il n'y a plus de porte à quitter, ni de
+    // bouton pour y passer — la bande et le transcript coexistent, donc
+    // rien ne clôt plus la sélection que le transcript porte.
     await openEditing()
     // L'appui suffit à sélectionner : le relâchement sur un mot barré le
     // remonterait, ce qui vide la sélection par un autre chemin.
     fireEvent.pointerDown(screen.getByText(/m0-0/))
     expect(useEditor.getState().selection).not.toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: /Temps/ }))
-    expect(useEditor.getState().selection).not.toBeNull()
   })
 
   it('vide aussi la sélection en quittant Édition par Exports', async () => {
-    // Le commutateur Temps/Mots n'est pas le seul chemin de sortie : l'onglet
-    // Exports démonte `Timeline` directement, sans passer par lui. (relevé par Copilot)
+    // L'onglet Exports démonte `Timeline` directement — le seul chemin qui
+    // vide encore la sélection, depuis que la bande et le transcript
+    // coexistent sans mode à quitter. (relevé par Copilot)
     await openEditing()
     fireEvent.pointerDown(screen.getByText(/m0-0/))
     expect(useEditor.getState().selection).not.toBeNull()
@@ -428,12 +421,12 @@ describe('le geste courant', () => {
     await waitFor(() => expect(useEditor.getState().selection).toBeNull())
   })
 
-  it('bascule en mode Mots avec la recherche sur Ctrl+F', async () => {
-    // Le transcript n'est plus visible en permanence : une barre de recherche
-    // ouverte sur une surface fermée ne chercherait nulle part.
+  it('ouvre la recherche dans le transcript déjà visible, sur Ctrl+F', async () => {
+    // Le transcript est déjà monté (spec §2.5) : `Ctrl+F` n'a plus qu'à y
+    // ouvrir la barre, sans rien démonter ni basculer.
+    expect(screen.getByRole('group', { name: 'Transcript du clip' })).toBeTruthy()
     fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
-    await screen.findByRole('group', { name: 'Transcript du clip' })
-    expect(screen.getByLabelText('Chercher dans le transcript')).toBeTruthy()
+    expect(await screen.findByLabelText('Chercher dans le transcript')).toBeTruthy()
   })
 })
 

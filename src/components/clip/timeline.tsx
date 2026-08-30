@@ -106,24 +106,22 @@ export function Timeline({
   onScrub: (time: number) => void
   /** Une borne posée à la fin d'un geste. **Une seule par geste** : voir `commit`. */
   onBoundary: (time: number, edge: 'start' | 'end') => void
-  /** Le transcript, pour le mode Mots — la même donnée que la surface d'édition. */
+  /** Le transcript, toujours affiché à côté de la bande — la même donnée que la surface d'édition. */
   lines: IndexedLine[]
   words: ClipWord[]
-  /** La phrase à amener sous les yeux à l'ouverture du mode Mots. */
+  /** La phrase à amener sous les yeux au montage du transcript. */
   firstLine: number
-  /** La durée montée, dans le pied de la bande et le mode Mots. */
+  /** La durée montée, dans le pied de la bande et dans le transcript. */
   duration: number
   search: boolean
   onSearch: (open: boolean) => void
-  /** Place la lecture sur ce mot, depuis le mode Mots. */
+  /** Place la lecture sur ce mot, depuis le transcript. */
   onPlay: (index: number) => void
 }) {
   // Bande et transcript coexistent en permanence (spec du 30 août, §2.5) :
   // plus de mode à faire suivre `search`, la recherche (`Ctrl+F`) s'ouvre
   // directement dans le transcript déjà monté.
   const track = useRef<HTMLDivElement>(null)
-  const bandRef = useRef<HTMLDivElement>(null)
-  const transcriptRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
   const bounds = clipBounds(segments)
   // Une durée nulle voudrait dire « aucune position n'est atteignable » et
@@ -283,27 +281,7 @@ export function Timeline({
 
   return (
     <div className="relative flex flex-col gap-1">
-      {/* Bande et transcript coexistent (spec §2.5) : ces deux boutons ne
-          basculent plus rien, ils amènent l'un ou l'autre dans le viewport —
-          utile une fois la colonne assez longue pour défiler (§2.1). */}
-      <div className="flex items-center gap-3 text-[0.75rem] text-muted-foreground">
-        <button
-          type="button"
-          className="hover:text-foreground"
-          onClick={() => bandRef.current?.scrollIntoView({ block: 'nearest' })}
-        >
-          <span aria-hidden>◷</span> Temps
-        </button>
-        <button
-          type="button"
-          className="hover:text-foreground"
-          onClick={() => transcriptRef.current?.scrollIntoView({ block: 'nearest' })}
-        >
-          <span aria-hidden>❞</span> Mots
-        </button>
-      </div>
-
-      <div ref={bandRef}>
+      <div>
         {bounds === null ? (
           // Tout a été retiré : il n'y a plus de bornes, donc pas de bande.
           // Le transcript, juste en dessous, reste la façon d'y remonter un
@@ -518,7 +496,7 @@ export function Timeline({
           déjà son propre `role="group" aria-label="Transcript du clip"`,
           avec sa hauteur bornée (`h-56`) et son défilement interne — en
           doubler un autour créerait un second point de repère ambigu. */}
-      <div ref={transcriptRef}>
+      <div>
         <TranscriptDrawer
           clipId={clipId}
           lines={lines}
@@ -565,11 +543,9 @@ export function Timeline({
  * timecode seul reste identique vingt-neuf fois de suite.
  */
 function frameWithinSecond(time: number): number {
-  // **La tolérance n'est pas de la prudence.** `(100 + 1/30 - 100) / (1/30)`
-  // vaut un cheveu de moins que 1 en binaire : sans elle, la première flèche
-  // depuis une seconde entière annonce encore « image 0 », c'est-à-dire
-  // exactement le silence que cette annonce existe pour rompre.
-  // (relevé par Copilot)
+  // La tolérance n'est pas de la prudence : `(100 + 1/30 - 100) / (1/30)`
+  // vaut un cheveu de moins que 1 en binaire, sans quoi la première flèche
+  // depuis une seconde entière annoncerait encore « image 0 ». (Copilot)
   return Math.min(29, Math.floor((time - Math.floor(time)) / FRAME_STEP + 1e-6))
 }
 

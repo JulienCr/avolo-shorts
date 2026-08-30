@@ -370,9 +370,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     poserBound: (edge) => {
       if (selection) editor.poserBound(words, selection.head, edge)
     },
-    // `Ctrl+F` demande la recherche : la bande bascule elle-même en mode
-    // Mots, sinon une barre ouverte sur une surface fermée ne chercherait
-    // nulle part.
+    // `Ctrl+F` demande la recherche : le transcript est toujours monté,
+    // la barre trouve donc toujours une surface où chercher.
     find: () => setSearch(true),
     help: () => setHelp(true),
     aSelection: selection !== null,
@@ -565,9 +564,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         <Tabs
           value={view}
           onValueChange={(v) => {
-            // Quitter Édition démonte `Timeline` directement, sans passer
-            // par le commutateur Temps/Mots interne : une sélection y
-            // resterait sinon, atteignable par `Suppr`. (relevé par Copilot)
+            // Quitter Édition démonte `Timeline` directement : une
+            // sélection y resterait sinon, atteignable par `Suppr`.
+            // (relevé par Copilot)
             if (view === 'edition' && v !== 'edition') {
               editor.clearSelection()
               setSearch(false)
@@ -720,18 +719,17 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
 
             {duration === 0 && (
               // Le cas prévu côté serveur et qui n'avait pas de rendu propre :
-              // tout a été retiré. **Il se dit hors du mode Mots**, sinon il
-              // faudrait y passer pour apprendre qu'il n'y a plus de montage.
+              // tout a été retiré. Le transcript, toujours visible, est déjà
+              // là pour le dire (spec du 30 août, §2.5).
               <p className="shrink-0 text-[0.75rem] text-muted-foreground">
-                Il ne reste rien du clip. Passer en mode Mots pour le reconstruire : cliquer un mot
-                barré le fait recommencer là.
+                Il ne reste rien du clip. Cliquer un mot barré dans le transcript le fait
+                recommencer là.
               </p>
             )}
 
-            {/* **Deux viseurs d'un même montage** (spec du 28 août, §4.1) :
-                `Temps` peint la piste et ses repères, `Mots` lui substitue le
-                transcript — la surface d'édition du clip (spec §13,
-                `CLAUDE.md`), qui ne monte plus derrière un tiroir. */}
+            {/* La bande et le transcript coexistent (spec du 30 août, §2.5) :
+                la surface d'édition du clip (spec §13, `CLAUDE.md`) est
+                toujours montée, plus derrière un mode ni un tiroir. */}
             <div role="group" aria-label="Montage" className="rounded-lg border p-4">
               <Timeline
                 clipId={clip.id}

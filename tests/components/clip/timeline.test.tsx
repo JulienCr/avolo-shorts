@@ -30,9 +30,6 @@ beforeAll(() => {
   Element.prototype.hasPointerCapture = function () {
     return true
   }
-  // Boutons « Temps »/« Mots » (spec §2.5) : jsdom n'implémente pas du tout
-  // `scrollIntoView`, contrairement à `scrollTo`.
-  Element.prototype.scrollIntoView = function () {}
 })
 
 /**
@@ -387,32 +384,13 @@ describe('les deux familles de repères', () => {
 
 describe('Temps | Mots — coexistence (spec du 30 août, §2.5)', () => {
   it('montre le ruban et le transcript en permanence, ensemble', () => {
+    // Les boutons « Temps »/« Mots » sont retirés (revue du 30 août) : ils
+    // gardaient l'apparence d'une bascule sans plus rien basculer, ce que
+    // le propriétaire a lu comme cassé. Il ne reste que la coexistence.
     mount()
 
     expect(screen.queryByTestId('filmstrip')).not.toBeNull()
     expect(screen.getByRole('group', { name: 'Transcript du clip' })).toBeTruthy()
-  })
-
-  it('« Mots » fait défiler le transcript dans le viewport, sans rien démonter', async () => {
-    const user = userEvent.setup()
-    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
-    mount()
-
-    await user.click(screen.getByRole('button', { name: /Mots/ }))
-
-    expect(scrollIntoView).toHaveBeenCalled()
-    expect(screen.queryByTestId('filmstrip')).not.toBeNull()
-    expect(screen.getByRole('group', { name: 'Transcript du clip' })).toBeTruthy()
-  })
-
-  it('« Temps » fait défiler la bande dans le viewport', async () => {
-    const user = userEvent.setup()
-    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
-    mount()
-
-    await user.click(screen.getByRole('button', { name: /Temps/ }))
-
-    expect(scrollIntoView).toHaveBeenCalled()
   })
 })
 

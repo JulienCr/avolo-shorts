@@ -107,8 +107,8 @@ export function TranscriptDrawer({
           </>
         ) : duration === 0 ? (
           // Le cas prévu côté serveur, et le transcript reste la façon d'en
-          // sortir. L'écran le dit aussi hors du mode Mots, autrement : ici,
-          // c'est le geste qui compte.
+          // sortir. `clip-screen.tsx` le dit aussi, à côté ; ici, c'est le
+          // geste qui compte.
           <p className="text-[0.75rem] text-muted-foreground">
             Cliquer un mot barré fait recommencer le clip là.
           </p>

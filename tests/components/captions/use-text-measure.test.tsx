@@ -30,6 +30,25 @@ function fakeFontFaceSet(loaded: Set<string>) {
   } as unknown as FontFaceSet
 }
 
+/**
+ * Comme `fakeFontFaceSet`, mais `load()` charge réellement la **première**
+ * famille de la requête dans `loaded` avant de résoudre — jamais le repli.
+ * Exerce le chemin `false → load() → onStoreChange() → true`.
+ */
+function fakeFontFaceSetThatLoads(loaded: Set<string>) {
+  return {
+    status: 'loading',
+    check: (font: string) => parseFamilies(font).every((f) => loaded.has(f)),
+    load: (font: string) =>
+      // Chargement différé d'un micro-tick : sans ça, `loaded` serait déjà
+      // rempli avant le premier rendu, et le cas ne verrait jamais `false`.
+      Promise.resolve().then(() => {
+        loaded.add(parseFamilies(font)[0])
+        return []
+      }),
+  } as unknown as FontFaceSet
+}
+
 afterEach(() => {
   cleanup()
   Reflect.deleteProperty(document, 'fonts')
@@ -48,6 +67,21 @@ describe('useFontReady', () => {
     const { result } = renderHook(() => useFontReady("'hookFont', 'hookFont Fallback'"))
 
     await waitFor(() => expect(result.current).toBe(true))
+  })
+
+  it('bascule de faux à vrai une fois la première famille chargée et la notification reçue', async () => {
+    const loaded = new Set<string>()
+    Object.defineProperty(document, 'fonts', {
+      value: fakeFontFaceSetThatLoads(loaded),
+      configurable: true,
+    })
+
+    const { result } = renderHook(() => useFontReady("'hookFont', 'hookFont Fallback'"))
+
+    expect(result.current).toBe(false)
+
+    await waitFor(() => expect(result.current).toBe(true))
+    expect(loaded.has('hookFont Fallback')).toBe(false)
   })
 
   it("reste faux si la première famille elle-même n'est jamais chargée", async () => {

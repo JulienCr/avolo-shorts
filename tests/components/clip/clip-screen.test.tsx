@@ -606,6 +606,22 @@ describe('la fiche éditoriale, à côté de la source', () => {
   })
 })
 
+// jsdom ne mesure rien (`getBoundingClientRect` y est bouché à une valeur
+// fixe, voir la tête de fichier) : ce test pin la structure qui causait le
+// débordement mesuré en phase 1, pas la géométrie elle-même — vérifiée dans
+// un vrai navigateur, voir le plan de la tâche 1.
+describe('la rangée source+fiche, débordement (spec du 30 août §1.1/§4.1-§4.2)', () => {
+  it('ne pose plus min-h-0 ni max-h-[58vh] sur la rangée', async () => {
+    await mount('c2')
+
+    const image = screen.getByRole('region', { name: 'Image' })
+    const row = within(image).getByLabelText('Titre').closest('[data-slot="source-row"]')
+    expect(row).toBeTruthy()
+    expect(row?.className).not.toMatch(/(^|\s)min-h-0(\s|$)/)
+    expect(row?.className).not.toMatch(/max-h-\[58vh\]/)
+  })
+})
+
 describe('les valeurs limites', () => {
   it('désactive « clip précédent » sur le premier', async () => {
     await mount('c1')

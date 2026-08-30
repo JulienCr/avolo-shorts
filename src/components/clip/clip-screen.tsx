@@ -673,12 +673,13 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               Image
             </h2>
 
-            {/* **La source et la fiche éditoriale, côte à côte.** Le hook
-                brûle dans l'image : son champ doit rester visible en même
-                temps qu'elle. La fiche vise 30 % du volet, bornée entre
-                360 et 620 px — au-delà, elle voudrait dire une ligne plus
-                large que ce qu'un téléphone affiche jamais. */}
-            <div className="flex min-h-0 flex-wrap items-start gap-4 workbench:flex-nowrap workbench:max-h-[58vh]">
+            {/* `min-h-0` forçait la rangée sous la hauteur de sa figure — débordement
+                mesuré sur le transport et la bande (spec §4.2). Retiré, avec
+                `max-h-[58vh]` : la section défile au besoin si le total dépasse. */}
+            <div
+              data-slot="source-row"
+              className="flex flex-wrap items-start gap-4 workbench:flex-nowrap"
+            >
               <figure className="flex min-w-0 flex-1 flex-col gap-1.5">
                 <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
                   la source — le rectangle est le cadre pris pour ce plan

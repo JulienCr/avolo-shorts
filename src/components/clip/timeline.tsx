@@ -972,8 +972,7 @@ function BoundField({
 }
 
 /**
- * Le cadre du plan sous la lecture, en toutes lettres (issue #277) —
- * dans le pied de la bande, à côté de « segments ».
+ * Le cadre du plan sous la lecture, en toutes lettres (issue #277).
  *
  * **Un composant à part** : il s'abonne à la position de lecture, qui change
  * quatre fois par seconde — lu dans `Timeline`, il ferait re-rendre le

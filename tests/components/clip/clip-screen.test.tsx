@@ -309,7 +309,7 @@ describe('le pied de la bande (issue #277, deuxième lecture)', () => {
     await mount('c2', d)
     const value = screen.getByTestId('band-footer').textContent ?? ''
     expect(value).toContain('split')
-    expect(value).not.toMatch(/\d %/)
+    expect(value).not.toMatch(/%/)
   })
 
   it('ne dit ni ratio ni pourcentage sur un plan de doublage', async () => {

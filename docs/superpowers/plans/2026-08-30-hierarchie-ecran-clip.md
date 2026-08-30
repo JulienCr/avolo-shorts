@@ -724,8 +724,9 @@ recalculé) :
 2. `matchMedia('(min-width: 1024px) and (min-height: 640px)')` vaut `true` à
    1920×937 (un 1080p réel, chrome de fenêtre déduit) — le critère de recette
    du seuil.
-3. La colonne Image montre visuellement trois blocs distincts (Source,
-   Montage, Outils), chacun avec une bordure — la question du §8 de la spec du
+3. La colonne Image montre visuellement trois blocs distincts (Source et
+   Montage bordées, Outils en simple ligne — la tâche 3 ne borde
+   délibérément que les deux premières) — la question du §8 de la spec du
    28 août (« un inconnu peut-il dire en trois secondes ce qu'on vient faire
    ici ? ») se repose, humaine, non tranchée automatiquement.
 4. Sur le clip de référence (un plan de doublage), la légende du viseur ne

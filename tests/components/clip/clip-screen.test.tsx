@@ -633,6 +633,8 @@ describe('les cartes de la colonne Image (spec du 30 août §2.1-§2.3)', () => 
     const montage = screen.getByRole('group', { name: 'Montage' })
     expect(within(source).getByLabelText('Titre')).toBeTruthy()
     expect(within(montage).getByTestId('filmstrip')).toBeTruthy()
+    expect(source.className).toMatch(/\bborder\b/)
+    expect(montage.className).toMatch(/\bborder\b/)
   })
 })
 
@@ -700,11 +702,8 @@ describe('l’enregistrement en échec', () => {
 describe('le surlignage, dès l’ouverture', () => {
   it('connaît les mots même quand le store porte déjà ce clip', async () => {
     // L'écran remet la lecture à zéro au changement de clip **et** publie les
-    // mots du transcript. Dans le mauvais ordre, la remise à zéro efface les
-    // mots aussitôt publiés, et plus rien ne se surligne jusqu'à la première
-    // coupe — sur l'écran dont c'est une des deux nouveautés.
-    // Rouvert : `charger` n'a rien à faire, donc l'écran ne rend qu'une fois et
-    // l'ordre des deux effets décide seul de ce qui reste publié.
+    // mots du transcript ; dans le mauvais ordre, la remise à zéro efface les
+    // mots aussitôt publiés et rien ne se surligne jusqu'à la première coupe.
     await mount('c2')
     await findTranscript()
     cleanup()

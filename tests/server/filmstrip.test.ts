@@ -155,10 +155,12 @@ describe('filmstrip', () => {
     })
 
     const destination = filmstripPath(PROJECT, CLIP)
-    await filmstrip(baseClip())
-    renameSpy.mockRestore()
-
-    expect(renameSpy).not.toHaveBeenCalled()
+    try {
+      await filmstrip(baseClip())
+      expect(renameSpy).not.toHaveBeenCalled()
+    } finally {
+      renameSpy.mockRestore()
+    }
     expect(getClip(getDb(), CLIP)?.segments).toEqual([{ start: 60, end: 90 }])
     expect(fs.existsSync(destination)).toBe(true)
   })
@@ -213,10 +215,12 @@ describe('vignette', () => {
     })
 
     const destination = vignettePath(PROJECT, CLIP)
-    await vignette(baseClip())
-    renameSpy.mockRestore()
-
-    expect(renameSpy).not.toHaveBeenCalled()
+    try {
+      await vignette(baseClip())
+      expect(renameSpy).not.toHaveBeenCalled()
+    } finally {
+      renameSpy.mockRestore()
+    }
     expect(getClip(getDb(), CLIP)?.segments).toEqual([{ start: 60, end: 90 }])
     expect(fs.existsSync(destination)).toBe(true)
   })

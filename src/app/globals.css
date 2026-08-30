@@ -5,29 +5,31 @@
 @custom-variant dark (&:is(.dark *));
 
 /**
- * L'établi de l'écran de clip (spec du 23 août, §3.3) : deux volets fixes qui
- * ne défilent pas, à condition d'avoir la place. La largeur seule ne suffit
- * pas — un 1024 px de large mais 800 px de haut écraserait les deux aperçus
- * sous les contrôles du volet gauche plutôt que de les montrer. Les deux
- * conditions sont donc dans UNE variante plutôt que deux `lg:`/`h-[…]:`
- * séparées : en dessous de l'une ou de l'autre, l'écran repasse en lecture
- * verticale qui défile, comme avant ce lot.
+ * L'établi de l'écran de clip : deux colonnes côte à côte, à condition que la
+ * sortie 9:16 (le volet droit, la seule pièce qui ne défile jamais) y ait une
+ * taille qui vaille le coup. La largeur seule ne suffit pas — voir le
+ * commentaire original du 23 août, dans l'historique, pour ce raisonnement.
  *
- * **1000 px de hauteur, mesuré et non deviné.** À 1416 px de large, la somme
- * de tout ce qui entoure les aperçus — barre d'app (48 px), fresque des clips
- * (145,5 px, portée par les vignettes 16:9 de 144 px de large), transport
- * (50 px), bande de temps (70 px), sélecteur de ratio (108 px), faits de
- * montage (84 px), déclencheur du tiroir (28 px), « Réglages du rendu »
- * (28 px), rail (83 px), plus les huit marges entre ces blocs (84 px) et le
- * remplissage du volet (32 px) — pèse 780,5 px, mesurés en `getBoundingClientRect`
- * dans un vrai Chrome. En dessous, la hauteur qui reste aux aperçus s'écroule
- * vite : encore 219,5 px à 1000 px de fenêtre (aperçu source 348×196), 20 px
- * à 800 (aperçus à zéro — la fenêtre la plus basse citée par le contrat de ce
- * lot tombe *sous* ce plancher, exprès : c'est le côté qui doit replier). Le
- * chiffre choisi laisse un aperçu déjà confortable au plancher même, et
- * grandit linéairement au-dessus.
+ * **Recalculé le 30 août 2026** (spec `2026-08-30-hierarchie-ecran-clip-design.md`,
+ * §3.4), sur une question plus faible que celle du 23 août. Le volet gauche
+ * défile désormais au besoin (`workbench:overflow-y-auto`, posé sur la
+ * section « Image » de `clip-screen.tsx`) : le seuil n'a plus à garantir que
+ * tout y tienne, seulement que le volet droit soit confortable.
+ *
+ *   chrome fixe au-dessus des deux colonnes, mesuré et robuste à la largeur :
+ *     barre d'app (48) + fresque des clips (146) + remplissage de `main` (32)
+ *     = 226 px
+ *   hauteur de sortie 9:16 en dessous de laquelle un aperçu vertical cesse de
+ *     rendre service : 400 px (≈ 225 px de large) — **choisi par le
+ *     propriétaire**, pas dérivé d'une mesure
+ *   seuil = 226 + 400 = 626, arrondi à 640
+ *
+ * **Choisi pour rester sous un 1080p réel** (~937 px de hauteur utile
+ * mesurés, fenêtre et barre des tâches Windows déduites) — le volet fixe à
+ * deux colonnes y est donc atteignable, contrairement au seuil de 1000 px
+ * qu'il remplace.
  */
-@custom-variant workbench (@media (min-width: 1024px) and (min-height: 1000px));
+@custom-variant workbench (@media (min-width: 1024px) and (min-height: 640px));
 
 /** Un pointeur sans survol (tactile) doit voir les actions d'une carte sans y toucher. */
 @custom-variant hoverless (@media (hover: none));

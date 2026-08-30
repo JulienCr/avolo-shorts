@@ -47,7 +47,7 @@ export function filmstripCountForBox(widthPx: number, heightPx: number): number 
  * servie, seulement pas au meilleur rapport.
  */
 export function parseFilmstripCount(raw: string | null): number {
-  if (raw === null) return FILMSTRIP_COUNT_DEFAULT
+  if (raw === null || raw === '') return FILMSTRIP_COUNT_DEFAULT
   const parsed = Number(raw)
   if (!Number.isInteger(parsed)) return FILMSTRIP_COUNT_DEFAULT
   return clampCount(parsed)

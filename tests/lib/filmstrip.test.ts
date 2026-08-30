@@ -32,6 +32,7 @@ describe('filmstripCountForBox', () => {
 describe('parseFilmstripCount', () => {
   it('rend le défaut sans paramètre, ou sur une valeur non entière', () => {
     expect(parseFilmstripCount(null)).toBe(FILMSTRIP_COUNT_DEFAULT)
+    expect(parseFilmstripCount('')).toBe(FILMSTRIP_COUNT_DEFAULT)
     expect(parseFilmstripCount('12.5')).toBe(FILMSTRIP_COUNT_DEFAULT)
     expect(parseFilmstripCount('douze')).toBe(FILMSTRIP_COUNT_DEFAULT)
   })

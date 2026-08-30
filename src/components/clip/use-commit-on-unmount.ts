@@ -9,9 +9,11 @@ import { useEffect, useRef } from 'react'
  */
 export function useCommitOnUnmount(dirty: boolean, commit: () => void) {
   const dirtyRef = useRef(dirty)
-  dirtyRef.current = dirty
   const commitRef = useRef(commit)
-  commitRef.current = commit
+  useEffect(() => {
+    dirtyRef.current = dirty
+    commitRef.current = commit
+  })
 
   useEffect(
     () => () => {

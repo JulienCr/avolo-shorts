@@ -685,6 +685,46 @@ describe('l’échec d’une écriture directe', () => {
   })
 })
 
+describe('deux écritures directes indépendantes (issue #283)', () => {
+  it('un échec sur les marques reste annoncé après un succès sur les sous-titres', async () => {
+    // `patch.isError` ne décrit que la dernière mutation de l'observateur
+    // partagé : sans un suivi par champ, l'écriture des sous-titres qui
+    // aboutit efface le seul signe que les marques, elles, ont échoué.
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') {
+        const body = JSON.parse(String(options.body)) as Record<string, unknown>
+        if ('branding' in body) throw new Error('réseau coupé')
+        return response({ applied: true, clip: detail('c2').clip, outputs: detail('c2').outputs, seq: 1 })
+      }
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    await mount('c2')
+
+    openRenderSettings()
+    fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
+    await screen.findByText(/échec de l’enregistrement/i)
+
+    openRenderSettings()
+    fireEvent.click(screen.getByRole('checkbox', { name: /sous-titres/i }))
+    await waitFor(() =>
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length).toBe(2),
+    )
+    closeRenderSettings()
+
+    expect(screen.getByText(/échec de l’enregistrement/i)).toBeTruthy()
+
+    const before = fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length
+    fireEvent.click(screen.getByRole('button', { name: /réessayer/i }))
+    await waitFor(() =>
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length).toBe(before + 1),
+    )
+  })
+})
+
 describe('l’export et les écritures qui se chevauchent', () => {
   it('reste bloqué tant qu’une écriture est en vol, même si une plus récente est passée', async () => {
     // `isPending` ne décrit que le dernier appel de l'observateur, que tous les

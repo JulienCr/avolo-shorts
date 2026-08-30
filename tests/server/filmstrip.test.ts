@@ -1,10 +1,11 @@
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Clip } from '@/core/edl'
-import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
+import { closeDb, getClip, getDb, putClip, replaceClips, upsertProject } from '@/server/db'
 
 vi.mock('@/server/ffmpeg', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/server/ffmpeg')>()
@@ -17,7 +18,7 @@ vi.mock('@/server/ffmpeg', async (importOriginal) => {
 })
 
 const { runFfmpeg } = await import('@/server/ffmpeg')
-const { filmstrip, filmstripPath } = await import('@/server/thumbs')
+const { filmstrip, filmstripPath, vignette, vignettePath } = await import('@/server/thumbs')
 const { GET } = await import('@/app/api/clips/[id]/filmstrip/route')
 
 const PROJECT = '2026-01-11-méchante'
@@ -131,6 +132,93 @@ describe('filmstrip', () => {
     expect(fs.existsSync(destination)).toBe(false)
     const leftovers = fs.readdirSync(path.dirname(destination)).filter((f) => f.includes('.partiel-'))
     expect(leftovers).toEqual([])
+  })
+
+  /**
+   * **La course #274, sans timing à deviner.** On intercepte `fsp.rename` :
+   * si l'appel a lieu, on joue dedans l'éviction concurrente exacte du
+   * rapport — elle ne trouve rien à effacer puisque le fichier n'existe pas
+   * encore — avant de renommer pour de vrai. Sur l'ancien code, l'appel a
+   * lieu et publie une planche périmée. Le correctif n'appelle plus jamais
+   * `fsp.rename` : `fs.renameSync` ne laisse aucun point d'attente entre la
+   * garde et la publication où une telle éviction pourrait s'intercaler.
+   */
+  it('ne publie jamais une planche périmée si une éviction concurrente s’intercale dans le renommage', async () => {
+    putClip(getDb(), baseClip())
+    writeProxy()
+
+    const originalRename = fsp.rename
+    const renameSpy = vi.spyOn(fsp, 'rename').mockImplementation(async (src, dst) => {
+      fs.rmSync(dst.toString(), { force: true })
+      putClip(getDb(), { ...baseClip(), segments: [{ start: 60, end: 80 }] })
+      return originalRename.call(fsp, src, dst)
+    })
+
+    const destination = filmstripPath(PROJECT, CLIP)
+    await filmstrip(baseClip())
+    renameSpy.mockRestore()
+
+    expect(renameSpy).not.toHaveBeenCalled()
+    expect(getClip(getDb(), CLIP)?.segments).toEqual([{ start: 60, end: 90 }])
+    expect(fs.existsSync(destination)).toBe(true)
+  })
+})
+
+describe('vignette', () => {
+  it('rend null sans proxy', async () => {
+    putClip(getDb(), baseClip())
+    expect(await vignette(baseClip())).toBeNull()
+  })
+
+  it('produit la vignette puis la réutilise', async () => {
+    putClip(getDb(), baseClip())
+    writeProxy()
+    const first = await vignette(baseClip())
+    expect(first).not.toBeNull()
+    expect(fs.existsSync(first as string)).toBe(true)
+
+    const second = await vignette(baseClip())
+    expect(second).toBe(first)
+  })
+
+  /**
+   * Alignement avec `filmstrip` : un clip disparu pendant l'extraction ne
+   * publie rien — `vignette` publiait auparavant sur ce cas (`toDay !==
+   * undefined && …`), au lieu de fermer comme `filmstrip`.
+   */
+  it('rend null et ne publie rien pour un clip effacé pendant l’extraction', async () => {
+    putClip(getDb(), baseClip())
+    writeProxy()
+    vi.mocked(runFfmpeg).mockImplementationOnce(async (args: string[]) => {
+      replaceClips(getDb(), PROJECT, [])
+      fs.writeFileSync(args[args.length - 1], Buffer.from('jpeg'))
+    })
+
+    const result = await vignette(baseClip())
+    expect(result).toBeNull()
+
+    const destination = vignettePath(PROJECT, CLIP)
+    expect(fs.existsSync(destination)).toBe(false)
+  })
+
+  it('ne publie jamais une vignette périmée si une éviction concurrente s’intercale dans le renommage', async () => {
+    putClip(getDb(), baseClip())
+    writeProxy()
+
+    const originalRename = fsp.rename
+    const renameSpy = vi.spyOn(fsp, 'rename').mockImplementation(async (src, dst) => {
+      fs.rmSync(dst.toString(), { force: true })
+      putClip(getDb(), { ...baseClip(), segments: [{ start: 65, end: 90 }] })
+      return originalRename.call(fsp, src, dst)
+    })
+
+    const destination = vignettePath(PROJECT, CLIP)
+    await vignette(baseClip())
+    renameSpy.mockRestore()
+
+    expect(renameSpy).not.toHaveBeenCalled()
+    expect(getClip(getDb(), CLIP)?.segments).toEqual([{ start: 60, end: 90 }])
+    expect(fs.existsSync(destination)).toBe(true)
   })
 })
 

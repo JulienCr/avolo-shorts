@@ -4,12 +4,11 @@
  *
  *     pnpm tsx scripts/measure-caption-geometry.ts
  *
- * Brûle deux cartons connus sur 1080×1920 (ffmpeg statique réel), mesure au
- * pixel — cadratin, interligne, extents, distance bas d'encre → bas du
- * cadre — et compare chaque grandeur à la fraction que `CaptionOverlay`
- * pose. Sort non-zéro si un écart dépasse 2 px sur 1920. Chaque mesure isole
- * un mot AU REPOS (`columnClusters`) : le mot actif grossit de 108 % à
- * partir de 110 ms, ce que ce script ne veut pas confondre avec la géométrie.
+ * Brûle deux cartons connus sur 1080×1920, mesure au pixel — cadratin,
+ * interligne, extents, distance bas d'encre → bas du cadre — et compare à
+ * la fraction que `CaptionOverlay` pose. Sort non-zéro si un écart dépasse
+ * 2 px sur 1920. Chaque mesure isole un mot AU REPOS (`columnClusters`) : le
+ * mot actif grossit de 108 % dès 110 ms, à ne pas confondre avec la géométrie.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -63,14 +62,13 @@ const RESTING_SAMPLE_SEC = 1.0 // dans la fenêtre du second événement (0,3 �
 
 /**
  * Neuf répétitions d'un mot court, forcé sur trois lignes égales (3+3+3),
- * échantillonné pendant que le mot actif est sur la ligne 3 — les lignes 1
- * et 2, seules mesurées, restent alors **toutes les deux** au repos dans la
- * MÊME image.
+ * échantillonné avec le mot actif sur la ligne 3 : les lignes 1 et 2, seules
+ * mesurées, restent alors toutes les deux au repos dans la MÊME image.
  *
- * **Deux lignes ne suffisent pas** : le mot actif y est forcément sur l'une
- * des deux qu'on veut comparer, et deux images séparées (une par ligne
- * active) mesurent un interligne à 129 px — 9 px de trop face aux 120 px
- * qu'un contenu identique sans aucun mot actif mesure réellement.
+ * **Deux lignes ne suffisent pas** — vérifié : le mot actif y est forcément
+ * sur l'une des deux comparées, et deux images séparées (une par ligne
+ * active) mesurent 129 px d'interligne, 9 px de trop face au contenu identique
+ * sans aucun mot actif (120 px, la valeur réelle).
  */
 function threeLineCard(): Word[] {
   const repeats = 9

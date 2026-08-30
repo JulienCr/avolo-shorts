@@ -129,14 +129,13 @@ export const PLAYRES_X = 384
 
 /**
  * `ctx.measureText` (Anton) sous-estime de 35-37 % la largeur réellement
- * rendue par libass — mesuré le 28 août 2026 (Copilot, PR #249). **Ce n'est
- * pas une imprécision de `measureText`** : c'est `ASS_FONTSIZE_TO_EM ×
+ * rendue par libass — mesuré le 28 août 2026 (Copilot, PR #249). **Pas une
+ * imprécision de `measureText`** : c'est `ASS_FONTSIZE_TO_EM ×
  * (PLAYRES_X/PLAYRES_Y) / (1080/1920) = 1,3675`, la conversion
  * `Fontsize`→cadratin (`font-metrics.ts`) composée avec le désaccord
- * d'aspect ASS (4:3) / sortie 9:16 réelle. 1,4 arrondit au-dessus par
- * prudence — dérivé le 30 août 2026, voir `docs/lessons.md`. **Valide
- * seulement pour un canevas 1080×1920** : sur 1080×1080 ce facteur vaudrait
- * 0,769 — piège latent tant que `RENDER_NATIVE` reste à `false`.
+ * d'aspect ASS (4:3) / sortie 9:16 réelle, arrondi par prudence — dérivé le
+ * 30 août 2026, `docs/lessons.md`. **Valide seulement en 1080×1920** : sur
+ * 1080×1080 ce facteur vaudrait 0,769, piège latent tant que `RENDER_NATIVE` est `false`.
  */
 const CANVAS_TO_REAL_WIDTH_FACTOR = 1.4
 
@@ -306,14 +305,11 @@ const ACTIVE_WORD_PEAK_SCALE = 1.08 // seule source du 108 de la balise, pour ne
 
 /**
  * La répartition en lignes d'un carton, en mots déjà affichables — la
- * coupure que `renderAss` écrit en `\N` et que `CaptionOverlay` reproduit en
- * boîtes. Une seule fonction, deux consommateurs (même motif que
- * `hookGeometry`, `@/core/hook`) ; `measure` est injecté, ce module ne
- * mesure rien lui-même (`tests/core/purete.test.ts`).
+ * coupure que `renderAss` écrit en `\N` et `CaptionOverlay` reproduit en
+ * boîtes. `measure` est injecté, ce module ne mesure rien lui-même.
  *
  * @returns Un mot par cellule, une ligne par élément extérieur — jamais de
- *   chaîne jointe, pour repérer un mot précis par sa position (le mot actif
- *   d'un `Dialogue`, le mot survolé d'un aperçu).
+ *   chaîne jointe, pour repérer un mot précis (le mot actif d'un `Dialogue`).
  */
 export function captionLines(card: readonly Word[], style: CaptionStyle, measure: Measure): string[][] {
   if (card.length === 0) return []

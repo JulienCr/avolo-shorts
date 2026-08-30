@@ -24,16 +24,12 @@ const CANVAS = outputSize('9:16')
 
 /**
  * Le calque de preview du hook, dans l'aperçu 9:16 (`output-preview.tsx`).
- *
- * **La boîte vient de `hookGeometry` (`@/core/hook`)** — la même fonction
- * que `renderHookImage`, mesurée par un `<canvas>` du navigateur plutôt que
- * composée par un `inline-block` : largeur, hauteur, position et retour à
- * la ligne sont posés explicitement en `cqw`, jamais `cqh` — sans
- * conséquence, `CANVAS` partage l'aspect exact de la boîte porteuse.
- *
- * **`data-hook="card"`/`"badge"`** servent les tests. **L'empilement suit
- * l'ordre du DOM, sans `zIndex`** : la pastille, frère suivant du carton
- * dans le JSX, le recouvre déjà par défaut — même ordre que le rasteriseur.
+ * **La boîte vient de `hookGeometry`** — même fonction que `renderHookImage`,
+ * mesurée par un `<canvas>` du navigateur au lieu d'un `inline-block` :
+ * largeur, hauteur, position et retour à la ligne sont posés en `cqw`,
+ * jamais `cqh` (sans conséquence, `CANVAS` partage l'aspect de la boîte).
+ * `data-hook="card"`/`"badge"` servent les tests. La pastille recouvre le
+ * carton par simple ordre du DOM (frère suivant), sans `zIndex`.
  */
 export function HookOverlay({ hook }: { hook: ResolvedHook }) {
   const family = hookFont.style.fontFamily

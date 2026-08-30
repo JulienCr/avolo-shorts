@@ -13,6 +13,7 @@ import type { PersonBox } from '@/core/shots'
 import { applySettings, closeDb, effectiveSettings, getClip, openDb, putClip, upsertProject } from '@/server/db'
 import { analysisPath } from '@/server/paths'
 import { renderedFraming } from '@/server/steps/render'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * La résolution du cadrage côté serveur.
@@ -29,7 +30,7 @@ import { renderedFraming } from '@/server/steps/render'
 const ID = 'projet-de-test'
 let root: string
 let projects: string
-const envStart = { ...process.env }
+const restoreEnv = snapshotEnv()
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-cadrage-'))
@@ -41,7 +42,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true })
-  process.env = { ...envStart }
+  restoreEnv()
   forgetAnalyses()
 })
 

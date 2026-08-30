@@ -13,6 +13,7 @@ import {
   SCHEMA_ANALYSIS,
   ANALYSIS_VERSIONS,
 } from '@/server/steps/analysis'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * Ce qui se teste de l'analyse sans GPU, sans ffmpeg et sans vidéo : le contrat
@@ -436,7 +437,7 @@ function mountFakeWorker(root: string, load: string): void {
 
 describe('runAnalysis', () => {
   let root: string
-  const envStart = { ...process.env }
+  const restoreEnv = snapshotEnv()
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-analysis-run-'))
@@ -446,7 +447,7 @@ describe('runAnalysis', () => {
 
   afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true })
-    process.env = { ...envStart }
+    restoreEnv()
   })
 
   it('ne refait rien si analysis.json est déjà là', async () => {

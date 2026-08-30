@@ -5,6 +5,7 @@ import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 
 import { GET as serveProxy } from '@/app/api/projects/[id]/proxy/route'
 import { encoderProxy } from '@/server/steps/proxy'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * Le proxy est le seul étage où le GPU **fait perdre du temps**, et c'est
@@ -19,9 +20,9 @@ import { encoderProxy } from '@/server/steps/proxy'
  * ces trois-là n'a de bornes fausses, et aucun ne se voit sans appeler la route.
  */
 
-const envStart = { ...process.env }
+const restoreEnv = snapshotEnv()
 afterEach(() => {
-  process.env = { ...envStart }
+  restoreEnv()
 })
 
 describe('encoderProxy', () => {

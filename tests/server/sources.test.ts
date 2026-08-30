@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SourcesListing } from '@/lib/api'
 import { openDb, upsertProject } from '@/server/db'
 import { editingFstype, listSources } from '@/server/sources'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * Le catalogue des replays, c'est-à-dire **l'entrée du parcours**.
@@ -82,7 +83,7 @@ describe('listSources', () => {
   let root: string
   let replays: string
   let db: Database.Database
-  const envStart = { ...process.env }
+  const restoreEnv = snapshotEnv()
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-sources-'))
@@ -97,7 +98,7 @@ describe('listSources', () => {
   afterEach(() => {
     db.close()
     fs.rmSync(root, { recursive: true, force: true })
-    process.env = { ...envStart }
+    restoreEnv()
   })
 
   function poserVideo(name: string, octets = 1_024): void {
@@ -326,9 +327,15 @@ describe('listSources', () => {
   it('dit « absent », pas « muet », sur un REPLAY_DIR mal orthographié', async () => {
     process.env.REPLAY_DIR = path.join(replays, 'Repaly')
 
-    const listing = await listSources({ db })
-    expect(listing.editing.available).toBe(false)
-    expect(listing.editing.cause).toBe('absent')
+    // Restaurée dans un `finally` : le test suivant ne doit pas dépendre de
+    // l'`afterEach` du fichier pour hériter d'un `REPLAY_DIR` correct.
+    try {
+      const listing = await listSources({ db })
+      expect(listing.editing.available).toBe(false)
+      expect(listing.editing.cause).toBe('absent')
+    } finally {
+      process.env.REPLAY_DIR = replays
+    }
   })
 
   /**

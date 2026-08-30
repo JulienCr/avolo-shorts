@@ -16,6 +16,7 @@ import {
   stagedPath,
   transcriptPath,
 } from '@/server/paths'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * Spec §5, « où vivent les artefacts ». Ce qui est intrinsèque à la vidéo vit à
@@ -33,7 +34,7 @@ let root: string
 let replay: string
 let stage: string
 let projects: string
-const envStart = { ...process.env }
+const restoreEnv = snapshotEnv()
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-paths-'))
@@ -57,7 +58,7 @@ afterEach(() => {
     // Le dossier peut déjà avoir disparu.
   }
   fs.rmSync(root, { recursive: true, force: true })
-  process.env = { ...envStart }
+  restoreEnv()
 })
 
 describe('les chemins du projet', () => {

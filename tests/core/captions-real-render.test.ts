@@ -7,16 +7,11 @@ import type { Word } from '@/core/transcript'
 import { createCaptionMeasure } from '@/server/caption-measure'
 
 /**
- * Non-régression sur un rendu réel, pas seulement sur la suite de tests.
- *
- * Les deux premiers cartons de
- * `projects/2026-22-02-entre-nous/renders/…001495095-001538044.ass`
- * (`git worktree` gitignore ce dossier, symlinké en local) sont reconstruits
- * en `Word[]` depuis les événements du fichier réel — un mot par
- * `Dialogue`, borné par son `Start` et le `Start` du suivant, comme
- * `renderAss` les écrit — puis rejoués par `captionLines`/`renderAss` avec
- * le style et la mesure de production. Le second carton exerce le retour à
- * la ligne (`\N` après « MODE, »), le premier ne l'exerce pas.
+ * Non-régression sur un rendu réel (`projects/` est gitignoré, absent d'un
+ * worktree qui ne l'a pas symlinké). Les deux premiers cartons du `.ass`
+ * réel sont reconstruits en `Word[]` — un mot par `Dialogue`, borné par son
+ * `Start` et celui du suivant — puis rejoués par `renderAss` en production.
+ * Le second carton exerce le retour à la ligne, le premier ne l'exerce pas.
  */
 const FONTS_DIR = path.join(process.cwd(), 'fonts')
 const REAL_ASS = path.join(

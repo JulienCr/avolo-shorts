@@ -129,18 +129,14 @@ export const PLAYRES_X = 384
 
 /**
  * `ctx.measureText` (Anton) sous-estime de 35-37 % la largeur réellement
- * rendue par libass — mesuré le 28 août 2026 sur trois textes (Copilot,
- * PR #249). **Ce n'est pas une imprécision de `measureText`** : c'est
- * `ASS_FONTSIZE_TO_EM × (PLAYRES_X/PLAYRES_Y) / (1080/1920) = 1,3675` — la
- * conversion `Fontsize`→cadratin (`font-metrics.ts`) composée avec le
- * désaccord d'aspect entre le repère ASS (4:3) et la sortie 9:16 réelle.
- * 1,4 arrondit au-dessus par prudence (2,4 % conservateur), dérivé le 30 août
- * 2026 — voir `docs/lessons.md`. Suivi (autres tailles) : #260.
- *
- * **Valide seulement pour un canevas 1080×1920.** Le terme `1080/1920` est le
- * ratio du natif 9:16, seule sortie où `RENDER_NATIVE` s'applique aujourd'hui ;
- * un canevas 1080×1080 changerait ce facteur à 0,769 — piège latent tant que
- * `RENDER_NATIVE` reste à `false`.
+ * rendue par libass — mesuré le 28 août 2026 (Copilot, PR #249). **Ce n'est
+ * pas une imprécision de `measureText`** : c'est `ASS_FONTSIZE_TO_EM ×
+ * (PLAYRES_X/PLAYRES_Y) / (1080/1920) = 1,3675`, la conversion
+ * `Fontsize`→cadratin (`font-metrics.ts`) composée avec le désaccord
+ * d'aspect ASS (4:3) / sortie 9:16 réelle. 1,4 arrondit au-dessus par
+ * prudence — dérivé le 30 août 2026, voir `docs/lessons.md`. **Valide
+ * seulement pour un canevas 1080×1920** : sur 1080×1080 ce facteur vaudrait
+ * 0,769 — piège latent tant que `RENDER_NATIVE` reste à `false`.
  */
 const CANVAS_TO_REAL_WIDTH_FACTOR = 1.4
 
@@ -166,14 +162,11 @@ export function captionUnits(
 
 /**
  * Le contour d'un mot, en fractions **distinctes par axe** de la largeur et
- * de la hauteur du canevas de sortie.
- *
- * **libass met le contour à l'échelle par `PlayResX`/`PlayResY`, pas par un
- * cadratin isotrope** — mesuré le 30 août 2026 sur `PUTAIN` (5,50 px
- * d'épaisseur horizontale mesurée contre 5,63 prédits, 13,00 px verticale
- * contre 13,33) : voir `docs/lessons.md`. `-webkit-text-stroke`, lui, est
- * isotrope et ne peut pas le rendre — d'où deux fractions plutôt qu'une,
- * consommées par un anneau de `text-shadow` côté aperçu.
+ * de la hauteur du canevas — libass met le contour à l'échelle par
+ * `PlayResX`/`PlayResY`, pas par un cadratin isotrope (mesuré le 30 août
+ * 2026 sur `PUTAIN`, voir `docs/lessons.md`). `-webkit-text-stroke`, lui,
+ * est isotrope et ne peut pas le rendre — d'où un anneau de `text-shadow`
+ * côté aperçu, consommant ces deux fractions plutôt qu'une seule.
  */
 export function captionOutlineFractions(
   borderUnits: number,
@@ -306,29 +299,21 @@ export function fontName(name: string): string {
   return clean === '' ? FONT_BY_DEFAULT : clean
 }
 
-// L'effet `pop` : le mot actif change de couleur et grossit en 110 ms. La
-// plage 90 → 108 est douce à dessein — le 75 → 112 d'une version antérieure
-// partait de si bas qu'une image saisie en pleine animation se lisait comme un
-// défaut de dimensionnement plutôt que comme un temps fort.
-//
-// Module-scope et non locale à `renderAss` : `captionLines` en a besoin pour
-// la même marge anti-débordement, et une seule source évite que les deux
-// finissent par diverger.
+// L'effet `pop` (90 → 108 % en 110 ms) — doux à dessein, voir git blame pour
+// la valeur écartée. Module-scope, pas locale à `renderAss` : `captionLines`
+// en a besoin pour la même marge anti-débordement, une seule source.
 const ACTIVE_WORD_PEAK_SCALE = 1.08 // seule source du 108 de la balise, pour ne jamais diverger
 
 /**
- * La répartition en lignes d'un carton, en mots déjà affichables
- * (`captionDisplay` appliqué) — la coupure que `renderAss` écrit en `\N` et
- * que `CaptionOverlay` reproduit en boîtes.
+ * La répartition en lignes d'un carton, en mots déjà affichables — la
+ * coupure que `renderAss` écrit en `\N` et que `CaptionOverlay` reproduit en
+ * boîtes. Une seule fonction, deux consommateurs (même motif que
+ * `hookGeometry`, `@/core/hook`) ; `measure` est injecté, ce module ne
+ * mesure rien lui-même (`tests/core/purete.test.ts`).
  *
- * **Une seule fonction, deux consommateurs, aucun calcul parallèle** (même
- * motif que `hookGeometry`, `@/core/hook`). `measure` est injecté : ce module
- * ne peut mesurer aucun texte lui-même (`tests/core/purete.test.ts`).
- *
- * @returns Un mot par cellule, une ligne par élément du tableau extérieur —
- *   jamais de chaîne déjà jointe, pour que l'appelant puisse encore repérer
- *   un mot précis par sa position (le mot actif d'un événement `Dialogue`,
- *   le mot survolé d'un aperçu).
+ * @returns Un mot par cellule, une ligne par élément extérieur — jamais de
+ *   chaîne jointe, pour repérer un mot précis par sa position (le mot actif
+ *   d'un `Dialogue`, le mot survolé d'un aperçu).
  */
 export function captionLines(card: readonly Word[], style: CaptionStyle, measure: Measure): string[][] {
   if (card.length === 0) return []

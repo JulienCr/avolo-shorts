@@ -25,34 +25,15 @@ const CANVAS = outputSize('9:16')
 /**
  * Le calque de preview du hook, dans l'aperçu 9:16 (`output-preview.tsx`).
  *
- * **Depuis le 30 août 2026, la boîte vient de `hookGeometry` (`@/core/hook`)
- * — la même fonction que `renderHookImage` (`src/server/hook-image.ts`) —,
- * mesurée par un `<canvas>` du navigateur (`use-text-measure.ts`) plutôt que
- * composée par un `inline-block`.** Largeur, hauteur et position de chaque
- * boîte (carton, pastille) sont donc posées explicitement en `cqw`, et le
- * retour à la ligne du carton reprend les lignes de `wrapLines` au lieu de
- * laisser le navigateur recouper librement. Avant ce changement, ce calque
- * ne pouvait promettre l'exactitude que sur la position, le fond, les
- * couleurs, l'arrondi et la taille de police — jamais sur la largeur de
- * boîte elle-même.
+ * **La boîte vient de `hookGeometry` (`@/core/hook`)** — la même fonction
+ * que `renderHookImage`, mesurée par un `<canvas>` du navigateur plutôt que
+ * composée par un `inline-block` : largeur, hauteur, position et retour à
+ * la ligne sont posés explicitement en `cqw`, jamais `cqh` — sans
+ * conséquence, `CANVAS` partage l'aspect exact de la boîte porteuse.
  *
- * **Toutes les grandeurs de `hookGeometry` sont en pixels du canevas passé,
- * donc converties en `cqw` par `canvas.w`, jamais par `canvas.h`.** C'est
- * sans conséquence sur le rendu : la boîte porteuse (`output-preview.tsx`)
- * a `aspect-ratio` posé exactement au ratio de `CANVAS`, donc `cqw(px/w)`
- * et `cqh(px/h)` valent la même longueur affichée pour le même `px` — c'est
- * la même raison pour laquelle le rasteriseur PNG peut, lui, tout dériver de
- * `canvas.w` sans jamais lire `canvas.h`.
- *
- * **`data-hook="card"` et `data-hook="badge"` sont là pour les tests.**
- *
- * **L'empilement suit désormais l'ordre du DOM, sans `zIndex`.** La pastille
- * est un frère qui vient APRÈS le carton dans le JSX : un frère suivant
- * recouvre déjà le précédent par défaut, exactement l'ordre où le
- * rasteriseur peint (carton d'abord, pastille ensuite) — l'ancien `zIndex`
- * compensait un ordre DOM inversé (pastille avant carton, pour un
- * `inline-flex` en colonne) que l'absence de mise en page automatique rend
- * inutile ici.
+ * **`data-hook="card"`/`"badge"`** servent les tests. **L'empilement suit
+ * l'ordre du DOM, sans `zIndex`** : la pastille, frère suivant du carton
+ * dans le JSX, le recouvre déjà par défaut — même ordre que le rasteriseur.
  */
 export function HookOverlay({ hook }: { hook: ResolvedHook }) {
   const family = hookFont.style.fontFamily

@@ -31,10 +31,9 @@ export function createDomMeasure(
   if (typeof document === 'undefined') return () => 0
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
-  // `ctx === null` : pas de vrai canevas 2D (jsdom sans `canvas` npm).
-  // `typeof ctx.measureText !== 'function'` : un contexte mocké par un autre
-  // test (`vi.spyOn(HTMLCanvasElement.prototype, 'getContext')`) qui n'en
-  // porte pas — les deux se replient sur `0`, jamais de coupure.
+  // `ctx === null` (jsdom sans `canvas` npm) ou un mock d'un autre test
+  // sans `measureText` (`vi.spyOn(HTMLCanvasElement.prototype, 'getContext')`)
+  // se replient sur `0`, jamais de coupure.
   if (ctx === null || typeof ctx.measureText !== 'function') return () => 0
   ctx.font = `${options.bold === true ? 'bold ' : ''}${fontSizePx}px ${fontFamily}`
   return (text: string) => ctx.measureText(text).width

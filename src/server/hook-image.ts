@@ -118,21 +118,14 @@ function measurerFor(family: string): HookMeasure {
 }
 
 /**
- * Le PNG du hook, ou `null` quand il n'y a rien à incruster — exactement
- * quand `hookIsBurned(resolved)` est faux, comme `renderHookAss` avant elle.
+ * Le PNG du hook, ou `null` quand il n'y a rien à incruster (`hookIsBurned`).
+ * **La géométrie vient de `hookGeometry` (`@/core/hook`)** — ce fichier ne
+ * fait plus que peindre le résultat.
  *
- * **La géométrie vient de `hookGeometry` (`@/core/hook`)** — la boîte épouse
- * le texte, mesuré réellement (`measureText`), pas estimé. Ce fichier ne fait
- * plus que peindre le résultat.
- *
- * **Depuis le 20 août 2026, l'image est un COMPOSITE** : la pastille du badge,
- * quand il y en a un, est dessinée dans le même PNG, au-dessus du carton et
- * mordant légèrement dessus. Un seul PNG et non deux, parce que tout le reste
- * de la chaîne en dépend : une seconde entrée ffmpeg décalerait
- * `logoInputOffset` (`src/core/ffmpeg/args.ts`), il faudrait un second
- * `hookPlacement` que rien ne garderait accordé au premier, et
- * `PathsRender` passerait de deux fichiers par clip à quatre. Le composite
- * laisse tout cela intact : `renderClip` ne sait même pas qu'un badge existe.
+ * **L'image est un COMPOSITE** : la pastille du badge, quand il y en a un,
+ * est dessinée dans le même PNG que le carton — jamais deux fichiers, pour
+ * ne pas décaler `logoInputOffset` (`@/core/ffmpeg/args`) ni dédoubler
+ * `PathsRender`. `renderClip` ne sait même pas qu'un badge existe.
  */
 export function renderHookImage(
   resolved: ResolvedHook,

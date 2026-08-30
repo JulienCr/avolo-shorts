@@ -549,17 +549,12 @@ export type HookMeasure = (fontSizePx: number) => Measure
 
 /**
  * La géométrie en pixels du composite hook + pastille — extraite de
- * `renderHookImage` (`src/server/hook-image.ts`) pour que le calque de
- * preview (`hook-overlay.tsx`) pose la même boîte sans la recalculer à sa
- * façon. Une seule fonction, deux consommateurs, aucun calcul parallèle —
- * même motif que `captionLines` (`@/core/captions/ass`).
+ * `renderHookImage` pour que le calque de preview pose la même boîte sans
+ * la recalculer (même motif que `captionLines`, `@/core/captions/ass`).
+ * `measure` est injecté : ni `@napi-rs/canvas` ni un `<canvas>` du
+ * navigateur ne peuvent vivre dans `src/core`.
  *
- * **Précondition : `hookIsBurned(resolved)`.** Non vérifiée ici, comme
- * `hookLayout` — c'est à l'appelant de l'avoir déjà écartée.
- *
- * `measure` est injecté : le rasteriseur PNG mesure avec `@napi-rs/canvas`,
- * l'aperçu avec un `<canvas>` du navigateur, et ni l'un ni l'autre ne peut
- * vivre dans `src/core` (frontière de pureté, `tests/core/purete.test.ts`).
+ * **Précondition non vérifiée ici, comme `hookLayout`** : `hookIsBurned(resolved)`.
  */
 export function hookGeometry(
   resolved: ResolvedHook,

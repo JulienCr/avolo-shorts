@@ -1,13 +1,10 @@
 /**
  * Les tables de `fonts/Anton-Regular.ttf` qui régissent la conversion entre
- * `Fontsize` ASS et le `font-size` CSS équivalent.
- *
- * **libass traite `Fontsize` comme une hauteur de ligne** (`usWinAscent +
- * usWinDescent`), pas comme le cadratin que CSS `font-size` utilise — mesuré
- * le 30 août 2026, voir `docs/lessons.md`, « libass et le cadratin d'Anton ».
+ * `Fontsize` ASS et le `font-size` CSS équivalent. **libass traite `Fontsize`
+ * comme une hauteur de ligne** (`usWinAscent + usWinDescent`), pas comme le
+ * cadratin que CSS utilise — mesuré le 30 août 2026, voir `docs/lessons.md`.
  * `tests/server/font-metrics.test.ts` relit ces trois nombres depuis le
- * fichier de police lui-même : un remplacement d'Anton qui les changerait
- * ferait échouer ce test avant de redimensionner l'aperçu en silence.
+ * fichier de police lui-même, pour attraper un remplacement d'Anton.
  */
 export const ANTON_UNITS_PER_EM = 2048
 /** `OS/2.usWinAscent` (2876) + `OS/2.usWinDescent` (674). */

@@ -5,25 +5,18 @@
  *     pnpm tsx scripts/measure-caption-geometry.ts
  *
  * Brûle deux cartons connus sur 1080×1920 (ffmpeg statique réel), mesure au
- * pixel — cadratin, interligne, extents gauche/droite, distance du bas
- * d'encre au bas du cadre — et compare chaque grandeur à la fraction que
- * `CaptionOverlay` pose. Sort non-zéro si un écart dépasse 2 px sur 1920.
- *
- * **Chaque mesure évite le mot ACTIF au moment de la capture.** `\fscx\fscy`
- * grossit le mot actif à 108 % à partir de 110 ms après son début — un mot
- * mesuré pendant qu'il est actif fausserait le cadratin et l'interligne d'un
- * facteur sans rapport avec la géométrie statique que ce script vérifie.
- * Chaque carton porte donc un second mot pour rester actif à sa place, et la
- * capture isole le mot au repos par ses propres extents (`columnClusters`).
+ * pixel — cadratin, interligne, extents, distance bas d'encre → bas du
+ * cadre — et compare chaque grandeur à la fraction que `CaptionOverlay`
+ * pose. Sort non-zéro si un écart dépasse 2 px sur 1920. Chaque mesure isole
+ * un mot AU REPOS (`columnClusters`) : le mot actif grossit de 108 % à
+ * partir de 110 ms, ce que ce script ne veut pas confondre avec la géométrie.
  */
 
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createCanvas, loadImage } from '@napi-rs/canvas'
-
-import { GlobalFonts } from '@napi-rs/canvas'
+import { GlobalFonts, createCanvas, loadImage } from '@napi-rs/canvas'
 
 import {
   captionUnits,
@@ -69,20 +62,15 @@ function restingWordCard(): Word[] {
 const RESTING_SAMPLE_SEC = 1.0 // dans la fenêtre du second événement (0,3 → 1,8)
 
 /**
- * Neuf répétitions d'un mot court, forcé sur trois lignes égales (3+3+3).
- * Échantillonné pendant que le mot actif est sur la ligne 3 : les lignes 1
- * et 2, seules mesurées, sont **toutes les deux** au repos dans la MÊME
- * image — contrairement à un carton à deux lignes, où le mot actif est
- * forcément sur l'une des deux lignes qu'on veut comparer.
+ * Neuf répétitions d'un mot court, forcé sur trois lignes égales (3+3+3),
+ * échantillonné pendant que le mot actif est sur la ligne 3 — les lignes 1
+ * et 2, seules mesurées, restent alors **toutes les deux** au repos dans la
+ * MÊME image.
  *
- * **Pourquoi une troisième ligne est nécessaire.** Comparer les sommets de
- * deux lignes capturées sur deux images différentes (l'une avec la ligne 1
- * active, l'autre avec la ligne 2) a été essayé et donne un interligne
- * mesuré à 129 px — 9 px de trop. Le même contenu rejoué sans aucune balise
- * active (`\N` brut, aucun mot actif nulle part) mesure 120 px, la valeur
- * prédite : le bloc à deux lignes se redimensionne donc légèrement selon
- * QUELLE ligne porte le mot actif, un artefact de bloc que la troisième
- * ligne, elle, absorbe entièrement.
+ * **Deux lignes ne suffisent pas** : le mot actif y est forcément sur l'une
+ * des deux qu'on veut comparer, et deux images séparées (une par ligne
+ * active) mesurent un interligne à 129 px — 9 px de trop face aux 120 px
+ * qu'un contenu identique sans aucun mot actif mesure réellement.
  */
 function threeLineCard(): Word[] {
   const repeats = 9
@@ -259,10 +247,9 @@ async function run(scratch: string): Promise<void> {
   // Ce que `CaptionOverlay` pose, en fractions de H (ou de W pour la colonne) — voir sa doc.
   const fontSizeFraction = ASS_FONTSIZE_TO_EM * (sizeUnits / PLAYRES_Y)
   const lineHeightFraction = sizeUnits / PLAYRES_Y
-  // `marginUnits/PLAYRES_Y` seul, sans le correctif de demi-interligne : celui-ci
-  // ne sert qu'à poser la boîte CSS (`CaptionOverlay`), et s'annule exactement
-  // ici — voir la doc de tête sur pourquoi l'encre, elle, se mesure jusqu'au
-  // bas de la boîte `usWin` d'ASS, décalé du descendant typographique réel.
+  // Le correctif de demi-interligne de `CaptionOverlay` s'annule ici : il ne
+  // sert qu'à poser sa boîte CSS, pas à prédire l'encre jusqu'au bas de la
+  // boîte `usWin` d'ASS, décalé du vrai descendant typographique (`ANTON_TYPO_DESCENT_UNITS`).
   const inkBottomFraction = marginUnits / PLAYRES_Y + (ANTON_TYPO_DESCENT_UNITS / ANTON_UNITS_PER_EM) * fontSizeFraction
   const pxPerPlayresXUnit = CANVAS.w / PLAYRES_X
 

@@ -606,10 +606,9 @@ describe('la fiche éditoriale, à côté de la source', () => {
   })
 })
 
-// jsdom ne mesure rien (`getBoundingClientRect` y est bouché à une valeur
-// fixe, voir la tête de fichier) : ce test pin la structure qui causait le
-// débordement mesuré en phase 1, pas la géométrie elle-même — vérifiée dans
-// un vrai navigateur, voir le plan de la tâche 1.
+// jsdom ne mesure rien (`getBoundingClientRect` bouché, tête de fichier) :
+// pin la structure qui causait le débordement, pas la géométrie — vérifiée
+// dans un vrai navigateur (plan, tâche 1).
 describe('la rangée source+fiche, débordement (spec du 30 août §1.1/§4.1-§4.2)', () => {
   it('ne pose plus min-h-0 ni max-h-[58vh] sur la rangée', async () => {
     await mount('c2')

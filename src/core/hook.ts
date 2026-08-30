@@ -1,3 +1,4 @@
+import type { Measure } from '@/core/captions/wrap'
 import type { Clip } from '@/core/edl'
 
 /**
@@ -460,6 +461,203 @@ export function hookLayout(resolved: ResolvedHook): HookLayout {
     badgeRadiusFraction: (resolved.cornerRadiusPermille / 1000) * HOOK_BADGE_SIZE_FACTOR,
     badgeOverlapFraction: badgeHeightFraction * HOOK_BADGE_OVERLAP_FACTOR,
     badgeInsetFraction: Math.max(0, paddingXFraction - badgePaddingXFraction),
+  }
+}
+
+/** Rond au pair le plus proche, jamais sous 2 — même contrainte que `scheduleMarkers` (chrominance sous-échantillonnée en yuv420p). */
+function pairEven(n: number): number {
+  return Math.max(2, Math.round(n / 2) * 2)
+}
+
+/**
+ * Comme `pairEven`, mais **vers le bas** — pour un plafond qu'on ne veut
+ * jamais dépasser, jamais atteindre par excès d'un demi-pixel.
+ */
+function pairEvenFloor(n: number): number {
+  return Math.max(2, Math.floor(n / 2) * 2)
+}
+
+/**
+ * Découpe `text` en lignes qui tiennent chacune sous `maxWidthPx`, glouton et
+ * **sans jamais couper un mot** — la même règle que `WrapStyle: 0` de l'ASS
+ * tient pour les sous-titres, et que `normalizeHookText` tient pour ses
+ * propres plafonds. Un mot seul plus large que `maxWidthPx` reste sur sa
+ * ligne : mieux vaut une boîte qui déborde légèrement qu'un mot tranché en deux.
+ */
+function wrapLines(text: string, maxWidthPx: number, measure: Measure): string[] {
+  const words = text.split(' ').filter((w) => w !== '')
+  if (words.length === 0) return ['']
+  const lines: string[] = []
+  let current = words[0]
+  for (const word of words.slice(1)) {
+    const candidate = `${current} ${word}`
+    if (measure(candidate) <= maxWidthPx) {
+      current = candidate
+    } else {
+      lines.push(current)
+      current = word
+    }
+  }
+  lines.push(current)
+  return lines
+}
+
+/**
+ * La géométrie en pixels du composite carton + pastille sur un canevas donné.
+ *
+ * Toutes les dimensions dérivées d'un texte réellement mesuré (largeur du
+ * carton, de la pastille) plutôt qu'estimées : la boîte épouse le mot, comme
+ * `renderHookImage` (`src/server/hook-image.ts`) le faisait déjà en ligne.
+ */
+export type HookGeometry = {
+  /** Les lignes du carton, déjà retournées à la ligne — capitales et trim déjà appliqués. */
+  lines: string[]
+  /** Le texte de la pastille, vide si aucune. */
+  badgeText: string
+  hasBadge: boolean
+  fontSizePx: number
+  lineHeightPx: number
+  paddingXPx: number
+  paddingYPx: number
+  badgeFontSizePx: number
+  badgePaddingXPx: number
+  cardWidth: number
+  cardHeight: number
+  /** La hauteur réellement dessinée du carton — rognée quand le composite plafonne à `canvas.h`. */
+  cardHeightDrawn: number
+  /** L'ordonnée du haut du carton, sous la pastille qui mord dessus. */
+  cardTop: number
+  cardX: number
+  badgeWidth: number
+  badgeHeight: number
+  badgeX: number
+  overlapPx: number
+  insetPx: number
+  compositeWidth: number
+  compositeHeight: number
+}
+
+/**
+ * Un `Measure` pour une taille de police donnée, en pixels.
+ *
+ * **Le carton et la pastille ne partagent pas la même taille de police**
+ * (`badgeFontSizeFraction = fontSizeFraction × HOOK_BADGE_SIZE_FACTOR`) :
+ * un seul `Measure` fixe ne peut donc pas mesurer les deux, d'où cette
+ * fabrique plutôt qu'un `Measure` unique.
+ */
+export type HookMeasure = (fontSizePx: number) => Measure
+
+/**
+ * La géométrie en pixels du composite hook + pastille — extraite de
+ * `renderHookImage` (`src/server/hook-image.ts`) pour que le calque de
+ * preview (`hook-overlay.tsx`) pose la même boîte sans la recalculer à sa
+ * façon. Une seule fonction, deux consommateurs, aucun calcul parallèle —
+ * même motif que `captionLines` (`@/core/captions/ass`).
+ *
+ * **Précondition : `hookIsBurned(resolved)`.** Non vérifiée ici, comme
+ * `hookLayout` — c'est à l'appelant de l'avoir déjà écartée.
+ *
+ * `measure` est injecté : le rasteriseur PNG mesure avec `@napi-rs/canvas`,
+ * l'aperçu avec un `<canvas>` du navigateur, et ni l'un ni l'autre ne peut
+ * vivre dans `src/core` (frontière de pureté, `tests/core/purete.test.ts`).
+ */
+export function hookGeometry(
+  resolved: ResolvedHook,
+  canvas: { w: number; h: number },
+  measure: HookMeasure,
+): HookGeometry {
+  const layout = hookLayout(resolved)
+  const fontSizePx = Math.max(1, Math.round(canvas.w * layout.fontSizeFraction))
+  const lineHeightPx = Math.max(1, Math.round(canvas.w * layout.lineHeightFraction))
+  const paddingXPx = Math.round(canvas.w * layout.paddingXFraction)
+  const paddingYPx = Math.round(canvas.w * layout.paddingYFraction)
+  const maxTextWidthPx = Math.max(1, Math.round(canvas.w * layout.maxBoxWidthFraction) - 2 * paddingXPx)
+
+  const text = resolved.uppercase ? resolved.text.toUpperCase() : resolved.text
+  const badgeText = resolved.uppercase ? resolved.badge.trim().toUpperCase() : resolved.badge.trim()
+  const hasBadge = badgeText !== ''
+
+  const cardMeasure = measure(fontSizePx)
+  const lines = wrapLines(text, maxTextWidthPx, cardMeasure)
+  const textWidthPx = Math.max(...lines.map(cardMeasure))
+
+  // Borné à `canvas.w` : `wrapLines` refuse de couper un mot, donc une ligne
+  // seule peut mesurer plus que `maxTextWidthPx` — voir sa doc.
+  const cardWidth = Math.min(pairEven(Math.ceil(textWidthPx) + 2 * paddingXPx), pairEvenFloor(canvas.w))
+  const cardHeight = pairEven(Math.ceil(lines.length * lineHeightPx) + 2 * paddingYPx)
+
+  const badgeFontSizePx = Math.max(1, Math.round(canvas.w * layout.badgeFontSizeFraction))
+  const badgePaddingXPx = Math.round(canvas.w * layout.badgePaddingXFraction)
+  let badgeWidth = 0
+  let badgeHeight = 0
+  if (hasBadge) {
+    const badgeMeasure = measure(badgeFontSizePx)
+    badgeWidth = Math.min(
+      pairEven(Math.ceil(badgeMeasure(badgeText)) + 2 * badgePaddingXPx),
+      pairEvenFloor(canvas.w),
+    )
+    // Dérivée du layout, pas de la mesure — voir `badgeHeightFraction`.
+    badgeHeight = pairEven(Math.round(canvas.w * layout.badgeHeightFraction))
+  }
+
+  const overlapPx = hasBadge
+    ? Math.min(
+        Math.round(canvas.w * layout.badgeOverlapFraction),
+        badgeHeight,
+        Math.max(0, cardHeight - 2),
+      )
+    : 0
+  const insetPx = resolved.alignment === 'center' ? 0 : Math.round(canvas.w * layout.badgeInsetFraction)
+
+  const compositeWidth = Math.min(
+    pairEven(Math.max(cardWidth, badgeWidth + insetPx)),
+    pairEvenFloor(canvas.w),
+  )
+  const compositeHeight = Math.min(
+    pairEven(cardHeight + badgeHeight - overlapPx),
+    pairEvenFloor(canvas.h),
+  )
+
+  const cardTop = badgeHeight - overlapPx
+  // Quand le plafond a mordu, c'est le CARTON qui rétrécit, jamais la
+  // pastille — elle est la plus courte et la plus lisible des deux.
+  const cardHeightDrawn = Math.max(2, compositeHeight - cardTop)
+
+  const cardX =
+    resolved.alignment === 'left'
+      ? 0
+      : resolved.alignment === 'right'
+        ? compositeWidth - cardWidth
+        : Math.round((compositeWidth - cardWidth) / 2)
+  const badgeX =
+    resolved.alignment === 'left'
+      ? insetPx
+      : resolved.alignment === 'right'
+        ? compositeWidth - insetPx - badgeWidth
+        : Math.round((compositeWidth - badgeWidth) / 2)
+
+  return {
+    lines,
+    badgeText,
+    hasBadge,
+    fontSizePx,
+    lineHeightPx,
+    paddingXPx,
+    paddingYPx,
+    badgeFontSizePx,
+    badgePaddingXPx,
+    cardWidth,
+    cardHeight,
+    cardHeightDrawn,
+    cardTop,
+    cardX,
+    badgeWidth,
+    badgeHeight,
+    badgeX,
+    overlapPx,
+    insetPx,
+    compositeWidth,
+    compositeHeight,
   }
 }
 

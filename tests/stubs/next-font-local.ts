@@ -10,7 +10,12 @@
  * a besoin, pas seulement les tests qui portent sur le hook.
  *
  * `vitest.config.mts` résout `next/font/local` vers ce fichier.
+ *
+ * **`style.fontFamily` est aussi un stub, pas un nom lisible par un
+ * navigateur de test.** `use-text-measure.ts` le lit pour ne jamais mesurer
+ * sur le littéral `'Anton'` : jsdom n'ayant pas de moteur de police, la
+ * valeur exacte est sans conséquence sur ce que ces tests vérifient.
  */
-export default function localFont(): { className: string } {
-  return { className: 'font-hook-test-stub' }
+export default function localFont(): { className: string; style: { fontFamily: string } } {
+  return { className: 'font-hook-test-stub', style: { fontFamily: 'AntonTestStub' } }
 }

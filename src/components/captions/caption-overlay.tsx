@@ -1,8 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import { createDomMeasure, useFontReady } from '@/components/captions/use-text-measure'
 import { hookFont } from '@/components/clip/hook-font'
-import { captionUnits, MARGIN_SIDE, PLAYRES_Y, type CaptionStyle } from '@/core/captions/ass'
+import {
+  captionLines,
+  captionOutlineFractions,
+  captionUnits,
+  MARGIN_SIDE,
+  PLAYRES_X,
+  PLAYRES_Y,
+  type CaptionStyle,
+} from '@/core/captions/ass'
+import { ASS_FONTSIZE_TO_EM, CSS_HALF_LEADING_OVER_EM } from '@/core/captions/font-metrics'
 import type { Word } from '@/core/transcript'
+
+/** Le nombre de points de l'anneau `text-shadow` qui approxime le contour — voir `outlineRingShadow`. */
+const OUTLINE_RING_SAMPLES = 16
 
 /**
  * Le mot actif grossit de 90 % à 108 % en 110 ms, comme `\fscx90\fscy90\t(0,110,\fscx108\fscy108)`
@@ -36,13 +49,38 @@ export function CaptionOverlay({
   time: number
   style: CaptionStyle
 }) {
+  const family = hookFont.style.fontFamily
+  const ready = useFontReady(family)
   const index = useMemo(() => activeCardIndex(cards, time), [cards, time])
-  if (index === -1) return null
-
-  const card = cards[index]
-  const activeWord = activeWordIndex(card, time)
   const units = captionUnits(style)
+  const measure = useMemo(
+    () => createDomMeasure(family, units.sizeUnits, { bold: true }),
+    [family, units.sizeUnits],
+  )
+  const card = index === -1 ? null : cards[index]
+  const lines = useMemo(
+    () => (card === null ? [] : captionLines(card, style, measure)),
+    [card, style, measure],
+  )
+
+  // Pas de calque tant qu'Anton n'est pas confirmée chargée : mesurer avant
+  // rendrait des métriques de repli sans rien signaler (`useFontReady`).
+  if (!ready || card === null) return null
+
+  const activeWord = activeWordIndex(card, time)
   const scale = popScale((time - card[activeWord].start) * 1000)
+  const outline = captionOutlineFractions(units.borderUnits)
+
+  // `Fontsize` ASS mesure une hauteur de ligne, pas un cadratin — voir
+  // `font-metrics.ts`. L'interligne réel est donc l'ancien `fontSize`.
+  const fontSizeFraction = ASS_FONTSIZE_TO_EM * (units.sizeUnits / PLAYRES_Y)
+  const lineHeightFraction = units.sizeUnits / PLAYRES_Y
+  // libass ancre le BAS du glyphe (`baseline + winDescent`) ; CSS ancre le
+  // bas de la boîte de ligne, plus basse de `CSS_HALF_LEADING_OVER_EM`.
+  const paddingBottomFraction = units.marginUnits / PLAYRES_Y - CSS_HALF_LEADING_OVER_EM * fontSizeFraction
+  const paddingSideFraction = MARGIN_SIDE / PLAYRES_X
+
+  let wordIndex = -1
 
   return (
     <div
@@ -54,51 +92,76 @@ export function CaptionOverlay({
         data-caption="card"
         className={hookFont.className}
         style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
           maxWidth: '100%',
-          textAlign: 'center',
-          // **La taille est portée par le carton, pas par chaque mot.** Le
-          // séparateur est un nœud texte entre deux `<span>` : posée plus bas,
-          // elle laissait l'espace à la taille héritée de la page, soit le
-          // quart de sa largeur — 18 % de la hauteur de capitale contre 23 %
-          // à l'export, mesuré.
-          fontSize: cqh(units.sizeUnits / PLAYRES_Y),
-          lineHeight: 1.2,
-          paddingBottom: cqh(units.marginUnits / PLAYRES_Y),
-          paddingLeft: cqh(MARGIN_SIDE / PLAYRES_Y),
-          paddingRight: cqh(MARGIN_SIDE / PLAYRES_Y),
-          whiteSpace: 'normal',
+          fontSize: cqh(fontSizeFraction),
+          lineHeight: cqh(lineHeightFraction),
+          paddingBottom: cqh(paddingBottomFraction),
+          paddingLeft: cqw(paddingSideFraction),
+          paddingRight: cqw(paddingSideFraction),
         }}
       >
-        {card.map((word, i) => (
-          <span key={i}>
-            {i > 0 && ' '}
-            <span
-              data-caption={i === activeWord ? 'active' : undefined}
-              style={{
-                display: i === activeWord ? 'inline-block' : undefined,
-                transform: i === activeWord ? `scale(${scale})` : undefined,
-                color: i === activeWord ? style.highlightColor : style.fontColor,
-                // libass dilate le contour vers l'extérieur du glyphe ;
-                // `-webkit-text-stroke` le centre, donc la moitié mange la
-                // lettre. `paint-order` peint le contour d'abord et la
-                // couleur par-dessus — la moitié intérieure disparaît, et
-                // c'est pourquoi la largeur double pour rendre l'épaisseur
-                // extérieure qu'écrit `renderAss`.
-                paintOrder: 'stroke fill',
-                WebkitTextStroke: `${cqh((2 * units.borderUnits) / PLAYRES_Y)} ${style.borderColor}`,
-              }}
-            >
-              {display(word.word, style.uppercase)}
-            </span>
-          </span>
+        {/* Une boîte par ligne, celles que `captionLines` a déjà décidées —
+            plus le navigateur qui recoupe librement. */}
+        {lines.map((line, li) => (
+          <div key={li} style={{ textAlign: 'center', whiteSpace: 'pre' }}>
+            {line.map((wordText, wi) => {
+              wordIndex++
+              const active = wordIndex === activeWord
+              return (
+                <span key={wi}>
+                  {wi > 0 && ' '}
+                  <span
+                    data-caption={active ? 'active' : undefined}
+                    style={{
+                      display: active ? 'inline-block' : undefined,
+                      transform: active ? `scale(${scale})` : undefined,
+                      color: active ? style.highlightColor : style.fontColor,
+                      textShadow: outlineRingShadow(
+                        style.borderColor,
+                        outline.widthFraction,
+                        outline.heightFraction,
+                        OUTLINE_RING_SAMPLES,
+                      ),
+                    }}
+                  >
+                    {wordText}
+                  </span>
+                </span>
+              )
+            })}
+          </div>
         ))}
       </div>
     </div>
   )
 }
 
-function display(word: string, uppercase: boolean): string {
-  return uppercase ? word.toUpperCase() : word
+/**
+ * L'anneau de `samples` décalages `text-shadow` qui approxime le contour
+ * anisotrope de libass — mesuré le 30 août 2026 : 5,50 px d'épaisseur
+ * horizontale contre 13,00 px verticale sur le même mot, que
+ * `-webkit-text-stroke` (isotrope) ne peut pas rendre. Voir `docs/lessons.md`.
+ */
+export function outlineRingShadow(
+  color: string,
+  widthFraction: number,
+  heightFraction: number,
+  samples: number,
+): string {
+  const offsets: string[] = []
+  for (let i = 0; i < samples; i++) {
+    const theta = (2 * Math.PI * i) / samples
+    offsets.push(`${cqw(widthFraction * Math.cos(theta))} ${cqh(heightFraction * Math.sin(theta))} 0 ${color}`)
+  }
+  return offsets.join(', ')
+}
+
+/** `u`, une fraction (0 à 1) de la largeur du conteneur, en `cqw`. */
+function cqw(fraction: number): string {
+  return `calc(${fraction * 100}cqw)`
 }
 
 /** `u`, une fraction (0 à 1) de la hauteur du conteneur, en `cqh`. */

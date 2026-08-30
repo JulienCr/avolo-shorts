@@ -130,7 +130,17 @@ export const PLAYRES_X = 384
 /**
  * `ctx.measureText` (Anton) sous-estime de 35-37 % la largeur réellement
  * rendue par libass — mesuré le 28 août 2026 sur trois textes (Copilot,
- * PR #249). 1,4 arrondit au-dessus par prudence. Suivi (autres tailles) : #260.
+ * PR #249). **Ce n'est pas une imprécision de `measureText`** : c'est
+ * `ASS_FONTSIZE_TO_EM × (PLAYRES_X/PLAYRES_Y) / (1080/1920) = 1,3675` — la
+ * conversion `Fontsize`→cadratin (`font-metrics.ts`) composée avec le
+ * désaccord d'aspect entre le repère ASS (4:3) et la sortie 9:16 réelle.
+ * 1,4 arrondit au-dessus par prudence (2,4 % conservateur), dérivé le 30 août
+ * 2026 — voir `docs/lessons.md`. Suivi (autres tailles) : #260.
+ *
+ * **Valide seulement pour un canevas 1080×1920.** Le terme `1080/1920` est le
+ * ratio du natif 9:16, seule sortie où `RENDER_NATIVE` s'applique aujourd'hui ;
+ * un canevas 1080×1080 changerait ce facteur à 0,769 — piège latent tant que
+ * `RENDER_NATIVE` reste à `false`.
  */
 const CANVAS_TO_REAL_WIDTH_FACTOR = 1.4
 
@@ -152,6 +162,23 @@ export function captionUnits(
     // Un contour à 0 devient illisible sur un fond clair.
     borderUnits: Math.floor(bound(style.borderWidth, 1, 10, 2)),
   }
+}
+
+/**
+ * Le contour d'un mot, en fractions **distinctes par axe** de la largeur et
+ * de la hauteur du canevas de sortie.
+ *
+ * **libass met le contour à l'échelle par `PlayResX`/`PlayResY`, pas par un
+ * cadratin isotrope** — mesuré le 30 août 2026 sur `PUTAIN` (5,50 px
+ * d'épaisseur horizontale mesurée contre 5,63 prédits, 13,00 px verticale
+ * contre 13,33) : voir `docs/lessons.md`. `-webkit-text-stroke`, lui, est
+ * isotrope et ne peut pas le rendre — d'où deux fractions plutôt qu'une,
+ * consommées par un anneau de `text-shadow` côté aperçu.
+ */
+export function captionOutlineFractions(
+  borderUnits: number,
+): { widthFraction: number; heightFraction: number } {
+  return { widthFraction: borderUnits / PLAYRES_X, heightFraction: borderUnits / PLAYRES_Y }
 }
 
 /**
@@ -251,6 +278,20 @@ function escape(text: string): string {
 }
 
 /**
+ * Le texte d'un mot tel qu'il sera réellement tracé — par libass comme par
+ * `CaptionOverlay`, qui doivent voir la même chaîne.
+ *
+ * **La seule fonction d'affichage des deux côtés.** `CaptionOverlay` appelait
+ * jusqu'ici `toUpperCase()` seul, sans `escape()` : un carton portant une
+ * accolade s'affichait différemment à l'aperçu et à l'export, et se mesurait
+ * différemment aussi — relevé le 30 août 2026.
+ */
+export function captionDisplay(word: string, uppercase: boolean): string {
+  const escaped = escape(word)
+  return uppercase ? escaped.toUpperCase() : escaped
+}
+
+/**
  * Ne garde du nom de police que `[A-Za-z0-9 _-]`.
  *
  * Une virgule y ajouterait des champs à la ligne `Style:`, donc réécrirait la
@@ -263,6 +304,69 @@ export function fontName(name: string): string {
     .replace(/[^A-Za-z0-9 _-]/g, '')
     .trim()
   return clean === '' ? FONT_BY_DEFAULT : clean
+}
+
+// L'effet `pop` : le mot actif change de couleur et grossit en 110 ms. La
+// plage 90 → 108 est douce à dessein — le 75 → 112 d'une version antérieure
+// partait de si bas qu'une image saisie en pleine animation se lisait comme un
+// défaut de dimensionnement plutôt que comme un temps fort.
+//
+// Module-scope et non locale à `renderAss` : `captionLines` en a besoin pour
+// la même marge anti-débordement, et une seule source évite que les deux
+// finissent par diverger.
+const ACTIVE_WORD_PEAK_SCALE = 1.08 // seule source du 108 de la balise, pour ne jamais diverger
+
+/**
+ * La répartition en lignes d'un carton, en mots déjà affichables
+ * (`captionDisplay` appliqué) — la coupure que `renderAss` écrit en `\N` et
+ * que `CaptionOverlay` reproduit en boîtes.
+ *
+ * **Une seule fonction, deux consommateurs, aucun calcul parallèle** (même
+ * motif que `hookGeometry`, `@/core/hook`). `measure` est injecté : ce module
+ * ne peut mesurer aucun texte lui-même (`tests/core/purete.test.ts`).
+ *
+ * @returns Un mot par cellule, une ligne par élément du tableau extérieur —
+ *   jamais de chaîne déjà jointe, pour que l'appelant puisse encore repérer
+ *   un mot précis par sa position (le mot actif d'un événement `Dialogue`,
+ *   le mot survolé d'un aperçu).
+ */
+export function captionLines(card: readonly Word[], style: CaptionStyle, measure: Measure): string[][] {
+  if (card.length === 0) return []
+
+  const { borderUnits: thickness } = captionUnits(style)
+  // Le texte affiché de chaque mot, calculé une seule fois pour tout le
+  // carton : c'est lui que `measure` doit mesurer, puisque c'est lui que
+  // libass trace — pas le mot brut du transcript.
+  const displayWords = card.map((w) => captionDisplay(w.word, style.uppercase))
+
+  // `calibrated` corrige le sous-comptage canvas-vs-libass avant toute autre
+  // marge — voir `CANVAS_TO_REAL_WIDTH_FACTOR`.
+  const calibrated: Measure = (text) => measure(text) * CANVAS_TO_REAL_WIDTH_FACTOR
+
+  // Marge anti-débordement pour le pic `ACTIVE_WORD_PEAK_SCALE` du mot actif :
+  // prise sur `displayWords` tel quel, jamais rescindé sur l'espace — un `Word`
+  // peut en porter un interne (`cards.ts`), et l'entrée entière grossit d'un bloc.
+  const activeWordMargin = Math.max(...displayWords.map(calibrated)) * (ACTIVE_WORD_PEAK_SCALE - 1)
+  // `ctx.measureText` ne rend que l'avance du glyphe, pas le contour que
+  // `thickness` (`Outline:`) fait dessiner de chaque côté de la ligne.
+  const measureAtPeak: Measure = (text) => calibrated(text) + activeWordMargin + 2 * thickness
+
+  // `PLAYRES_X - 2 * MARGIN_SIDE` : la largeur disponible entre les marges
+  // latérales du bloc `[V4+ Styles]`, dans le même repère que `PlayResX`.
+  const maxWidth = PLAYRES_X - 2 * MARGIN_SIDE
+  const breakAfter = wrapCard(displayWords, measureAtPeak, maxWidth)
+
+  const lines: string[][] = []
+  let line: string[] = []
+  displayWords.forEach((word, j) => {
+    line.push(word)
+    if (breakAfter[j]) {
+      lines.push(line)
+      line = []
+    }
+  })
+  if (line.length > 0) lines.push(line)
+  return lines
 }
 
 /**
@@ -301,11 +405,6 @@ export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure
   const background = styleColor('#000000', 0)
   const highlight = colorInLine(style.highlightColor)
 
-  // L'effet `pop` : le mot actif change de couleur et grossit en 110 ms. La
-  // plage 90 → 108 est douce à dessein — le 75 → 112 d'une version antérieure
-  // partait de si bas qu'une image saisie en pleine animation se lisait comme un
-  // défaut de dimensionnement plutôt que comme un temps fort.
-  const ACTIVE_WORD_PEAK_SCALE = 1.08 // seule source du 108 de la balise, pour ne jamais diverger
   const peakPercent = Math.round(ACTIVE_WORD_PEAK_SCALE * 100)
   const wordActive = `{\\c${highlight}\\fscx90\\fscy90\\t(0,110,\\fscx${peakPercent}\\fscy${peakPercent})}`
 
@@ -334,31 +433,13 @@ export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure
     '[Events]\n' +
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
 
-  // `PLAYRES_X - 2 * MARGIN_SIDE` : la largeur disponible entre les marges
-  // latérales du bloc `[V4+ Styles]`, dans le même repère que `PlayResX`.
-  const maxWidth = PLAYRES_X - 2 * MARGIN_SIDE
-
   const events: string[] = []
   for (const card of cards) {
     if (card.length === 0) continue
 
-    // Le texte affiché de chaque mot, calculé une seule fois pour tout le
-    // carton : c'est lui que `measure` doit mesurer, puisque c'est lui que
-    // libass trace — pas le mot brut du transcript.
-    const displayWords = card.map((w) => (style.uppercase ? escape(w.word).toUpperCase() : escape(w.word)))
-
-    // `calibrated` corrige le sous-comptage canvas-vs-libass avant toute autre
-    // marge — voir `CANVAS_TO_REAL_WIDTH_FACTOR`.
-    const calibrated: Measure = (text) => measure(text) * CANVAS_TO_REAL_WIDTH_FACTOR
-
-    // Marge anti-débordement pour le pic `ACTIVE_WORD_PEAK_SCALE` de `wordActive` :
-    // prise sur `displayWords` tel quel, jamais rescindé sur l'espace — un `Word`
-    // peut en porter un interne (`cards.ts`), et l'entrée entière grossit d'un bloc.
-    const activeWordMargin = Math.max(...displayWords.map(calibrated)) * (ACTIVE_WORD_PEAK_SCALE - 1)
-    // `ctx.measureText` ne rend que l'avance du glyphe, pas le contour que
-    // `thickness` (`Outline:`) fait dessiner de chaque côté de la ligne.
-    const measureAtPeak: Measure = (text) => calibrated(text) + activeWordMargin + 2 * thickness
-    const breakAfter = wrapCard(displayWords, measureAtPeak, maxWidth)
+    // La même coupure pour tous les événements du carton, quel que soit le
+    // mot actif : c'est ce qui rend la mise en lignes stable.
+    const lines = captionLines(card, style, measure)
 
     for (let i = 0; i < card.length; i++) {
       // L'événement commence au mot actif — ce qui, pour le premier, revient au
@@ -373,22 +454,21 @@ export function renderAss(cards: Word[][], style: CaptionStyle, measure: Measure
       const fin = hundredths(i < card.length - 1 ? card[i + 1].start : card[i].end)
       if (fin <= start) continue
 
-      // La même coupure `breakAfter` pour tous les événements du carton, quel
-      // que soit le mot actif : c'est ce qui rend la mise en lignes stable.
-      const parts = displayWords.map((text, j) => (j === i ? `${wordActive}${text}{\\r}` : text))
-      const lines: string[] = []
-      let line: string[] = []
-      parts.forEach((part, j) => {
-        line.push(part)
-        if (breakAfter[j]) {
-          lines.push(line.join(' '))
-          line = []
-        }
-      })
-      if (line.length > 0) lines.push(line.join(' '))
+      // `wordIndex` suit la position globale dans le carton au fil des lignes,
+      // pour repérer le mot actif `i` quelle que soit la ligne où il tombe.
+      let wordIndex = 0
+      const rendered = lines.map((words) =>
+        words
+          .map((text) => {
+            const active = wordIndex === i
+            wordIndex++
+            return active ? `${wordActive}${text}{\\r}` : text
+          })
+          .join(' '),
+      )
 
       events.push(
-        `Dialogue: 0,${timeAss(start)},${timeAss(fin)},Default,,0,0,0,,${lines.join('\\N')}`,
+        `Dialogue: 0,${timeAss(start)},${timeAss(fin)},Default,,0,0,0,,${rendered.join('\\N')}`,
       )
     }
   }

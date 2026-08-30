@@ -1,9 +1,17 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { GlobalFonts, createCanvas, type FontKey, type SKRSContext2D } from '@napi-rs/canvas'
+import { GlobalFonts, createCanvas, type FontKey } from '@napi-rs/canvas'
 
-import { hookIsBurned, hookLayout, hookPlacement, hookRgba, type ResolvedHook } from '@/core/hook'
+import {
+  hookGeometry,
+  hookIsBurned,
+  hookLayout,
+  hookPlacement,
+  hookRgba,
+  type HookMeasure,
+  type ResolvedHook,
+} from '@/core/hook'
 
 /**
  * Le rasteriseur du hook : `ResolvedHook` + un canevas → un PNG, fond plein à
@@ -97,55 +105,25 @@ export function ensureFontRegistered(fontsDir: string): void {
   registeredFonts.set(fontsDir, { digest, key: registered })
 }
 
-/** Rond au pair le plus proche, jamais sous 2 — même contrainte que `scheduleMarkers` (chrominance sous-échantillonnée en yuv420p). */
-function pairEven(n: number): number {
-  return Math.max(2, Math.round(n / 2) * 2)
-}
-
 /**
- * Comme `pairEven`, mais **vers le bas** — pour un plafond qu'on ne veut
- * jamais dépasser, jamais atteindre par excès d'un demi-pixel.
+ * Un `HookMeasure` adossé à `@napi-rs/canvas` — un canevas 1×1 jetable par
+ * taille de police, `measureText` n'ayant besoin d'aucune surface réelle.
  */
-function pairEvenFloor(n: number): number {
-  return Math.max(2, Math.floor(n / 2) * 2)
-}
-
-/**
- * Découpe `text` en lignes qui tiennent chacune sous `maxWidthPx`, glouton et
- * **sans jamais couper un mot** — la même règle que `WrapStyle: 0` de l'ASS
- * tenait déjà, et que `normalizeHookText` tient pour ses propres plafonds.
- * Un mot seul plus large que `maxWidthPx` reste sur sa ligne : mieux vaut une
- * boîte qui déborde légèrement de sa largeur maximale visée qu'un mot
- * tranché en deux.
- */
-function wrapLines(ctx: SKRSContext2D, text: string, maxWidthPx: number): string[] {
-  const words = text.split(' ').filter((w) => w !== '')
-  if (words.length === 0) return ['']
-  const lines: string[] = []
-  let current = words[0]
-  for (const word of words.slice(1)) {
-    const candidate = `${current} ${word}`
-    if (ctx.measureText(candidate).width <= maxWidthPx) {
-      current = candidate
-    } else {
-      lines.push(current)
-      current = word
-    }
+function measurerFor(family: string): HookMeasure {
+  return (fontSizePx) => {
+    const ctx = createCanvas(1, 1).getContext('2d')
+    ctx.font = `${fontSizePx}px ${family}`
+    return (text) => ctx.measureText(text).width
   }
-  lines.push(current)
-  return lines
 }
 
 /**
  * Le PNG du hook, ou `null` quand il n'y a rien à incruster — exactement
  * quand `hookIsBurned(resolved)` est faux, comme `renderHookAss` avant elle.
  *
- * **La boîte épouse le texte** : sa largeur est celle de la ligne la plus
- * large, mesurée réellement (`measureText`, pas une estimation), plus le
- * rembourrage ; sa hauteur suit le nombre de lignes après retour à la ligne.
- * Toutes les fractions viennent de `hookLayout(resolved)`, multipliées par
- * `canvas.w` — jamais `canvas.h` : voir la doc de `HookLayout` dans
- * `@/core/hook` sur pourquoi c'est un renversement délibéré.
+ * **La géométrie vient de `hookGeometry` (`@/core/hook`)** — la boîte épouse
+ * le texte, mesuré réellement (`measureText`), pas estimé. Ce fichier ne fait
+ * plus que peindre le résultat.
  *
  * **Depuis le 20 août 2026, l'image est un COMPOSITE** : la pastille du badge,
  * quand il y en a un, est dessinée dans le même PNG, au-dessus du carton et
@@ -164,118 +142,29 @@ export function renderHookImage(
   if (!hookIsBurned(resolved)) return null
   ensureFontRegistered(fontsDir)
 
-  const layout = hookLayout(resolved)
   const family = resolved.font
-  const fontSizePx = Math.max(1, Math.round(canvas.w * layout.fontSizeFraction))
-  const lineHeightPx = Math.max(1, Math.round(canvas.w * layout.lineHeightFraction))
-  const paddingXPx = Math.round(canvas.w * layout.paddingXFraction)
-  const paddingYPx = Math.round(canvas.w * layout.paddingYFraction)
-  const maxTextWidthPx = Math.max(
-    1,
-    Math.round(canvas.w * layout.maxBoxWidthFraction) - 2 * paddingXPx,
-  )
-
-  const text = resolved.uppercase ? resolved.text.toUpperCase() : resolved.text
-  const badgeText = resolved.uppercase ? resolved.badge.trim().toUpperCase() : resolved.badge.trim()
-  const hasBadge = badgeText !== ''
-
-  // Un canevas 1×1 jetable, seulement pour mesurer : `measureText` n'a besoin
-  // d'aucune surface réelle, et créer la boîte définitive avant de connaître
-  // sa taille est impossible — c'est précisément ce que la boîte doit rendre.
-  const measurer = createCanvas(1, 1).getContext('2d')
-  measurer.font = `${fontSizePx}px ${family}`
-  const lines = wrapLines(measurer, text, maxTextWidthPx)
-  const textWidthPx = Math.max(...lines.map((l) => measurer.measureText(l).width))
-
-  // Borné à `canvas.w` : `wrapLines` refuse de couper un mot, donc une
-  // ligne seule peut mesurer plus que `maxTextWidthPx` — d'ordinaire de peu
-  // (« déborde légèrement », voir sa doc), mais `hookText` peut aussi venir
-  // d'un `PATCH` manuel jusqu'à 280 caractères, non passé par
-  // `normalizeHookText` (`src/app/api/clips/[id]/route.ts`), à une taille
-  // allant jusqu'à `sizePermille: 250` (25 % de la largeur) : un seul mot
-  // insécable peut alors produire une boîte plusieurs fois plus large que le
-  // canevas. Sans ce plafond, `hookPlacement` la posait à `x = 0` et ffmpeg
-  // coupait le reste à droite, silencieusement — relevé par Copilot sur la
-  // PR #117. Le texte qui dépasserait quand même `cardWidth` une fois
-  // plafonné n'est pas retaillé : le canevas du PNG s'arrête là, et
-  // `@napi-rs/canvas`, comme tout canevas 2D, ne rasterise rien au-delà
-  // de ses propres bords — l'excès disparaît de lui-même, sans clip
-  // explicite à poser.
-  const cardWidth = Math.min(
-    pairEven(Math.ceil(textWidthPx) + 2 * paddingXPx),
-    pairEvenFloor(canvas.w),
-  )
-  // **Plus de plafond de hauteur ICI** : il a remonté au composite, quelques
-  // lignes plus bas. Le laisser sur le carton seul laisserait « carton déjà
-  // plein plus pastille » dépasser le canevas — `hookPlacement` ne pourrait
-  // que ramener `y` à zéro pendant que ffmpeg couperait le bas, exactement la
-  // régression que la passe 3 de la PR #117 a corrigée sur l'autre axe.
-  const cardHeight = pairEven(Math.ceil(lines.length * lineHeightPx) + 2 * paddingYPx)
-
-  // La pastille : **une seule ligne, jamais de retour**. Un badge qui revient
-  // à la ligne n'est plus un badge, et `normalizeHookBadge` (`@/core/hook`)
-  // en est le garant à la récolte — le plafond de largeur ci-dessous est le
-  // filet pour une saisie manuelle, que la route accepte jusqu'à 120
-  // caractères sans la normaliser.
-  const badgeFontSizePx = Math.max(1, Math.round(canvas.w * layout.badgeFontSizeFraction))
-  const badgePaddingXPx = Math.round(canvas.w * layout.badgePaddingXFraction)
-  let badgeWidth = 0
-  let badgeHeight = 0
-  if (hasBadge) {
-    measurer.font = `${badgeFontSizePx}px ${family}`
-    badgeWidth = Math.min(
-      pairEven(Math.ceil(measurer.measureText(badgeText).width) + 2 * badgePaddingXPx),
-      pairEvenFloor(canvas.w),
-    )
-    // **Dérivée du layout, pas de la mesure** : c'est ce qui permet au calque
-    // de preview de poser exactement la même hauteur sans mesurer quoi que ce
-    // soit — voir `badgeHeightFraction` dans `@/core/hook`.
-    badgeHeight = pairEven(Math.round(canvas.w * layout.badgeHeightFraction))
-  }
-
-  // Le chevauchement, borné aux deux boîtes : une pastille ne s'enfonce ni
-  // sous elle-même, ni jusqu'à avaler le carton.
-  const overlapPx = hasBadge
-    ? Math.min(
-        Math.round(canvas.w * layout.badgeOverlapFraction),
-        badgeHeight,
-        Math.max(0, cardHeight - 2),
-      )
-    : 0
-  // Le retrait n'a de sens que sur un bord : il aligne la première lettre de
-  // la pastille sur celle du carton. Un texte centré n'a pas de bord de
-  // départ, donc pas de retrait.
-  const insetPx = resolved.alignment === 'center' ? 0 : Math.round(canvas.w * layout.badgeInsetFraction)
-
-  const compositeWidth = Math.min(
-    pairEven(Math.max(cardWidth, badgeWidth + insetPx)),
-    pairEvenFloor(canvas.w),
-  )
-  const compositeHeight = Math.min(
-    pairEven(cardHeight + badgeHeight - overlapPx),
-    pairEvenFloor(canvas.h),
-  )
-
-  const cardTop = badgeHeight - overlapPx
-  // **Quand le plafond a mordu, c'est le CARTON qui rétrécit, jamais la
-  // pastille.** Elle est la plus courte et la plus lisible des deux, et le
-  // carton tolère déjà que son texte soit rogné par le bord du canevas (voir
-  // le plafond de `cardWidth`). Sacrifier la pastille rendrait au contraire
-  // une image qui n'a plus rien du dessin demandé.
-  const cardHeightDrawn = Math.max(2, compositeHeight - cardTop)
-
-  const cardX =
-    resolved.alignment === 'left'
-      ? 0
-      : resolved.alignment === 'right'
-        ? compositeWidth - cardWidth
-        : Math.round((compositeWidth - cardWidth) / 2)
-  const badgeX =
-    resolved.alignment === 'left'
-      ? insetPx
-      : resolved.alignment === 'right'
-        ? compositeWidth - insetPx - badgeWidth
-        : Math.round((compositeWidth - badgeWidth) / 2)
+  const layout = hookLayout(resolved)
+  const geometry = hookGeometry(resolved, canvas, measurerFor(family))
+  const {
+    lines,
+    badgeText,
+    hasBadge,
+    fontSizePx,
+    lineHeightPx,
+    paddingXPx,
+    paddingYPx,
+    badgeFontSizePx,
+    badgePaddingXPx,
+    cardWidth,
+    cardHeightDrawn,
+    cardTop,
+    cardX,
+    badgeWidth,
+    badgeHeight,
+    badgeX,
+    compositeWidth,
+    compositeHeight,
+  } = geometry
 
   const image = createCanvas(compositeWidth, compositeHeight)
   const ctx = image.getContext('2d')

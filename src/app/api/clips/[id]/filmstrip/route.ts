@@ -3,22 +3,26 @@ import { readFile } from 'node:fs/promises'
 import { getClip, getDb } from '@/server/db'
 import { notFound, route } from '@/server/http'
 import { filmstrip } from '@/server/thumbs'
+import { parseFilmstripCount } from '@/lib/filmstrip'
 
 /**
- * `GET /api/clips/:id/filmstrip` — la planche du clip, douze vues tuilées sur
- * une seule ligne.
+ * `GET /api/clips/:id/filmstrip` — la planche du clip, `count` vues tuilées
+ * sur une seule ligne.
  *
  * Le chemin vient du projet lu en base, jamais d'un morceau d'URL : l'id de
- * clip arrive du réseau. Fichier petit, lu d'un coup — une image, pas une vidéo.
+ * clip arrive du réseau. Fichier petit, lu d'un coup — une image, pas une
+ * vidéo. `count` est validé côté serveur (`parseFilmstripCount`) : un client
+ * choisit la largeur de sa bande, jamais la taille du tuilage ffmpeg.
  */
 export const GET = route(
   'GET /api/clips/:id/filmstrip',
-  async (_request: Request, context: { params: Promise<{ id: string }> }) => {
+  async (request: Request, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params
     const clip = getClip(getDb(), id)
     if (clip === undefined) throw notFound(`Clip inconnu : ${id}`)
 
-    const file = await filmstrip(clip)
+    const count = parseFilmstripCount(new URL(request.url).searchParams.get('count'))
+    const file = await filmstrip(clip, count)
     if (file === null) throw notFound(`Pas de planche disponible pour ${clip.id}.`)
 
     const data = await readFile(file)

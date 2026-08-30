@@ -18,7 +18,10 @@ vi.mock('@/server/ffmpeg', async (importOriginal) => {
 })
 
 const { runFfmpeg } = await import('@/server/ffmpeg')
-const { filmstrip, filmstripPath, vignette, vignettePath } = await import('@/server/thumbs')
+const { filmstrip, filmstripCounts, filmstripPath, vignette, vignettePath } = await import('@/server/thumbs')
+const { FILMSTRIP_COUNT_DEFAULT, FILMSTRIP_COUNT_MAX, FILMSTRIP_COUNT_MIN, parseFilmstripCount } = await import(
+  '@/lib/filmstrip',
+)
 const { GET } = await import('@/app/api/clips/[id]/filmstrip/route')
 
 const PROJECT = '2026-01-11-méchante'
@@ -82,12 +85,49 @@ afterEach(() => {
 })
 
 describe('filmstripPath', () => {
-  it('range la planche à côté des vignettes', () => {
-    expect(filmstripPath('p1', 'c1')).toMatch(/projects[/\\]p1[/\\]thumbs[/\\]c1\.strip\.jpg$/)
+  it('range la planche à côté des vignettes, le compte dans le nom', () => {
+    expect(filmstripPath('p1', 'c1', 12)).toMatch(/projects[/\\]p1[/\\]thumbs[/\\]c1\.strip\.12\.jpg$/)
+  })
+
+  it('deux comptes ne partagent pas de fichier', () => {
+    expect(filmstripPath('p1', 'c1', 12)).not.toBe(filmstripPath('p1', 'c1', 16))
   })
 
   it('refuse un identifiant qui remonte l’arborescence', () => {
-    expect(() => filmstripPath('p1', '../secret')).toThrow(/invalide/)
+    expect(() => filmstripPath('p1', '../secret', 12)).toThrow(/invalide/)
+  })
+})
+
+describe('filmstripCounts', () => {
+  it('couvre tout l’intervalle valide, et rien au-delà', () => {
+    const counts = filmstripCounts()
+    expect(Math.min(...counts)).toBe(FILMSTRIP_COUNT_MIN)
+    expect(Math.max(...counts)).toBe(FILMSTRIP_COUNT_MAX)
+    expect(counts.length).toBe(FILMSTRIP_COUNT_MAX - FILMSTRIP_COUNT_MIN + 1)
+  })
+})
+
+describe('parseFilmstripCount', () => {
+  it('retombe sur le défaut sans paramètre', () => {
+    expect(parseFilmstripCount(null)).toBe(FILMSTRIP_COUNT_DEFAULT)
+  })
+
+  it('retombe sur le défaut sur une valeur non entière', () => {
+    expect(parseFilmstripCount('12.5')).toBe(FILMSTRIP_COUNT_DEFAULT)
+    expect(parseFilmstripCount('abc')).toBe(FILMSTRIP_COUNT_DEFAULT)
+  })
+
+  it('borne un compte hors intervalle plutôt que de le refuser', () => {
+    // Un compte hors bornes est un tuilage ffmpeg dimensionné par
+    // l'appelant : le borner plutôt que le refuser sert quand même la
+    // planche, au pire rapport plutôt qu'à aucun.
+    expect(parseFilmstripCount('1000')).toBe(FILMSTRIP_COUNT_MAX)
+    expect(parseFilmstripCount('0')).toBe(FILMSTRIP_COUNT_MIN)
+    expect(parseFilmstripCount('-5')).toBe(FILMSTRIP_COUNT_MIN)
+  })
+
+  it('accepte un compte valide tel quel', () => {
+    expect(parseFilmstripCount('18')).toBe(18)
   })
 })
 
@@ -117,6 +157,20 @@ describe('filmstrip', () => {
     expect(runFfmpeg).toHaveBeenCalledTimes(1)
   })
 
+  it('un compte différent régénère, sur un fichier différent', async () => {
+    putClip(getDb(), baseClip())
+    writeProxy()
+    // Le mock n'est jamais nettoyé entre les tests (relevé plus bas dans ce
+    // fichier) : sans ce `mockClear`, le compte inclut les appels d'avant.
+    vi.mocked(runFfmpeg).mockClear()
+    const twelve = await filmstrip(baseClip(), 12)
+    const seize = await filmstrip(baseClip(), 16)
+    expect(twelve).not.toBe(seize)
+    expect(fs.existsSync(twelve as string)).toBe(true)
+    expect(fs.existsSync(seize as string)).toBe(true)
+    expect(runFfmpeg).toHaveBeenCalledTimes(2)
+  })
+
   it('rend null et efface le temporaire si les bornes bougent pendant le rendu', async () => {
     putClip(getDb(), baseClip())
     writeProxy()
@@ -128,7 +182,7 @@ describe('filmstrip', () => {
     const result = await filmstrip(baseClip())
     expect(result).toBeNull()
 
-    const destination = filmstripPath(PROJECT, CLIP)
+    const destination = filmstripPath(PROJECT, CLIP, FILMSTRIP_COUNT_DEFAULT)
     expect(fs.existsSync(destination)).toBe(false)
     const leftovers = fs.readdirSync(path.dirname(destination)).filter((f) => f.includes('.partiel-'))
     expect(leftovers).toEqual([])
@@ -154,7 +208,7 @@ describe('filmstrip', () => {
       return originalRename.call(fsp, src, dst)
     })
 
-    const destination = filmstripPath(PROJECT, CLIP)
+    const destination = filmstripPath(PROJECT, CLIP, FILMSTRIP_COUNT_DEFAULT)
     try {
       await filmstrip(baseClip())
       expect(renameSpy).not.toHaveBeenCalled()
@@ -253,6 +307,23 @@ describe('GET /api/clips/:id/filmstrip', () => {
     const response = await GET(new Request('http://x'), context(CLIP))
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Type')).toBe('image/jpeg')
+  })
+
+  it('sert le compte demandé par `?count=`, un fichier par compte', async () => {
+    putClip(getDb(), baseClip())
+    writeProxy()
+
+    await GET(new Request('http://x?count=18'), context(CLIP))
+    expect(fs.existsSync(filmstripPath(PROJECT, CLIP, 18))).toBe(true)
+    expect(fs.existsSync(filmstripPath(PROJECT, CLIP, FILMSTRIP_COUNT_DEFAULT))).toBe(false)
+  })
+
+  it('borne un `count` hors intervalle plutôt que de le passer à ffmpeg tel quel', async () => {
+    putClip(getDb(), baseClip())
+    writeProxy()
+
+    await GET(new Request('http://x?count=100000'), context(CLIP))
+    expect(fs.existsSync(filmstripPath(PROJECT, CLIP, FILMSTRIP_COUNT_MAX))).toBe(true)
   })
 
   it('404 sans proxy', async () => {

@@ -435,3 +435,20 @@ Un carton à trois lignes, échantillonné pendant que le mot actif est sur la
 troisième, laisse les deux lignes mesurées au repos dans la MÊME image et
 règle le problème : toute mesure sur un rendu ASS karaoké doit soit éviter le
 mot actif, soit répliquer un contenu sans balise active pour vérifier.
+
+## La mesure `<canvas>` navigateur contre `@napi-rs/canvas` (le serveur)
+
+Revenu deux fois en revue : le calque de preview mesure le texte avec un
+`<canvas>` 2D du navigateur (`createDomMeasure`), le rendu réel avec
+`@napi-rs/canvas` côté serveur (`createCaptionMeasure`) — deux moteurs de
+police différents, une divergence de mesure romprait le retour à la ligne
+sans que rien ne le signale. Vérifié en chargeant Anton dans un vrai Chrome
+et en y rejouant 60 chaînes réelles tirées des `.ass` de `projects/*/renders/`
+à 18 px de corps (`Fontsize`) : écart maximal 0,005 px (0,067 ‰), et `bold`
+est inerte des deux côtés (Anton n'a qu'une seule graisse). La chaîne la
+plus proche d'une bascule de coupure de ligne était à 18,34 unités
+`PlayResX` du seuil, quand l'écart maximal en vaut 0,007 — aucune coupure
+ne peut basculer sur ce corpus. Chrome mesure Anton avec les métriques
+**typo** (zone de contenu à 151 px pour un corps de 100 px, contre 173 avec
+`usWin`), ce qui confirme `CSS_HALF_LEADING_OVER_EM`
+(`src/core/captions/font-metrics.ts`) plutôt que de l'introduire à côté.

@@ -53,6 +53,17 @@ function expectCqwPx(value: string, px: number): void {
   expect(cqwPercent(value)).toBeCloseTo(((px / CANVAS.w) * 100), 6)
 }
 
+/** Même chose que `cqwPercent`, pour `compositeHeight`/`cardHeightDrawn` — voir le point D de la passe 2. */
+function cqhPercent(value: string): number {
+  const match = /^calc\(([-\d.]+)cqh\)$/.exec(value)
+  if (match === null) throw new Error(`pas un calc(...cqh) : ${value}`)
+  return Number.parseFloat(match[1])
+}
+
+function expectCqhPx(value: string, px: number): void {
+  expect(cqhPercent(value)).toBeCloseTo(((px / CANVAS.h) * 100), 6)
+}
+
 /**
  * Le pourcentage attendu pour une fraction donnée, dans la forme que
  * `cqw()`/`cqh()` de `hook-overlay.tsx` produit — `calc(Xcqw)`. jsdom, le
@@ -171,7 +182,7 @@ describe('HookOverlay', () => {
     const card = container.querySelector('[data-hook="card"]') as HTMLElement
     expect(card.style.position).toBe('absolute')
     expectCqwPx(card.style.width, geometry.cardWidth)
-    expectCqwPx(card.style.height, geometry.cardHeightDrawn)
+    expectCqhPx(card.style.height, geometry.cardHeightDrawn)
   })
 
   it("pose whiteSpace: pre et les lignes de hookGeometry — wrapLines (rasteriseur PNG) décide déjà la coupure, le navigateur ne doit plus recouper librement (relevé par Copilot, PR #117, passe 4)", () => {

@@ -25,11 +25,12 @@ const CANVAS = outputSize('9:16')
 /**
  * Le calque de preview du hook, dans l'aperçu 9:16 (`output-preview.tsx`).
  * **La boîte vient de `hookGeometry`** — même fonction que `renderHookImage`,
- * mesurée par un `<canvas>` du navigateur au lieu d'un `inline-block` :
- * largeur, hauteur, position et retour à la ligne sont posés en `cqw`,
- * jamais `cqh` (sans conséquence, `CANVAS` partage l'aspect de la boîte).
- * `data-hook="card"`/`"badge"` servent les tests. La pastille recouvre le
- * carton par simple ordre du DOM (frère suivant), sans `zIndex`.
+ * mesurée par un `<canvas>` du navigateur au lieu d'un `inline-block` : la
+ * plupart des grandeurs dérivent de `canvas.w` (police, marges, position),
+ * donc en `cqw`. Seules `compositeHeight`/`cardHeightDrawn` — plafonnées à
+ * `canvas.h`, pas proportionnelles à `canvas.w` une fois le plafond mordu —
+ * passent en `cqh`. `data-hook="card"`/`"badge"` servent les tests. La
+ * pastille recouvre le carton par simple ordre du DOM, sans `zIndex`.
  */
 export function HookOverlay({ hook }: { hook: ResolvedHook }) {
   const family = hookFont.style.fontFamily
@@ -77,7 +78,7 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
           style={{
             position: 'relative',
             width: cqwPx(geometry.compositeWidth),
-            height: cqwPx(geometry.compositeHeight),
+            height: cqhPx(geometry.compositeHeight),
           }}
         >
           <div
@@ -88,7 +89,7 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
               left: cqwPx(geometry.cardX),
               top: cqwPx(geometry.cardTop),
               width: cqwPx(geometry.cardWidth),
-              height: cqwPx(geometry.cardHeightDrawn),
+              height: cqhPx(geometry.cardHeightDrawn),
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'flex-start',
@@ -159,6 +160,11 @@ function cqw(fraction: number): string {
 /** Un compte de pixels de `CANVAS`, en `cqw` — voir la doc de tête du fichier. */
 function cqwPx(px: number): string {
   return cqw(px / CANVAS.w)
+}
+
+/** Un compte de pixels de `CANVAS`, en `cqh` — pour les grandeurs plafonnées à `canvas.h`. */
+function cqhPx(px: number): string {
+  return cqh(px / CANVAS.h)
 }
 
 /**

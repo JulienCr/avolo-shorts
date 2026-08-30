@@ -66,11 +66,11 @@ function fontIsReady(fontFamily: string): boolean {
  * Vrai une fois `fontFamily` confirmée chargée par `document.fonts` — jamais
  * avant, pour ne jamais mesurer avec la police de repli en silence.
  *
- * `useSyncExternalStore`, pas un `useState`+effet : serveur et hydratation
- * lisent `getServerSnapshot` (toujours vrai), React ne relit le vrai statut
- * qu'une fois monté — sans `setState` synchrone en effet
- * (`react-hooks/set-state-in-effect`). Sans `document.fonts` (jsdom),
- * `getSnapshot` rend vrai d'emblée : rien n'y détecte la course.
+ * `useSyncExternalStore`, pas `useState`+effet : serveur et hydratation
+ * lisent `getServerSnapshot`, **toujours faux** (pas de `document`, comme
+ * `createDomMeasure`). React ne relit le vrai statut qu'une fois monté, sans
+ * `setState` synchrone en effet (`react-hooks/set-state-in-effect`). Sans
+ * `document.fonts` (jsdom), `getSnapshot` rend vrai d'emblée.
  */
 export function useFontReady(fontFamily: string): boolean {
   // **Pas de repli temporisé qui dessinerait une géométrie de repli** :
@@ -99,7 +99,7 @@ export function useFontReady(fontFamily: string): boolean {
     [fontFamily],
   )
   const getSnapshot = useCallback(() => fontIsReady(fontFamily), [fontFamily])
-  const getServerSnapshot = () => true
+  const getServerSnapshot = () => false
 
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 }

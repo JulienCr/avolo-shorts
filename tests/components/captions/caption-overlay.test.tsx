@@ -110,4 +110,23 @@ describe('CaptionOverlay', () => {
     expect(card.style.paddingBottom).toBe('calc(0cqh)')
     expect(card.style.marginBottom).toMatch(/^calc\(-[\d.]+cqh\)$/)
   })
+
+  // `captionLines` calibre sa coupure pour le ratio de sortie (9:16) : dans
+  // `ShowPlayer` (16:9, pas de `canvas`), elle romprait bien trop tôt — la
+  // coupure doit rester libre au navigateur (relevé en passe 3).
+  it('sans canevas, laisse le navigateur recouper librement (whiteSpace: normal)', () => {
+    const { container } = render(
+      <CaptionOverlay cards={cards} time={0.1} style={DEFAULT_CAPTION_STYLE} />,
+    )
+    const line = container.querySelector('[data-caption="card"] > div') as HTMLElement
+    expect(line.style.whiteSpace).toBe('normal')
+  })
+
+  it('avec un canevas, coupe comme `captionLines` (whiteSpace: pre)', () => {
+    const { container } = render(
+      <CaptionOverlay cards={cards} time={0.1} style={DEFAULT_CAPTION_STYLE} canvas={{ w: 1080, h: 1920 }} />,
+    )
+    const line = container.querySelector('[data-caption="card"] > div') as HTMLElement
+    expect(line.style.whiteSpace).toBe('pre')
+  })
 })

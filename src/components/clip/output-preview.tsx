@@ -47,6 +47,9 @@ import { cn } from '@/lib/utils'
 /** Le petit côté du canevas, en pixels. Un quart du rendu : la décision se voit à cette taille. */
 const PETIT_SIDE = 270
 
+/** Le canevas de sortie passé à `CaptionOverlay` — même valeur que `HookOverlay` (`@/components/clip/hook-overlay.tsx`). */
+const CANVAS = outputSize('9:16')
+
 /**
  * La part de la hauteur d'un écran 9:16 qu'occupe un contenu de ce ratio.
  *
@@ -405,6 +408,7 @@ export function PreviewOutput({
             cards={captionCards}
             time={elapsedInClip(segments, time) ?? -1}
             style={captionStyle}
+            canvas={CANVAS}
           />
         )}
       </div>

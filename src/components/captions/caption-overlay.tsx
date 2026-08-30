@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createDomMeasure, useFontReady } from '@/components/captions/use-text-measure'
 import { hookFont } from '@/components/clip/hook-font'
 import {
+  captionDisplay,
   captionLines,
   captionOutlineFractions,
   captionUnits,
@@ -36,36 +37,44 @@ function popScale(elapsedMs: number): number {
  * Le calque de preview des sous-titres, sur le modèle de `HookOverlay` : un
  * calque DOM en unités `cqh`, jamais peint dans le canevas.
  *
+ * **`canvas` choisit le régime de coupure.** `captionLines` calibre son
+ * budget pour un conteneur au ratio de la sortie qu'il nomme — fourni
+ * (`PreviewOutput`, 9:16) ; `undefined` laisse le navigateur couper
+ * librement (`ShowPlayer`, 16:9, où la coupure calibrée romprait trop tôt).
+ *
  * @param cards Les cartons de `splitIntoCards`, sur la timeline choisie par l'appelant.
- * @param time L'instant courant, en secondes, sur cette même timeline.
- * @param style Le preset de sous-titres appliqué au rendu.
+ * @param canvas Le canevas de sortie visé, ou `undefined` pour la coupure libre.
  */
 export function CaptionOverlay({
   cards,
   time,
   style,
+  canvas,
 }: {
   cards: readonly Word[][]
   time: number
   style: CaptionStyle
+  canvas?: { w: number; h: number }
 }) {
   const family = hookFont.style.fontFamily
   const ready = useFontReady(family)
   const index = useMemo(() => activeCardIndex(cards, time), [cards, time])
   const units = captionUnits(style)
   const measure = useMemo(
-    () => (ready ? createDomMeasure(family, units.sizeUnits, { bold: true }) : null),
-    [ready, family, units.sizeUnits],
+    () => (ready && canvas !== undefined ? createDomMeasure(family, units.sizeUnits, { bold: true }) : null),
+    [ready, canvas, family, units.sizeUnits],
   )
   const card = index === -1 ? null : cards[index]
-  const lines = useMemo(
-    () => (card === null || measure === null ? [] : captionLines(card, style, measure)),
-    [card, style, measure],
-  )
+  const lines = useMemo(() => {
+    if (card === null) return []
+    if (canvas === undefined) return [card.map((w) => captionDisplay(w.word, style.uppercase))]
+    return measure === null ? [] : captionLines(card, style, measure)
+  }, [card, canvas, style, measure])
 
-  // Pas de calque tant qu'Anton n'est pas confirmée chargée : mesurer avant
-  // rendrait des métriques de repli sans rien signaler (`useFontReady`).
-  if (!ready || card === null) return null
+  // Pas de calque tant qu'Anton n'est pas confirmée chargée en mode fidèle —
+  // mesurer avant rendrait des métriques de repli sans rien signaler
+  // (`useFontReady`). La coupure libre n'a rien à mesurer, rien à attendre.
+  if (card === null || (canvas !== undefined && !ready)) return null
 
   const activeWord = activeWordIndex(card, time)
   const scale = popScale((time - card[activeWord].start) * 1000)
@@ -106,10 +115,11 @@ export function CaptionOverlay({
           paddingRight: cqw(paddingSideFraction),
         }}
       >
-        {/* Une boîte par ligne, celles que `captionLines` a déjà décidées —
-            plus le navigateur qui recoupe librement. */}
+        {/* En mode fidèle, une boîte par ligne déjà décidée par
+            `captionLines` (`whiteSpace: 'pre'`) ; en coupure libre, un seul
+            bloc que le navigateur recoupe lui-même (`whiteSpace: 'normal'`). */}
         {lines.map((line, li) => (
-          <div key={li} style={{ textAlign: 'center', whiteSpace: 'pre' }}>
+          <div key={li} style={{ textAlign: 'center', whiteSpace: canvas === undefined ? 'normal' : 'pre' }}>
             {line.map((wordText, wi) => {
               wordIndex++
               const active = wordIndex === activeWord

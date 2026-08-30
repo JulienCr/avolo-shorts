@@ -394,3 +394,44 @@ huit fausses ; ici, un détecteur trop absent aurait laissé passer la vraie
 sans jamais s'allumer. Les deux se corrigent en refusant de faire semblant de
 savoir — annoncer une dérive qu'on n'a pas vue, ou taire un défaut qu'on a
 justement le pouvoir d'empêcher.
+
+## `Fontsize` d'ASS est une hauteur de ligne, pas un cadratin
+
+L'aperçu DOM des sous-titres posait `font-size: Fontsize` directement — un
+mot à `Fontsize: 18` sur `PlayResY: 288` donne 18 × 1920/288 = 120 px, et
+c'est ce que l'aperçu affichait. Mesuré sur un vrai rendu
+(`…001495095-001538044-9x16.mp4`, 1080×1920) : le mot « PUTAIN » y fait
+61 px de hauteur d'encre, pas 105 (ce que prédit un cadratin de 120 px avec
+un ratio capitale/cadratin de 0,875 pour Anton). Le rapport 61/105 = 0,58
+n'est pas du bruit : c'est `libass` qui demande à FreeType un
+`FT_SIZE_REQUEST_TYPE_REAL_DIM` sur les métriques `usWin`, donc traite
+`Fontsize` comme `usWinAscent + usWinDescent` (2876 + 674 = 3550 unités sur
+`unitsPerEm: 2048`) plutôt que comme le cadratin lui-même. Le facteur exact,
+`ASS_FONTSIZE_TO_EM = 2048 / 3550 = 0,576901`, ramène `Fontsize` au
+`font-size` CSS équivalent — vérifié à 61 px prédits contre 61 px mesurés.
+
+**`CANVAS_TO_REAL_WIDTH_FACTOR = 1.4`** (`src/core/captions/ass.ts`) cesse
+d'être une marge de prudence non expliquée : c'est `ASS_FONTSIZE_TO_EM ×
+(PlayResX/PlayResY) / (1080/1920) = 1,3675`, la même conversion composée
+avec le désaccord d'aspect entre le repère ASS (4:3) et la sortie réelle
+(9:16) — 1,4 arrondit au-dessus par prudence, 2,4 % conservateur. Ce facteur
+change avec l'aspect du canevas : il ne vaut 1,3675 que pour du 1080×1920.
+
+**Le contour n'est pas isotrope non plus.** Sur le même mot, fond blanc puis
+fond noir pour séparer remplissage et contour : 5,50 px d'épaisseur
+horizontale contre 13,00 px verticale, soit `Outline × largeur/PlayResX` et
+`Outline × hauteur/PlayResY` — deux échelles, pas une. `-webkit-text-stroke`
+est isotrope par construction et ne peut pas le rendre ; l'aperçu compose
+donc un anneau de `text-shadow` à décalages elliptiques
+(`outlineRingShadow`, `caption-overlay.tsx`) plutôt qu'un contour CSS.
+
+**Un artefact de mesure, pour la prochaine fois.** Le harnais de vérification
+(`scripts/measure-caption-geometry.ts`) a d'abord mesuré l'interligne de deux
+lignes en comparant leurs sommets sur deux IMAGES séparées (l'une avec la
+ligne 1 active, l'autre avec la ligne 2) : 129 px, 9 px de trop. Le même
+contenu rejoué sans aucun mot actif mesure 120 px, la valeur juste — le bloc
+à deux lignes se redimensionne selon quelle ligne porte le mot actif à 108 %.
+Un carton à trois lignes, échantillonné pendant que le mot actif est sur la
+troisième, laisse les deux lignes mesurées au repos dans la MÊME image et
+règle le problème : toute mesure sur un rendu ASS karaoké doit soit éviter le
+mot actif, soit répliquer un contenu sans balise active pour vérifier.

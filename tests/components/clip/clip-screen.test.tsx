@@ -621,6 +621,26 @@ describe('la rangée source+fiche, débordement (spec du 30 août §1.1/§4.1-§
   })
 })
 
+describe('les cartes de la colonne Image (spec du 30 août §2.1-§2.3)', () => {
+  it('pose ratio, montage et rendu sur une seule rangée d’outils', async () => {
+    await mount('c2')
+
+    const tools = screen.getByRole('region', { name: 'Outils de cadrage' })
+    expect(within(tools).getByRole('button', { name: 'auto' })).toBeTruthy()
+    expect(within(tools).getByRole('button', { name: /forcer un cadrage/i })).toBeTruthy()
+    expect(within(tools).getByRole('button', { name: /réglages du rendu/i })).toBeTruthy()
+  })
+
+  it('donne à la carte Source et à la carte Montage une bordure et un rôle propres', async () => {
+    await mount('c2')
+
+    const source = screen.getByRole('group', { name: 'Source' })
+    const montage = screen.getByRole('group', { name: 'Montage' })
+    expect(within(source).getByLabelText('Titre')).toBeTruthy()
+    expect(within(montage).getByTestId('filmstrip')).toBeTruthy()
+  })
+})
+
 describe('les valeurs limites', () => {
   it('désactive « clip précédent » sur le premier', async () => {
     await mount('c1')

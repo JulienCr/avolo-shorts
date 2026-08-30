@@ -352,7 +352,15 @@ export function PreviewOutput({
           déciderait seule laquelle des deux boîtes cadre est la plus haute. */}
       <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
         {isVariant ? 'variante 9:16' : 'fichier natif 9:16'} ·{' '}
-        <span className="font-mono tabular-nums">{Math.round(part * 100)} %</span> · cadre{' '}
+        {/* `part` vaut toujours 1 en split/doublage (:256) : un habillage de
+            mise en page, pas une mesure de crop — l'issue #131 interdit de
+            l'annoncer comme telle. */}
+        {split === undefined && dubbing === undefined && (
+          <>
+            <span className="font-mono tabular-nums">{Math.round(part * 100)} %</span> ·{' '}
+          </>
+        )}
+        cadre{' '}
         <span className="font-mono">
           {split !== undefined ? 'split' : dubbing !== undefined ? 'doublage' : effective}
         </span>

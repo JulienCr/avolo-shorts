@@ -17,13 +17,6 @@ import { type ClipView, readClipView, writeClipView } from '@/components/clip/cl
 import { CropOverlay, RatioPicker } from '@/components/clip/crop-picker'
 import { ClipPrimaryAction, deriveDeliveryState } from '@/components/clip/export-panel'
 import { ExportsView } from '@/components/clip/exports-view'
-import {
-  activeDubbing,
-  activeSplit,
-  effectiveRatio,
-  isComputedFraming,
-  useCurrentShot,
-} from '@/components/clip/framing'
 import { FramingFields } from '@/components/clip/framing-fields'
 import { usePlayback } from '@/components/clip/playback'
 import { DialogueShortcuts, useShortcuts } from '@/components/clip/shortcuts'
@@ -53,9 +46,7 @@ import { clipExportEligibility, composeDescription } from '@/core/publication'
 import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
 import { ApiError, HOOK_DEFAULTS } from '@/lib/api'
 import { LABELS_STATUS } from '@/lib/clip-status'
-import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
-import { clipBounds, indexTranscript, lineInitial } from '@/lib/editing'
-import { formatTimecode } from '@/lib/format'
+import { indexTranscript, lineInitial } from '@/lib/editing'
 import { differences, useAutosave } from '@/lib/autosave'
 import { clipNext, linkClip } from '@/lib/navigation'
 import {
@@ -255,8 +246,6 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   }, [words])
 
   const duration = clipDuration(segments)
-  // `null` quand tous les mots ont été retirés — même cas que `duration === 0`.
-  const bounds = clipBounds(segments)
   const selection = editor.selection
 
   // Ce que décrivait le clip au moment du dernier export lancé : compare à
@@ -734,6 +723,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                 clipId={clip.id}
                 segments={segments}
                 framing={framing}
+                ratio={editor.ratio}
+                cropX={editor.cropX}
                 proxyUrl={proxyUrl}
                 sourceDuration={project.durationSec}
                 onScrub={(time) => {
@@ -752,22 +743,6 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                 onPlay={(index) => placePlayback(video, segments, words[index].start)}
               />
             </div>
-
-            {/* **Sous la bande** (issue #277) : les faits de montage que la
-                bande de temps ne dit pas en chiffres — la durée y est déjà,
-                dans son pied. */}
-            <dl className="shrink-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[0.75rem]">
-              <dt className="text-muted-foreground">Bornes</dt>
-              <dd className="font-mono tabular-nums">
-                {bounds ? `${formatTimecode(bounds.start)} → ${formatTimecode(bounds.end)}` : '—'}
-              </dd>
-
-              <dt className="text-muted-foreground">Segments</dt>
-              <dd className="font-mono tabular-nums">{segments.length}</dd>
-
-              <dt className="text-muted-foreground">Cadre (9:16)</dt>
-              <ShotFrameLine framing={framing} ratio={editor.ratio} cropX={editor.cropX} />
-            </dl>
 
             <div className="shrink-0">
               <RatioPicker
@@ -1013,39 +988,3 @@ function RenderSettings({
   )
 }
 
-/**
- * Le cadre du plan sous la lecture, en toutes lettres (issue #277).
- *
- * **Un composant à part** : il s'abonne à la position de lecture, qui change
- * quatre fois par seconde — lu dans `ClipScreen`, il ferait re-rendre le
- * transcript virtualisé et le lecteur à cette cadence.
- *
- * **Ni ratio ni pourcentage sur un plan split ou de doublage** : l'un n'a pas
- * de position de crop unique, l'autre laisse la composition placer les tuiles.
- */
-function ShotFrameLine({
-  framing,
-  ratio,
-  cropX,
-}: {
-  framing: ClipDetail['framing']
-  ratio: Clip['ratio']
-  cropX: number
-}) {
-  const shot = useCurrentShot(framing)
-  const effective = effectiveRatio(shot, ratio)
-  const position = isComputedFraming(framing) ? (shot?.cropX ?? 0.5) : cropX
-  const percent = Math.round(clampCropX(position, cropWidthFraction(effective)) * 100)
-  const split = activeSplit(shot, framing, ratio)
-  const dubbing = activeDubbing(shot, framing, ratio)
-  return (
-    <dd className="font-mono tabular-nums">
-      {split ? 'split' : dubbing ? 'doublage' : `${effective} · ${percent} %`}
-      {shot?.source === 'default' && (
-        <span className="ml-1 font-sans text-amber-500 dark:text-amber-400">
-          rien mesuré sur ce plan
-        </span>
-      )}
-    </dd>
-  )
-}

@@ -273,15 +273,24 @@ describe('le libellé du cadre, quand le natif est déjà 9:16', () => {
   })
 })
 
-describe('les faits de montage sous la bande (issue #277)', () => {
-  it('affiche les bornes et le compte de segments', async () => {
+describe('le pied de la bande (issue #277, deuxième lecture)', () => {
+  // « Bornes » retiré (doublon exact des champs A/B) ; segments, cadre et
+  // l'avertissement par plan rejoignent le pied existant, à côté de durée —
+  // plutôt qu'un `<dl>` séparé qui coûtait 62 px sans marge à dépenser.
+  it('affiche le compte de segments, accordé au pluriel', async () => {
     const d = detail('c2', [
       { start: 100, end: 110 },
       { start: 112, end: 120 },
     ])
     await mount('c2', d)
-    expect(screen.getByText('Bornes').nextElementSibling?.textContent).toBe('0:01:40 → 0:02:00')
-    expect(screen.getByText('Segments').nextElementSibling?.textContent).toBe('2')
+    expect(screen.getByTestId('band-footer').textContent).toContain('2 segments')
+  })
+
+  it('accorde au singulier avec un seul segment', async () => {
+    await mount('c2')
+    const text = screen.getByTestId('band-footer').textContent ?? ''
+    expect(text).toContain('1 segment')
+    expect(text).not.toContain('1 segments')
   })
 
   it('avertit sur le plan que la lecture traverse quand rien n’y a été mesuré', async () => {
@@ -298,9 +307,9 @@ describe('les faits de montage sous la bande (issue #277)', () => {
     const d = detail()
     d.framing = framing({ shots: [shot(0, 200, '16:9', 0.5, 'auto', splitCells())] })
     await mount('c2', d)
-    const value = screen.getByText('Cadre (9:16)').nextElementSibling?.textContent ?? ''
+    const value = screen.getByTestId('band-footer').textContent ?? ''
     expect(value).toContain('split')
-    expect(value).not.toMatch(/%/)
+    expect(value).not.toMatch(/\d %/)
   })
 
   it('ne dit ni ratio ni pourcentage sur un plan de doublage', async () => {
@@ -308,7 +317,7 @@ describe('les faits de montage sous la bande (issue #277)', () => {
     const cells = dubbingCellsFor(DUBBING_ANCHORS[0], DUBBING_ANCHORS[0].pip.y0)
     d.framing = framing({ shots: [shot(0, 200, '4:5', 0.5, 'auto', undefined, cells)] })
     await mount('c2', d)
-    const value = screen.getByText('Cadre (9:16)').nextElementSibling?.textContent ?? ''
+    const value = screen.getByTestId('band-footer').textContent ?? ''
     expect(value).toContain('doublage')
     expect(value).not.toContain('4:5')
   })

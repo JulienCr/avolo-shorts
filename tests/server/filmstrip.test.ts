@@ -164,10 +164,10 @@ describe('filmstrip', () => {
     // fichier) : sans ce `mockClear`, le compte inclut les appels d'avant.
     vi.mocked(runFfmpeg).mockClear()
     const twelve = await filmstrip(baseClip(), 12)
-    const seize = await filmstrip(baseClip(), 16)
-    expect(twelve).not.toBe(seize)
+    const sixteen = await filmstrip(baseClip(), 16)
+    expect(twelve).not.toBe(sixteen)
     expect(fs.existsSync(twelve as string)).toBe(true)
-    expect(fs.existsSync(seize as string)).toBe(true)
+    expect(fs.existsSync(sixteen as string)).toBe(true)
     expect(runFfmpeg).toHaveBeenCalledTimes(2)
   })
 

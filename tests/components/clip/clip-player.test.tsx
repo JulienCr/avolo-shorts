@@ -125,14 +125,14 @@ describe('ClipTransport', () => {
         <p id="raison-vide">Il ne reste rien du clip.</p>
       </>,
     )
-    const debut = screen.getByRole('button', { name: 'Aller au début du clip' })
-    const fin = screen.getByRole('button', { name: 'Aller à la fin du clip' })
-    const lecture = screen.getByRole('button', { name: 'Lire' })
-    expect(debut.hasAttribute('disabled')).toBe(true)
-    expect(fin.hasAttribute('disabled')).toBe(true)
-    expect(lecture.hasAttribute('disabled')).toBe(true)
-    expect(debut.getAttribute('aria-describedby')).toBe('raison-vide')
-    expect(fin.getAttribute('aria-describedby')).toBe('raison-vide')
+    const start = screen.getByRole('button', { name: 'Aller au début du clip' })
+    const end = screen.getByRole('button', { name: 'Aller à la fin du clip' })
+    const play = screen.getByRole('button', { name: 'Lire' })
+    expect(start.hasAttribute('disabled')).toBe(true)
+    expect(end.hasAttribute('disabled')).toBe(true)
+    expect(play.hasAttribute('disabled')).toBe(true)
+    expect(start.getAttribute('aria-describedby')).toBe('raison-vide')
+    expect(end.getAttribute('aria-describedby')).toBe('raison-vide')
   })
 })
 

@@ -187,14 +187,15 @@ export function Timeline({
     [bounds],
   )
 
-  const moveTo = useCallback(
-    (clientX: number, edge: 'start' | 'end' | null) => {
-      const time = timeAtPointer(clientX)
-      if (time === null) return
-      setDrag({ edge, time: clampEdge(time, edge) })
-    },
-    [timeAtPointer, clampEdge],
-  )
+  /**
+   * **La borne du geste en cours, à côté de l'état.** `commit` doit lire la
+   * position la plus fraîche au moment où `pointerup` arrive, or l'écouteur
+   * qui l'appelle est posé une fois pour tout le geste (voir `release` plus
+   * bas) — une fermeture sur `drag` y serait celle du rendu qui l'a posé, pas
+   * forcément celle du dernier geste. La référence, mutée à chaque `moveTo`,
+   * ne dépend d'aucun rendu.
+   */
+  const dragRef = useRef<Drag | null>(null)
 
   /**
    * **Un seul effet par geste, et c'est la raison de tout ce qui précède.**
@@ -206,31 +207,56 @@ export function Timeline({
    * relâchement.
    */
   const commit = useCallback(() => {
-    // **L'effet est ici, pas dans la fonction de mise à jour.** Un `setDrag`
-    // dont l'argument pose une borne au passage est un effet de bord dans un
-    // calcul d'état : le mode strict rejoue les mises à jour, donc le geste
-    // partirait deux fois et empilerait deux instantanés d'annulation pour un
-    // seul glissé. `drag` est déjà une dépendance de l'écouteur qui appelle
-    // ceci, donc la valeur lue est celle du geste en cours.
-    if (drag === null) return
-    if (drag.edge === null) onScrub(drag.time)
-    else onBoundary(drag.time, drag.edge)
+    const current = dragRef.current
+    if (current === null) return
+    if (current.edge === null) onScrub(current.time)
+    else onBoundary(current.time, current.edge)
+    dragRef.current = null
     setDrag(null)
-  }, [drag, onScrub, onBoundary])
+  }, [onScrub, onBoundary])
 
-  // Un glissé qui finit hors de la bande doit quand même se conclure — sans
-  // cet écouteur, le survol continuerait de déplacer au retour de la souris,
-  // bouton relâché. Même raison que dans le transcript.
-  useEffect(() => {
-    if (drag === null) return
-    const release = () => commit()
+  /**
+   * **`commit`, toujours à jour, sans rouvrir l'écouteur.** `onScrub` et
+   * `onBoundary` ne sont pas stabilisées par l'appelant : si l'écouteur
+   * `window` en dépendait, chacun de leurs rendus le détacherait puis le
+   * rattacherait, et un `pointerup` tombant dans cet intervalle ne
+   * commettrait rien. La référence absorbe ce changement sans toucher au DOM.
+   */
+  const commitRef = useRef(commit)
+  commitRef.current = commit
+
+  /**
+   * **Posé au geste, jamais après coup.** L'ancien code attachait ceci dans
+   * un `useEffect` déclenché par `setDrag` : entre l'appel et l'exécution de
+   * l'effet, React rend d'abord, ce qui laisse une fenêtre où rien n'écoute —
+   * un clic bref y tombe (mesuré au navigateur, jamais sous jsdom, où `act()`
+   * la referme à chaque événement). Une référence stable, posée hors du
+   * cycle de rendu, ne l'a pas.
+   */
+  const release = useRef(function release() {
+    commitRef.current()
+    window.removeEventListener('pointerup', release)
+    window.removeEventListener('pointercancel', release)
+  }).current
+
+  // Réarmer avec la même référence est sans effet si elle est déjà posée :
+  // `arm` peut donc s'appeler à chaque `pointermove` sans empiler d'écouteurs.
+  const arm = useCallback(() => {
     window.addEventListener('pointerup', release)
     window.addEventListener('pointercancel', release)
-    return () => {
-      window.removeEventListener('pointerup', release)
-      window.removeEventListener('pointercancel', release)
-    }
-  }, [drag, commit])
+  }, [release])
+
+  const moveTo = useCallback(
+    (clientX: number, edge: 'start' | 'end' | null) => {
+      const time = timeAtPointer(clientX)
+      if (time === null) return
+      const next = { edge, time: clampEdge(time, edge) }
+      dragRef.current = next
+      setDrag(next)
+      arm()
+    },
+    [timeAtPointer, clampEdge, arm],
+  )
 
   // `useClip` amorce l'état confirmé au premier chargement, `onSuccess` seul
   // le fait avancer (issue #280) : ni la fenêtre optimiste du `PATCH` ni un

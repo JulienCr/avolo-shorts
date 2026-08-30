@@ -731,4 +731,24 @@ describe('le scrub', () => {
     expect(time).toBeGreaterThan(105)
     expect(time).toBeLessThan(115)
   })
+
+  /**
+   * **Le clic qui ne bouge rien.** Un `fireEvent` par appel referme l'effet
+   * React entre les deux (`act` vide sa file avant de rendre la main), ce
+   * qu'un clic réel ne garantit pas — l'écouteur `pointerup` posé par un
+   * effet peut encore être en vol quand le `pointerup` arrive. Un seul
+   * `act()` autour des deux événements reproduit exactement cette course :
+   * la mise à jour d'état de `pointerdown` est déjà appliquée, mais l'effet
+   * qui en dépend n'a pas encore tourné. Échoue sur `main`.
+   */
+  it('commet même quand pointerdown et pointerup tombent avant que l’effet ait tourné', () => {
+    measureTrack()
+    const { onScrub } = mount()
+    act(() => {
+      pointerAt(track(), 'pointerdown', 500)
+      pointerAt(window, 'pointerup', 500)
+    })
+    expect(onScrub).toHaveBeenCalledTimes(1)
+    expect(onScrub.mock.calls[0][0]).toBeCloseTo(110, 5)
+  })
 })

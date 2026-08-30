@@ -102,6 +102,17 @@ describe('ClipTransport', () => {
     expect(v.currentTime).toBeLessThan(50)
   })
 
+  it('met en pause avant de se caler sur la fin, sinon la lecture franchit aussitôt la borne', () => {
+    // Sans la pause, `onTime` (dans `ClipPlayer`, pas simulé ici) lirait une
+    // fin de clip dès l'image suivante et ramènerait la tête au premier
+    // segment — le bouton semblerait ne rien faire (relevé par Copilot).
+    const v = player(0, false)
+    transport(v)
+    fireEvent.click(screen.getByRole('button', { name: 'Aller à la fin du clip' }))
+    expect(v.pause).toHaveBeenCalled()
+    expect(v.currentTime).toBeCloseTo(50, 1)
+  })
+
   it('désactive les trois boutons quand le montage est vide, et dit pourquoi', () => {
     render(
       <>

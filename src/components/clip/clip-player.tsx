@@ -273,9 +273,13 @@ export function ClipTransport({
         <Button
           size="icon-sm"
           variant="outline"
-          onClick={() =>
-            bounds && placePlayback(video, segments, Math.max(bounds.start, bounds.end - END_EPSILON))
-          }
+          // En pause d'abord : sinon la lecture franchit aussitôt `bounds.end`,
+          // `onTime` y lit une fin de clip et ramène la tête au premier
+          // segment — le bouton semblait ne rien faire (relevé par Copilot).
+          onClick={() => {
+            video?.pause()
+            if (bounds) placePlayback(video, segments, Math.max(bounds.start, bounds.end - END_EPSILON))
+          }}
           disabled={bounds === null}
           aria-describedby={bounds === null ? emptyReasonId : undefined}
           aria-label="Aller à la fin du clip"

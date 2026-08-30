@@ -209,6 +209,31 @@ export function clipBounds(segments: Segment[]): { start: number; end: number } 
 }
 
 /**
+ * La position dans le montage — le fichier livré, continu de 0 à sa durée —
+ * qui correspond à `sourceTime` dans la source, celle que porte le proxy.
+ *
+ * **`null` dans un passage retiré, jamais une borne devinée.** Le point
+ * tombe alors entre deux candidats — le dernier avant la coupe, le premier
+ * après — sans qu'aucun ne soit plus juste que l'autre : une ambiguïté, pas
+ * une absence, et `CLAUDE.md` est clair sur laquelle des deux un défaut
+ * prudent doit trancher. L'appelant renonce à caler plutôt que d'afficher un
+ * instant qui n'existe pas dans le rendu avec l'aplomb d'un qui existe.
+ *
+ * Reflète le graphe de rendu (`src/core/ffmpeg/args.ts`) : chaque segment est
+ * découpé puis concaténé dans l'ordre, donc la position montée est la somme
+ * des segments qui précèdent plus l'avancée dans celui qui contient le point.
+ */
+export function toMontageTime(segments: Segment[], sourceTime: number): number | null {
+  let elapsed = 0
+  for (const s of normalizeSegments(segments)) {
+    if (sourceTime < s.start) return null
+    if (sourceTime <= s.end) return elapsed + (sourceTime - s.start)
+    elapsed += s.end - s.start
+  }
+  return null
+}
+
+/**
  * Le segment qui contient `position`, ou le premier qui commence après elle.
  *
  * C'est ce dont le lecteur a besoin pour sauter les passages retirés : à

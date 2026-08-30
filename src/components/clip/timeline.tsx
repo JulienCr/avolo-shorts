@@ -717,13 +717,8 @@ function Handle({
 /**
  * Le compte de vignettes qui couvre la planche sans l'étirer, mesuré sur sa
  * propre boîte plutôt que déduit d'un `h-12` qui pourrait changer sous nos
- * pieds.
- *
- * **Débattu, pas réactif au pixel.** Un `ResizeObserver` réagit à chaque
- * redimensionnement de fenêtre ; sans attente, chaque pixel de glissé
- * redemanderait une planche neuve au serveur. 250 ms sans mouvement avant de
- * relire — la valeur elle-même est déjà un entier arrondi (`filmstripCountForBox`),
- * donc la plupart des pas de la fenêtre ne changent rien au compte retenu.
+ * pieds. Débattu de 250 ms, sinon chaque pixel de glissé de fenêtre
+ * redemanderait une planche neuve au serveur.
  */
 function useFilmstripCount(): { ref: (node: HTMLDivElement | null) => void; count: number } {
   const [count, setCount] = useState(FILMSTRIP_COUNT_DEFAULT)
@@ -764,13 +759,9 @@ function useFilmstripCount(): { ref: (node: HTMLDivElement | null) => void; coun
  * L'image de la position demandée, pendant qu'on tire.
  *
  * **Au plus une recherche en vol.** Un `pointermove` part soixante fois par
- * seconde ; en faire soixante recherches sur un proxy servi en requêtes
- * partielles produit une tempête d'abandons — et ce chemin est déjà fragile côté
- * serveur : une requête `Range` abandonnée y lève une `uncaughtException`
- * (issue #75, corrigée ailleurs). On garde donc la dernière position demandée et
- * on ne relance qu'au `seeked` précédent : le rythme s'aligne sur ce que le
- * décodeur sait tenir au lieu de le noyer. Ce n'est pas une optimisation, c'est
- * ce qui rend le geste tenable.
+ * seconde ; un proxy servi en requêtes partielles y répond mal (issue #75).
+ * On garde la dernière position demandée et on ne relance qu'au `seeked`
+ * précédent, au rythme que le décodeur sait tenir.
  */
 function useFramePreview(drag: Drag | null, proxyUrl: string | null) {
   const video = useRef<HTMLVideoElement | null>(null)

@@ -5,6 +5,7 @@ import type { Word } from '@/core/transcript'
 import {
   applyWordCorrection,
   clipBounds,
+  toMontageTime,
   indexTranscript,
   isWordKept,
   lineInitial,
@@ -257,6 +258,46 @@ describe('clipBounds', () => {
         { start: 10, end: 20 },
       ]),
     ).toEqual({ start: 10, end: 40 })
+  })
+})
+
+describe('toMontageTime', () => {
+  const segments: Segment[] = [
+    { start: 0, end: 10 },
+    { start: 20, end: 40 },
+  ]
+
+  it('additionne les segments qui précèdent plutôt que de recopier le temps source', () => {
+    // Un seul segment ferait coïncider source et montage par accident : deux
+    // segments avec un trou exercent vraiment la conversion.
+    expect(toMontageTime(segments, 30)).toBe(20)
+    expect(toMontageTime(segments, 5)).toBe(5)
+  })
+
+  it('rend le début et la fin du montage aux deux bouts du premier et du dernier segment', () => {
+    expect(toMontageTime(segments, 0)).toBe(0)
+    expect(toMontageTime(segments, 40)).toBe(30)
+  })
+
+  it('rend null dans un passage retiré, plutôt qu’une borne devinée', () => {
+    expect(toMontageTime(segments, 15)).toBeNull()
+  })
+
+  it('rend null avant le premier segment ou après le dernier', () => {
+    expect(toMontageTime(segments, -1)).toBeNull()
+    expect(toMontageTime(segments, 41)).toBeNull()
+  })
+
+  it('rend null sur un montage vide', () => {
+    expect(toMontageTime([], 5)).toBeNull()
+  })
+
+  it('ignore l’ordre d’arrivée des segments, comme `clipBounds`', () => {
+    const reversed: Segment[] = [
+      { start: 20, end: 40 },
+      { start: 0, end: 10 },
+    ]
+    expect(toMontageTime(reversed, 30)).toBe(20)
   })
 })
 

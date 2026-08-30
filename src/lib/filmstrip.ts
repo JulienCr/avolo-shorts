@@ -2,14 +2,11 @@
  * Le compte de vignettes de la planche, partagé entre le client qui le
  * demande et le serveur qui le sert.
  *
- * **Pourquoi un compte variable.** Le serveur générait toujours douze images
- * 160×90 (16:9), et `Timeline` les étirait pour couvrir la bande — un rapport
- * mesuré à 2,89 au lieu de 1,78 (issue relevée en revue de la #292). La bande
- * est fluide, sa largeur suit la durée du clip : aucun compte fixe ne peut la
- * couvrir exactement au bon rapport. Le client mesure donc sa largeur rendue
- * et demande le compte qui la couvrirait à 16:9 ; le serveur borne cette
- * demande, sans quoi un compte choisi par l'appelant serait un paramètre de
- * tuilage ffmpeg qu'un client hostile pourrait dimensionner à volonté.
+ * **Pourquoi un compte variable.** Un compte fixe étirait la planche pour
+ * couvrir une bande fluide (2,89 au lieu de 1,78, PR #292). Le client mesure
+ * sa largeur rendue et demande le compte qui la couvrirait à 16:9 ; le
+ * serveur borne cette demande — sans quoi elle dimensionnerait un tuilage
+ * ffmpeg pour l'appelant.
  */
 
 /** Le rapport d'une vignette, celui que le serveur génère. */

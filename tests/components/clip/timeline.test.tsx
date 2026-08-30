@@ -30,6 +30,9 @@ beforeAll(() => {
   Element.prototype.hasPointerCapture = function () {
     return true
   }
+  // Boutons « Temps »/« Mots » (spec §2.5) : jsdom n'implémente pas du tout
+  // `scrollIntoView`, contrairement à `scrollTo`.
+  Element.prototype.scrollIntoView = function () {}
 })
 
 /**
@@ -219,14 +222,12 @@ describe('la fenêtre', () => {
     expect(screen.getByText(/réapparaîtra dès qu’un passage sera remonté/i)).toBeTruthy()
   })
 
-  it('garde le mode Mots atteignable quand tout a été retiré', async () => {
+  it('garde le transcript atteignable quand tout a été retiré', () => {
     // Sans bornes, le seul chemin de retour est le mot retiré à remonter —
-    // c'est le mode Mots qui le porte, il ne peut pas disparaître avec la
-    // bande. (relevé par Codex, Aristarque)
-    const user = userEvent.setup()
+    // le transcript le porte, et il ne disparaît plus avec la bande
+    // puisqu'il coexiste avec elle en permanence. (relevé par Codex, Aristarque)
     mount({ segments: [] })
 
-    await user.click(screen.getByRole('tab', { name: 'Mots' }))
     expect(screen.getByRole('group', { name: 'Transcript du clip' })).toBeTruthy()
   })
 })
@@ -384,61 +385,34 @@ describe('les deux familles de repères', () => {
   })
 })
 
-describe('Temps | Mots', () => {
-  it('commute entre la piste et les mots', async () => {
-    const user = userEvent.setup()
+describe('Temps | Mots — coexistence (spec du 30 août, §2.5)', () => {
+  it('montre le ruban et le transcript en permanence, ensemble', () => {
     mount()
-    expect(screen.queryByTestId('filmstrip')).not.toBeNull()
 
-    await user.click(screen.getByRole('tab', { name: 'Mots' }))
-    expect(screen.queryByTestId('filmstrip')).toBeNull()
+    expect(screen.queryByTestId('filmstrip')).not.toBeNull()
     expect(screen.getByRole('group', { name: 'Transcript du clip' })).toBeTruthy()
   })
 
-  it('bascule en mode Mots quand la recherche est demandée', () => {
-    // `Ctrl+F`, côté écran : `search` porte la demande, la bande suit.
-    const { rerender } = render(
-      <Timeline
-        clipId="c1"
-        segments={[{ start: 100, end: 120 }]}
-        framing={framing()}
-        ratio="1:1"
-        cropX={0.5}
-        proxyUrl="/api/projects/p1/proxy"
-        sourceDuration={5940}
-        onScrub={vi.fn()}
-        onBoundary={vi.fn()}
-        lines={[]}
-        words={[]}
-        firstLine={0}
-        duration={20}
-        search={false}
-        onSearch={vi.fn()}
-        onPlay={vi.fn()}
-      />,
-    )
+  it('« Mots » fait défiler le transcript dans le viewport, sans rien démonter', async () => {
+    const user = userEvent.setup()
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+    mount()
+
+    await user.click(screen.getByRole('button', { name: /Mots/ }))
+
+    expect(scrollIntoView).toHaveBeenCalled()
     expect(screen.queryByTestId('filmstrip')).not.toBeNull()
-    rerender(
-      <Timeline
-        clipId="c1"
-        segments={[{ start: 100, end: 120 }]}
-        framing={framing()}
-        ratio="1:1"
-        cropX={0.5}
-        proxyUrl="/api/projects/p1/proxy"
-        sourceDuration={5940}
-        onScrub={vi.fn()}
-        onBoundary={vi.fn()}
-        lines={[]}
-        words={[]}
-        firstLine={0}
-        duration={20}
-        search
-        onSearch={vi.fn()}
-        onPlay={vi.fn()}
-      />,
-    )
-    expect(screen.queryByTestId('filmstrip')).toBeNull()
+    expect(screen.getByRole('group', { name: 'Transcript du clip' })).toBeTruthy()
+  })
+
+  it('« Temps » fait défiler la bande dans le viewport', async () => {
+    const user = userEvent.setup()
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+    mount()
+
+    await user.click(screen.getByRole('button', { name: /Temps/ }))
+
+    expect(scrollIntoView).toHaveBeenCalled()
   })
 })
 

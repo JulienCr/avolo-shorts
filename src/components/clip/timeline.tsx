@@ -12,14 +12,12 @@ import {
 import { usePlayback } from '@/components/clip/playback'
 import { useClipRevision } from '@/lib/queries'
 import { TranscriptDrawer } from '@/components/clip/transcript-drawer'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { normalizeSegments, type Segment } from '@/core/edl'
 import type { Clip, PublishedFraming } from '@/lib/api'
 import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
 import { clipBounds, type ClipWord, type IndexedLine } from '@/lib/editing'
 import { formatDuration, formatSpan, formatTimecode } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { useEditor } from '@/store/editor'
 
 /**
  * La bande de temps, sous l'aperçu source.
@@ -74,14 +72,6 @@ type Drag = {
   time: number
 }
 
-/**
- * Les deux viseurs d'un même montage (spec du 28 août, §4.1) : `time` pose la
- * piste et ses repères, `words` lui substitue le transcript. `setBoundaryAt` et
- * `poserBound` écrivent la même liste de segments — le commutateur ne fait donc
- * que changer d'instrument, jamais de fonction.
- */
-export type BandMode = 'time' | 'words'
-
 export function Timeline({
   clipId,
   segments,
@@ -128,18 +118,12 @@ export function Timeline({
   /** Place la lecture sur ce mot, depuis le mode Mots. */
   onPlay: (index: number) => void
 }) {
-  // `search` peut déjà valoir `true` au montage — retour depuis les Exports,
-  // Ctrl+F laissé ouvert. Le mode initial le reflète, sinon la bande s'ouvre
-  // en Temps sans champ de recherche alors que la recherche est demandée.
-  const [mode, setMode] = useState<BandMode>(search ? 'words' : 'time')
-  // Ajustée pendant le rendu, pas dans un effet : `search` (`Ctrl+F`) porte
-  // une demande externe, le mode la suit — jamais l'inverse.
-  const [searchSeen, setSearchSeen] = useState(search)
-  if (search !== searchSeen) {
-    setSearchSeen(search)
-    if (search) setMode('words')
-  }
+  // Bande et transcript coexistent en permanence (spec du 30 août, §2.5) :
+  // plus de mode à faire suivre `search`, la recherche (`Ctrl+F`) s'ouvre
+  // directement dans le transcript déjà monté.
   const track = useRef<HTMLDivElement>(null)
+  const bandRef = useRef<HTMLDivElement>(null)
+  const transcriptRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
   const bounds = clipBounds(segments)
   // Une durée nulle voudrait dire « aucune position n'est atteignable » et
@@ -299,51 +283,36 @@ export function Timeline({
 
   return (
     <div className="relative flex flex-col gap-1">
-      <Tabs
-        value={mode}
-        onValueChange={(next) => {
-          // Sur la transition, pas sur un effet de démontage : celui-ci
-          // rejoue aussi au premier montage sous Strict Mode. (relevé par Copilot)
-          if (mode === 'words' && next !== 'words') {
-            useEditor.getState().clearSelection()
-            onSearch(false)
-          }
-          setMode(next as BandMode)
-        }}
-      >
-        <TabsList variant="line" aria-label="Ce que montre la bande">
-          <TabsTrigger value="time">
-            <span aria-hidden>◷</span> Temps
-          </TabsTrigger>
-          <TabsTrigger value="words">
-            <span aria-hidden>❞</span> Mots
-          </TabsTrigger>
-        </TabsList>
+      {/* Bande et transcript coexistent (spec §2.5) : ces deux boutons ne
+          basculent plus rien, ils amènent l'un ou l'autre dans le viewport —
+          utile une fois la colonne assez longue pour défiler (§2.1). */}
+      <div className="flex items-center gap-3 text-[0.75rem] text-muted-foreground">
+        <button
+          type="button"
+          className="hover:text-foreground"
+          onClick={() => bandRef.current?.scrollIntoView({ block: 'nearest' })}
+        >
+          <span aria-hidden>◷</span> Temps
+        </button>
+        <button
+          type="button"
+          className="hover:text-foreground"
+          onClick={() => transcriptRef.current?.scrollIntoView({ block: 'nearest' })}
+        >
+          <span aria-hidden>❞</span> Mots
+        </button>
+      </div>
 
-        {/* **Un seul panneau, associé aux onglets ci-dessus.** Un `tablist`
-            sans `tabpanel` s'annonce sans rien désigner — même contrat que
-            `src/components/review/feed.tsx:419-440`. (relevé par Copilot) */}
-        <TabsContent value={mode}>
-          {mode === 'words' ? (
-            <TranscriptDrawer
-              clipId={clipId}
-              lines={lines}
-              words={words}
-              firstLine={firstLine}
-              duration={duration}
-              search={search}
-              onSearch={onSearch}
-              onPlay={onPlay}
-            />
-          ) : bounds === null ? (
-            // Tout a été retiré : il n'y a plus de bornes, donc pas de bande.
-            // L'onglet Mots reste accessible ci-dessus — c'est par lui qu'on
-            // remonte un mot retiré. (relevé par Codex, Copilot)
-            <p className="text-[0.75rem] text-muted-foreground">
-              Plus rien n’est monté : la bande de temps réapparaîtra dès qu’un passage sera remonté.
-            </p>
-          ) : (
-            <>
+      <div ref={bandRef}>
+        {bounds === null ? (
+          // Tout a été retiré : il n'y a plus de bornes, donc pas de bande.
+          // Le transcript, juste en dessous, reste la façon d'y remonter un
+          // mot (relevé par Codex, Copilot, pour l'ancien tiroir modal).
+          <p className="text-[0.75rem] text-muted-foreground">
+            Plus rien n’est monté : la bande de temps réapparaîtra dès qu’un passage sera remonté.
+          </p>
+        ) : (
+          <>
               <div className="flex items-baseline justify-between text-[0.75rem] text-muted-foreground">
                 <span className="font-mono tabular-nums">{formatTimecode(view.start)}</span>
                 {/* Ce que la bande montre, dit une fois. Sans cette ligne, les creux
@@ -543,31 +512,47 @@ export function Timeline({
               )}
             </>
           )}
+      </div>
 
-          {/* **Le pied de la bande, dans les deux modes** (spec du 28 août,
-              §4.3), où segments et cadre rejoignent A/B et durée (issue
-              #277) : un `<dl>` séparé doublait « Bornes » et coûtait 62 px. */}
-          {bounds !== null && (
-            <div
-              data-testid="band-footer"
-              className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.75rem] text-muted-foreground"
-            >
-              <BoundField label="A" seconds={bounds.start} edge="start" onCommit={commitBound} />
-              <BoundField label="B" seconds={bounds.end} edge="end" onCommit={commitBound} />
-              <span className="flex items-baseline gap-1">
-                durée
-                <span className="font-mono tabular-nums text-foreground">{formatDuration(duration)}</span>
-              </span>
-              <span aria-hidden>·</span>
-              <span>
-                {segments.length} segment{segments.length > 1 ? 's' : ''}
-              </span>
-              <span aria-hidden>·</span>
-              <ShotFrameLine framing={framing} ratio={ratio} cropX={cropX} />
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+      {/* Pas de wrapper `role`/`aria-label` ici : `TranscriptDrawer` porte
+          déjà son propre `role="group" aria-label="Transcript du clip"`,
+          avec sa hauteur bornée (`h-56`) et son défilement interne — en
+          doubler un autour créerait un second point de repère ambigu. */}
+      <div ref={transcriptRef}>
+        <TranscriptDrawer
+          clipId={clipId}
+          lines={lines}
+          words={words}
+          firstLine={firstLine}
+          duration={duration}
+          search={search}
+          onSearch={onSearch}
+          onPlay={onPlay}
+        />
+      </div>
+
+      {/* **Le pied de la bande, commun aux deux** (spec du 28 août, §4.3),
+          où segments et cadre rejoignent A/B et durée (issue #277) : un
+          `<dl>` séparé doublait « Bornes » et coûtait 62 px. */}
+      {bounds !== null && (
+        <div
+          data-testid="band-footer"
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.75rem] text-muted-foreground"
+        >
+          <BoundField label="A" seconds={bounds.start} edge="start" onCommit={commitBound} />
+          <BoundField label="B" seconds={bounds.end} edge="end" onCommit={commitBound} />
+          <span className="flex items-baseline gap-1">
+            durée
+            <span className="font-mono tabular-nums text-foreground">{formatDuration(duration)}</span>
+          </span>
+          <span aria-hidden>·</span>
+          <span>
+            {segments.length} segment{segments.length > 1 ? 's' : ''}
+          </span>
+          <span aria-hidden>·</span>
+          <ShotFrameLine framing={framing} ratio={ratio} cropX={cropX} />
+        </div>
+      )}
     </div>
   )
 }

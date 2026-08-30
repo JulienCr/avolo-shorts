@@ -41,6 +41,9 @@ Object.defineProperty(HTMLElement.prototype, 'scrollHeight', { configurable: tru
 Element.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
   this.scrollTop = typeof options === 'object' ? (options.top ?? this.scrollTop) : this.scrollTop
 }
+// Ni `scrollIntoView` (boutons « Temps »/« Mots », spec §2.5) : jsdom ne
+// l'implémente pas du tout, contrairement à `scrollTo`.
+Element.prototype.scrollIntoView = function () {}
 // jsdom n'a pas de canevas : `getContext` y lève « Not implemented » et
 // salirait la sortie de la suite. Le rendre nul est ce qu'un navigateur sans
 // contexte 2D ferait, et l'aperçu s'en garde déjà.
@@ -138,15 +141,11 @@ async function mount(id = 'c2', data?: ClipDetail) {
 }
 
 /**
- * Bascule la bande en mode Mots.
- *
- * **Le transcript n'est plus visible en permanence** : le geste courant de cet
- * écran — vérifier, ajuster deux textes, exporter — se fait sans lui, et
- * l'édition fine passe par le mode Mots. Tout test qui touche aux mots
- * commence donc par ce geste, qui est aussi celui de l'utilisateur.
+ * Le transcript, déjà monté (spec du 30 août, §2.5 — coexistence sans
+ * condition de seuil). Gardée sous ce nom : la plupart des appelants
+ * l'attendaient déjà après un geste, et rien ne change de leur point de vue.
  */
 async function openEditing() {
-  fireEvent.click(screen.getByRole('tab', { name: 'Mots' }))
   return screen.findByRole('group', { name: 'Transcript du clip' })
 }
 
@@ -328,13 +327,15 @@ describe('le geste courant', () => {
     await mount('c2')
   })
 
-  it('se fait sans ouvrir le transcript', () => {
-    // Le fond du changement : vérifier le clip, ajuster deux textes, exporter.
-    // Le transcript occupait la moitié de l'écran pour une édition ponctuelle.
-    expect(screen.queryByText(/m0-0/)).toBeNull()
+  it('montre le transcript aux côtés du geste courant, plus derrière un mode', () => {
+    // Amendé le 30 août (nuit) : la bande et le transcript coexistent en
+    // permanence (spec §2.5) — le fond du changement (vérifier, ajuster deux
+    // textes, exporter) n'a plus à choisir entre les deux, ils sont montrés
+    // ensemble d'emblée.
+    expect(screen.queryByText(/m0-0/)).not.toBeNull()
     expect(screen.getByLabelText('Titre')).toBeTruthy()
     expect(screen.getByRole('button', { name: /exporter/i })).toBeTruthy()
-    expect(screen.getByRole('tab', { name: 'Mots' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Mots/ })).toBeTruthy()
   })
 
   it('garde toutes les capacités du transcript derrière une action', async () => {
@@ -383,18 +384,19 @@ describe('le geste courant', () => {
     await waitFor(() => expect(document.activeElement).toBe(field))
   })
 
-  it('ne laisse pas une sélection agissante derrière la porte', async () => {
-    // La sélection vit dans le transcript. Le mode Mots quitté, elle n'est
-    // visible nulle part — et `Suppr` retirerait pourtant un passage.
-    // (relevé par Aristarque, pour l'ancien tiroir modal)
+  it('garde une sélection agissante quand on regarde la bande à côté', async () => {
+    // Amendé le 30 août (nuit) : il n'y a plus de porte à quitter — le
+    // transcript reste visible, donc la sélection qu'il porte reste
+    // visible et agissante avec lui. `Suppr` doit encore retirer le
+    // passage sélectionné après un aller-retour par le bouton « Temps ».
     await openEditing()
     // L'appui suffit à sélectionner : le relâchement sur un mot barré le
     // remonterait, ce qui vide la sélection par un autre chemin.
     fireEvent.pointerDown(screen.getByText(/m0-0/))
     expect(useEditor.getState().selection).not.toBeNull()
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Temps' }))
-    await waitFor(() => expect(useEditor.getState().selection).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: /Temps/ }))
+    expect(useEditor.getState().selection).not.toBeNull()
   })
 
   it('vide aussi la sélection en quittant Édition par Exports', async () => {

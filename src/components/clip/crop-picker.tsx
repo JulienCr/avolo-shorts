@@ -375,7 +375,11 @@ export function RatioPicker({
   const forced = ratio !== 'auto'
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    // **Pas de div ici** : le rangement en une seule ligne (spec §2.3) est
+    // celui du flex externe posé par l'appelant sur ses trois déclencheurs ;
+    // un wrapper propre à `RatioPicker` isolerait ses `basis-full` dans sa
+    // propre largeur au lieu de celle de la rangée entière.
+    <>
       <ToggleGroup
         value={ratio === 'auto' ? ['auto'] : []}
         onValueChange={(chosen: string[]) => {
@@ -468,6 +472,6 @@ export function RatioPicker({
               .join(', ')
           : 'aucune'}
       </p>
-    </div>
+    </>
   )
 }

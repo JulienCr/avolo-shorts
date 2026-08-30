@@ -492,26 +492,9 @@ export function Timeline({
           )}
       </div>
 
-      {/* Pas de wrapper `role`/`aria-label` ici : `TranscriptDrawer` porte
-          déjà son propre `role="group" aria-label="Transcript du clip"`,
-          avec sa hauteur bornée (`h-56`) et son défilement interne — en
-          doubler un autour créerait un second point de repère ambigu. */}
-      <div>
-        <TranscriptDrawer
-          clipId={clipId}
-          lines={lines}
-          words={words}
-          firstLine={firstLine}
-          duration={duration}
-          search={search}
-          onSearch={onSearch}
-          onPlay={onPlay}
-        />
-      </div>
-
       {/* **Le pied de la bande, commun aux deux** (spec du 28 août, §4.3),
-          où segments et cadre rejoignent A/B et durée (issue #277) : un
-          `<dl>` séparé doublait « Bornes » et coûtait 62 px. */}
+          où segments et cadre rejoignent A/B et durée (issue #277) : reste
+          immédiatement après la piste qu'il pilote, avant le transcript. */}
       {bounds !== null && (
         <div
           data-testid="band-footer"
@@ -531,6 +514,22 @@ export function Timeline({
           <ShotFrameLine framing={framing} ratio={ratio} cropX={cropX} />
         </div>
       )}
+
+      {/* Pas de wrapper `role`/`aria-label` ici : `TranscriptDrawer` porte
+          déjà le sien (`role="group"`, hauteur bornée et défilement
+          interne) — en doubler un autour créerait un point de repère ambigu. */}
+      <div>
+        <TranscriptDrawer
+          clipId={clipId}
+          lines={lines}
+          words={words}
+          firstLine={firstLine}
+          duration={duration}
+          search={search}
+          onSearch={onSearch}
+          onPlay={onPlay}
+        />
+      </div>
     </div>
   )
 }

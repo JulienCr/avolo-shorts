@@ -694,9 +694,10 @@ lui aussi, sur un budget à tenir au pixel près. Retirer
 ce commitment — l'arbitrage du propriétaire, « au pire on scroll un peu » —
 ne corrige donc pas un symptôme de plus : il retire la cause commune aux
 quatre. Ce que corrigent encore §4.1-§4.2, c'est le bug de calcul CSS
-lui-même (`items-start` + `aspect-ratio` + `flex-wrap`), qui resterait un
-défaut même sans budget à tenir — mais il cesse d'être **entretenu** par une
-contrainte qui le forçait à mentir sur sa propre taille.
+lui-même (`min-h-0` sur la rangée, pas `items-start` qui reste), qui
+resterait un défaut même sans budget à tenir — mais il cesse d'être
+**entretenu** par une contrainte qui le forçait à mentir sur sa propre
+taille.
 
 Ce mécanisme de débordement flexbox touche potentiellement d'autres endroits
 de l'écran qui utilisent le même patron ; il n'a pas été cherché ailleurs que

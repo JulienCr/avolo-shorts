@@ -465,10 +465,9 @@ describe('useClipRevision (issue #280)', () => {
   })
 
   it('notifie un abonné déjà monté à l’amorçage (relevé par Copilot et par Aristarque)', () => {
-    // `Child` imbriqué dans `Parent` reproduit l'ordre réel : les effets d'un
-    // descendant partent avant ceux de son parent, donc l'abonnement de
-    // `useClipRevision` s'installe avant l'amorçage de `useClip` — sans
-    // notification à l'amorçage, `Child` resterait sur `EMPTY_CONFIRMED`.
+    // `Child` imbriqué dans `Parent` reproduit l'ordre réel : l'abonnement
+    // de `useClipRevision` s'installe avant l'amorçage de `useClip`, ses
+    // effets partant en premier.
     const id = 'c-280-mount-order'
     const { client, envelope } = harness()
     client.setQueryData<ClipDetail>(keys.clip(id), {

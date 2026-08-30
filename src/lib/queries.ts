@@ -303,6 +303,10 @@ export function useClipRevision(clipId: string): ConfirmedClip {
       [clipId],
     ),
     () => confirmed.get(clipId) ?? EMPTY_CONFIRMED,
+    // Sans ce troisième argument, un rendu serveur de la page cliente qui
+    // atteint `Timeline` fait lever ce hook et abandonner le SSR. (relevé
+    // par Copilot)
+    () => EMPTY_CONFIRMED,
   )
 }
 
@@ -441,14 +445,9 @@ export function usePatchClip() {
       // récente remettrait l'ancien état, sans erreur et sans trace.
       if (context?.jeton !== lastWrite.get(clipId)) return
 
-      // Le serveur normalise les segments (tâche 10, étape 2) : c'est sa version
-      // qui fait foi, pas celle qu'on lui a envoyée. Là encore, on ne touche que
-      // l'entrée concernée.
-      //
-      // **Le même geste que `applied` soit vrai ou faux.** Refusée, l'écriture
-      // rend le clip *gagnant* : l'adopter est exactement ce qu'il faut faire —
-      // c'est l'état de la base, et c'est le seul chemin par lequel une écriture
-      // venue d'un autre onglet revient à l'écran sans rechargement.
+      // Le serveur normalise les segments et fait foi, `applied` vrai ou faux :
+      // refusée, l'écriture rend quand même le clip gagnant, seul chemin par
+      // lequel une écriture d'un autre onglet revient sans rechargement.
       client.setQueryData<CandidateClip[]>(keys.candidats(projectId), (list) =>
         list?.map((c) => (c.id === clipId ? { ...c, ...clip } : c)),
       )
@@ -465,13 +464,9 @@ export function usePatchClip() {
     },
 
     /**
-     * La réconciliation, **une seule fois, à la fin de la rafale**.
-     *
-     * Pas à chaque écriture : le détail d'un clip porte sa fenêtre de
-     * transcript, et la redemander après chaque geste ferait payer un montage
-     * entier pour un cas qui ne se produit qu'en cas de croisement. Pas non plus
-     * pendant la rafale, sans quoi la relecture partirait avant que les
-     * écritures qu'elle doit refléter ne soient arrivées.
+     * La réconciliation, **une seule fois, à la fin de la rafale** — jamais à
+     * chaque écriture (un montage entier payé pour un croisement) ni pendant
+     * (la relecture partirait avant les écritures qu'elle doit refléter).
      *
      * Le rollback de `onError`, lui, reste immédiat : une invalidation laisserait
      * l'écran dans son état optimiste, donc faux, le temps du rechargement.
@@ -484,13 +479,11 @@ export function usePatchClip() {
       await client.invalidateQueries({ queryKey: keys.clip(clipId) })
       void client.invalidateQueries({ queryKey: keys.candidats(projectId) })
 
-      // La réponse gagnante pouvait porter un autre champ que les bornes ;
-      // sans reprendre l'adoption sur ce `GET`, le store confirmé reste sur
-      // l'ancienne valeur. (relevé par Codex)
-      const reconciled = client.getQueryData<ClipDetail>(keys.clip(clipId))?.clip
-      if (reconciled) {
-        adoptConfirmedBounds(clipId, reconciled.segments)
-      }
+      // La réponse gagnante peut porter un autre champ que les bornes, et
+      // `invalidateQueries` résout même si son refetch échoue : sans ces deux
+      // garde-fous, le store confirmé publierait le cache optimiste. (Codex, Copilot)
+      const state = client.getQueryState<ClipDetail>(keys.clip(clipId))
+      if (state?.status === 'success' && state.data) adoptConfirmedBounds(clipId, state.data.clip.segments)
     },
   })
 }

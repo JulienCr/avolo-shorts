@@ -370,9 +370,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     poserBound: (edge) => {
       if (selection) editor.poserBound(words, selection.head, edge)
     },
-    // `Ctrl+F` demande la recherche : la bande bascule elle-même en mode
-    // Mots, sinon une barre ouverte sur une surface fermée ne chercherait
-    // nulle part.
+    // `Ctrl+F` demande la recherche : le transcript est toujours monté,
+    // la barre trouve donc toujours une surface où chercher.
     find: () => setSearch(true),
     help: () => setHelp(true),
     aSelection: selection !== null,
@@ -565,9 +564,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         <Tabs
           value={view}
           onValueChange={(v) => {
-            // Quitter Édition démonte `Timeline` directement, sans passer
-            // par le commutateur Temps/Mots interne : une sélection y
-            // resterait sinon, atteignable par `Suppr`. (relevé par Copilot)
+            // Quitter Édition démonte `Timeline` directement : une
+            // sélection y resterait sinon, atteignable par `Suppr`.
+            // (relevé par Copilot)
             if (view === 'edition' && v !== 'edition') {
               editor.clearSelection()
               setSearch(false)
@@ -673,53 +672,65 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               Image
             </h2>
 
-            {/* **La source et la fiche éditoriale, côte à côte.** Le hook
-                brûle dans l'image : son champ doit rester visible en même
-                temps qu'elle. La fiche vise 30 % du volet, bornée entre
-                360 et 620 px — au-delà, elle voudrait dire une ligne plus
-                large que ce qu'un téléphone affiche jamais. */}
-            <div className="flex min-h-0 flex-wrap items-start gap-4 workbench:flex-nowrap workbench:max-h-[58vh]">
-              <figure className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
-                  la source — le rectangle est le cadre pris pour ce plan
-                </figcaption>
-                <ClipPlayer
-                  proxyUrl={proxyUrl}
-                  segments={segments}
-                  onVideo={setVideo}
-                  frame="h-72 w-auto workbench:h-auto workbench:min-h-0 workbench:w-full workbench:[aspect-ratio:16/9]"
-                  overlay={
-                    <CropOverlay
-                      framing={framing}
-                      ratio={editor.ratio}
-                      cropX={editor.cropX}
-                      onCropX={editor.moveCrop}
-                      describedBy={cropReasonId}
-                    />
-                  }
-                />
-              </figure>
+            {/* `min-h-0` forçait la rangée sous la hauteur de sa figure — débordement
+                mesuré sur le transport et la bande (spec §4.2). Retiré, avec
+                `max-h-[58vh]` : la section défile au besoin si le total dépasse. */}
+            <div role="group" aria-label="Source" className="rounded-lg border p-4">
+              <div
+                data-slot="source-row"
+                className="flex flex-wrap items-start gap-4 workbench:flex-nowrap"
+              >
+                <figure className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
+                    la source — le rectangle est le cadre pris pour ce plan
+                  </figcaption>
+                  <ClipPlayer
+                    proxyUrl={proxyUrl}
+                    segments={segments}
+                    onVideo={setVideo}
+                    frame="h-72 w-auto workbench:h-auto workbench:min-h-0 workbench:w-full workbench:[aspect-ratio:16/9]"
+                    overlay={
+                      <CropOverlay
+                        framing={framing}
+                        ratio={editor.ratio}
+                        cropX={editor.cropX}
+                        onCropX={editor.moveCrop}
+                        describedBy={cropReasonId}
+                      />
+                    }
+                  />
+                </figure>
 
-              <div className="flex min-w-0 shrink-0 flex-col gap-3 workbench:w-[clamp(360px,30cqw,620px)]">
-                <FieldsTexts clip={clip} onWrite={write} onFailure={flagFailureText} />
-                <HookFields
-                  clip={clip}
-                  globals={hookGlobals}
-                  onWrite={write}
-                  onFailure={flagFailureText}
-                />
+                <div className="flex min-w-0 shrink-0 flex-col gap-3 workbench:w-[clamp(360px,30cqw,620px)]">
+                  <FieldsTexts clip={clip} onWrite={write} onFailure={flagFailureText} />
+                  <HookFields
+                    clip={clip}
+                    globals={hookGlobals}
+                    onWrite={write}
+                    onFailure={flagFailureText}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 shrink-0">
+                <ClipTransport video={video} proxyUrl={proxyUrl} segments={segments} />
               </div>
             </div>
 
-            <div className="shrink-0">
-              <ClipTransport video={video} proxyUrl={proxyUrl} segments={segments} />
-            </div>
+            {duration === 0 && (
+              // Le cas prévu côté serveur et qui n'avait pas de rendu propre :
+              // tout a été retiré. Le transcript, toujours visible, est déjà
+              // là pour le dire (spec du 30 août, §2.5).
+              <p className="shrink-0 text-[0.75rem] text-muted-foreground">
+                Il ne reste rien du clip. Cliquer un mot barré dans le transcript le fait
+                recommencer là.
+              </p>
+            )}
 
-            {/* **Deux viseurs d'un même montage** (spec du 28 août, §4.1) :
-                `Temps` peint la piste et ses repères, `Mots` lui substitue le
-                transcript — la surface d'édition du clip (spec §13,
-                `CLAUDE.md`), qui ne monte plus derrière un tiroir. */}
-            <div className="shrink-0">
+            {/* La bande et le transcript coexistent (spec du 30 août, §2.5) :
+                la surface d'édition du clip (spec §13, `CLAUDE.md`) est
+                toujours montée, plus derrière un mode ni un tiroir. */}
+            <div role="group" aria-label="Montage" className="rounded-lg border p-4">
               <Timeline
                 clipId={clip.id}
                 segments={segments}
@@ -745,30 +756,17 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               />
             </div>
 
-            <div className="shrink-0">
+            {/* Ratio, montage doublage et rendu : trois déclencheurs de modale
+                (`FramingFields`/`RenderSettings` depuis la #281) qui n'ont plus
+                besoin de trois blocs empilés (spec §2.3) — une seule rangée. */}
+            <div role="region" aria-label="Outils de cadrage" className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <RatioPicker
                 framing={framing}
                 ratio={editor.ratio}
                 onRatio={editor.chooseRatio}
                 cropReasonId={cropReasonId}
               />
-            </div>
-
-            <div className="shrink-0">
               <FramingFields clip={clip} globals={framingGlobals} framing={framing} onWrite={write} />
-            </div>
-
-            {duration === 0 && (
-              // Le cas prévu côté serveur et qui n'avait pas de rendu propre :
-              // tout a été retiré. **Il se dit hors du mode Mots**, sinon il
-              // faudrait y passer pour apprendre qu'il n'y a plus de montage.
-              <p className="shrink-0 text-[0.75rem] text-muted-foreground">
-                Il ne reste rien du clip. Passer en mode Mots pour le reconstruire : cliquer un mot
-                barré le fait recommencer là.
-              </p>
-            )}
-
-            <div className="shrink-0">
               <RenderSettings
                 clip={clip}
                 onBranding={(branding) => writeDirect('branding', { branding })}

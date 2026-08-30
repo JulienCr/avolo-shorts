@@ -375,7 +375,10 @@ export function RatioPicker({
   const forced = ratio !== 'auto'
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    // **Pas de div ici** : la rangée (spec §2.3) est celle du flex externe
+    // posé par l'appelant sur ses trois déclencheurs — un wrapper propre à
+    // `RatioPicker` isolerait ses `basis-full` dans sa propre largeur.
+    <>
       <ToggleGroup
         value={ratio === 'auto' ? ['auto'] : []}
         onValueChange={(chosen: string[]) => {
@@ -438,14 +441,14 @@ export function RatioPicker({
           (spec §4.5) : elle change par clip et sert la tâche à chaque
           visite, donc elle reste visible plutôt que de rejoindre la modale. */}
       {origin !== null && (
-        <p className="basis-full text-[0.75rem] text-amber-500 dark:text-amber-400">{origin}</p>
+        <p className="order-last basis-full text-[0.75rem] text-amber-500 dark:text-amber-400">{origin}</p>
       )}
 
       {/* La raison d'un contrôle inerte s'écrit ici, visible en permanence :
           repliée, l'id que le rectangle désigne par `aria-describedby`
           pointerait dans le vide dès que la modale se ferme. */}
       {cropReason !== null && (
-        <p id={cropReasonId} className="basis-full text-[0.75rem] text-muted-foreground">
+        <p id={cropReasonId} className="order-last basis-full text-[0.75rem] text-muted-foreground">
           {cropReason}
         </p>
       )}
@@ -453,7 +456,7 @@ export function RatioPicker({
       {/* **La ligne qui nomme les deux fichiers reste visible, toujours**
           (`2026-08-18-parcours-utilisateur-design.md` §3.3) — elle seule
           empêche de croire que les pastilles règlent la sortie verticale. */}
-      <p className="basis-full text-[0.75rem] text-muted-foreground">
+      <p className="order-last basis-full text-[0.75rem] text-muted-foreground">
         <strong className="font-medium">Fichier natif</strong>{' '}
         <span className="font-mono">{nativeRatio}</span>
         {' · '}
@@ -468,6 +471,6 @@ export function RatioPicker({
               .join(', ')
           : 'aucune'}
       </p>
-    </div>
+    </>
   )
 }

@@ -298,10 +298,12 @@ describe('PreviewOutput', () => {
 
   /**
    * Le split (spec du 25 août) n'existe que sur la variante 9:16 : la légende
-   * doit le dire, et le canevas doit occuper 100 % de la hauteur du téléphone
-   * — les deux cellules empilées remplissent le canevas, sans fond flouté.
+   * doit le dire. Le canevas occupe bien 100 % de la hauteur du téléphone —
+   * les deux cellules empilées remplissent le canevas, sans fond flouté —
+   * mais ce chiffre ne varie jamais sur un plan splitté : l'afficher dans la
+   * légende annoncerait un pourcentage de crop que le rendu ne suit pas.
    */
-  it('montre « split » et 100 % sur un plan splitté', () => {
+  it('montre « split », sans pourcentage, sur un plan splitté', () => {
     const ctx = context()
     const two = framing({
       ratio: '16:9',
@@ -311,17 +313,18 @@ describe('PreviewOutput', () => {
       <PreviewOutput video={video()} framing={two} ratio="auto" cropX={0.5} />,
     )
     expect(container.textContent).toContain('split')
-    expect(container.textContent).toContain('100')
+    expect(container.textContent).not.toMatch(/%/)
     expect(ctx.drawImage).toHaveBeenCalledTimes(2)
   })
 
   /**
-   * Le doublage (amendement 3 du contrat, PR3) n'existe lui aussi que sur la variante
-   * 9:16 : la légende doit le dire, et le canevas occupe 100 % de la hauteur
-   * du téléphone — la composition remplit tout le canevas, sans fond flouté
-   * en plus de celui qu'elle porte déjà.
+   * Le doublage (amendement 3 du contrat, PR3) n'existe lui aussi que sur la
+   * variante 9:16 : la légende doit le dire. Le canevas occupe 100 % de la
+   * hauteur du téléphone, mais ce chiffre est constant sur tout plan de
+   * doublage — un habillage, pas une mesure — et n'a plus sa place dans la
+   * légende (issue #131, contrainte sur les pourcentages de crop annoncés).
    */
-  it('montre « doublage » et 100 % sur un plan de doublage', () => {
+  it('montre « doublage », sans pourcentage, sur un plan de doublage', () => {
     const ctx = context()
     const cells = dubbingCellsFor(DUBBING_ANCHORS[0], DUBBING_ANCHORS[0].pip.y0)
     const two = framing({
@@ -332,7 +335,7 @@ describe('PreviewOutput', () => {
       <PreviewOutput video={video(1920, 1080)} framing={two} ratio="auto" cropX={0.5} />,
     )
     expect(container.textContent).toContain('doublage')
-    expect(container.textContent).toContain('100')
+    expect(container.textContent).not.toMatch(/%/)
     expect(ctx.drawImage).toHaveBeenCalledTimes(4)
   })
 

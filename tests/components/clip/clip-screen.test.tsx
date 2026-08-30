@@ -138,15 +138,11 @@ async function mount(id = 'c2', data?: ClipDetail) {
 }
 
 /**
- * Bascule la bande en mode Mots.
- *
- * **Le transcript n'est plus visible en permanence** : le geste courant de cet
- * écran — vérifier, ajuster deux textes, exporter — se fait sans lui, et
- * l'édition fine passe par le mode Mots. Tout test qui touche aux mots
- * commence donc par ce geste, qui est aussi celui de l'utilisateur.
+ * Le transcript, déjà monté (spec du 30 août, §2.5 — coexistence sans
+ * condition de seuil). Gardée sous ce nom : la plupart des appelants
+ * l'attendaient déjà après un geste, et rien ne change de leur point de vue.
  */
-async function openEditing() {
-  fireEvent.click(screen.getByRole('tab', { name: 'Mots' }))
+async function findTranscript() {
   return screen.findByRole('group', { name: 'Transcript du clip' })
 }
 
@@ -328,30 +324,31 @@ describe('le geste courant', () => {
     await mount('c2')
   })
 
-  it('se fait sans ouvrir le transcript', () => {
-    // Le fond du changement : vérifier le clip, ajuster deux textes, exporter.
-    // Le transcript occupait la moitié de l'écran pour une édition ponctuelle.
-    expect(screen.queryByText(/m0-0/)).toBeNull()
+  it('montre le transcript aux côtés du geste courant, plus derrière un mode', () => {
+    // Amendé le 30 août (nuit) : bande et transcript coexistent en
+    // permanence (spec §2.5), plus besoin de choisir entre les deux pour
+    // vérifier, ajuster deux textes, exporter.
+    expect(screen.queryByText(/m0-0/)).not.toBeNull()
     expect(screen.getByLabelText('Titre')).toBeTruthy()
     expect(screen.getByRole('button', { name: /exporter/i })).toBeTruthy()
-    expect(screen.getByRole('tab', { name: 'Mots' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Transcript du clip' })).toBeTruthy()
   })
 
   it('garde toutes les capacités du transcript derrière une action', async () => {
     // **Ne pas retirer des capacités, ne les afficher que lorsqu'on en a
     // besoin.** Chercher, retirer, poser les bornes, annuler, rétablir — ces
-    // deux derniers vivent dans la barre d'app, atteignable dans les deux modes.
-    await openEditing()
+    // deux derniers vivent dans la barre d'app, toujours atteignable.
+    await findTranscript()
     expect(screen.getByText(/m0-0/)).toBeTruthy()
     expect(screen.getByRole('button', { name: /annuler/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /rétablir/i })).toBeTruthy()
   })
 
-  it('laisse les raccourcis vivre en mode Mots', async () => {
-    // Le mode Mots n'est plus un modal à exempter : rien ne fait plus écran
-    // entre lui et les raccourcis de la garde. Le clip va de 100 à 120 ; `I`
-    // sur le premier mot du contexte le fait commencer au début du transcript.
-    await openEditing()
+  it('laisse les raccourcis vivre à côté du transcript', async () => {
+    // Rien ne fait plus écran entre le transcript et les raccourcis de la
+    // garde. Le clip va de 100 à 120 ; `I` sur le premier mot du contexte
+    // le fait commencer au début du transcript.
+    await findTranscript()
     const word = screen.getByText(/m0-0/)
     fireEvent.pointerDown(word)
     fireEvent.pointerUp(word)
@@ -359,11 +356,11 @@ describe('le geste courant', () => {
     expect(useEditor.getState().history.present[0].start).toBeCloseTo(0, 5)
   })
 
-  it('l’échap referme la recherche, pas le mode Mots', async () => {
+  it('l’échap referme la recherche, sans démonter le transcript', async () => {
     // Sans tiroir modal à refermer, `Échap` n'a plus qu'un niveau à dépiler :
-    // la barre de recherche ferme sur sa propre touche (`transcript-surface.tsx`),
-    // et le mode reste celui qu'on a choisi.
-    await openEditing()
+    // la barre de recherche ferme sur sa propre touche
+    // (`transcript-surface.tsx`), le transcript reste monté.
+    await findTranscript()
     fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
     await screen.findByLabelText('Chercher dans le transcript')
 
@@ -383,24 +380,22 @@ describe('le geste courant', () => {
     await waitFor(() => expect(document.activeElement).toBe(field))
   })
 
-  it('ne laisse pas une sélection agissante derrière la porte', async () => {
-    // La sélection vit dans le transcript. Le mode Mots quitté, elle n'est
-    // visible nulle part — et `Suppr` retirerait pourtant un passage.
-    // (relevé par Aristarque, pour l'ancien tiroir modal)
-    await openEditing()
+  it('garde une sélection agissante, la bande restant visible à côté', async () => {
+    // Amendé le 30 août (nuit) : il n'y a plus de porte à quitter, ni de
+    // bouton pour y passer — la bande et le transcript coexistent, donc
+    // rien ne clôt plus la sélection que le transcript porte.
+    await findTranscript()
     // L'appui suffit à sélectionner : le relâchement sur un mot barré le
     // remonterait, ce qui vide la sélection par un autre chemin.
     fireEvent.pointerDown(screen.getByText(/m0-0/))
     expect(useEditor.getState().selection).not.toBeNull()
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Temps' }))
-    await waitFor(() => expect(useEditor.getState().selection).toBeNull())
   })
 
   it('vide aussi la sélection en quittant Édition par Exports', async () => {
-    // Le commutateur Temps/Mots n'est pas le seul chemin de sortie : l'onglet
-    // Exports démonte `Timeline` directement, sans passer par lui. (relevé par Copilot)
-    await openEditing()
+    // L'onglet Exports démonte `Timeline` directement — le seul chemin qui
+    // vide encore la sélection, depuis que la bande et le transcript
+    // coexistent sans mode à quitter. (relevé par Copilot)
+    await findTranscript()
     fireEvent.pointerDown(screen.getByText(/m0-0/))
     expect(useEditor.getState().selection).not.toBeNull()
 
@@ -426,12 +421,12 @@ describe('le geste courant', () => {
     await waitFor(() => expect(useEditor.getState().selection).toBeNull())
   })
 
-  it('bascule en mode Mots avec la recherche sur Ctrl+F', async () => {
-    // Le transcript n'est plus visible en permanence : une barre de recherche
-    // ouverte sur une surface fermée ne chercherait nulle part.
+  it('ouvre la recherche dans le transcript déjà visible, sur Ctrl+F', async () => {
+    // Le transcript est déjà monté (spec §2.5) : `Ctrl+F` n'a plus qu'à y
+    // ouvrir la barre, sans rien démonter ni basculer.
+    expect(screen.getByRole('group', { name: 'Transcript du clip' })).toBeTruthy()
     fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
-    await screen.findByRole('group', { name: 'Transcript du clip' })
-    expect(screen.getByLabelText('Chercher dans le transcript')).toBeTruthy()
+    expect(await screen.findByLabelText('Chercher dans le transcript')).toBeTruthy()
   })
 })
 
@@ -528,7 +523,7 @@ describe('le mot barré cliqué loin devant', () => {
     // trou. Le remonter veut dire « le clip commence là », pas « ajoute trois
     // dixièmes de seconde à quatre-vingt-dix secondes d'ici ».
     await mount('c2')
-    await openEditing()
+    await findTranscript()
     const word = screen.getByText(/m1-0/)
     fireEvent.pointerDown(word)
     fireEvent.pointerUp(word)
@@ -606,6 +601,43 @@ describe('la fiche éditoriale, à côté de la source', () => {
   })
 })
 
+// jsdom ne mesure rien (`getBoundingClientRect` bouché, tête de fichier) :
+// pin la structure qui causait le débordement, pas la géométrie — vérifiée
+// dans un vrai navigateur (plan, tâche 1).
+describe('la rangée source+fiche, débordement (spec du 30 août §1.1/§4.1-§4.2)', () => {
+  it('ne pose plus min-h-0 ni max-h-[58vh] sur la rangée', async () => {
+    await mount('c2')
+
+    const image = screen.getByRole('region', { name: 'Image' })
+    const row = within(image).getByLabelText('Titre').closest('[data-slot="source-row"]')
+    expect(row).toBeTruthy()
+    expect(row?.className).not.toMatch(/(^|\s)min-h-0(\s|$)/)
+    expect(row?.className).not.toMatch(/max-h-\[58vh\]/)
+  })
+})
+
+describe('les cartes de la colonne Image (spec du 30 août §2.1-§2.3)', () => {
+  it('pose ratio, montage et rendu sur une seule rangée d’outils', async () => {
+    await mount('c2')
+
+    const tools = screen.getByRole('region', { name: 'Outils de cadrage' })
+    expect(within(tools).getByRole('button', { name: 'auto' })).toBeTruthy()
+    expect(within(tools).getByRole('button', { name: /forcer un cadrage/i })).toBeTruthy()
+    expect(within(tools).getByRole('button', { name: /réglages du rendu/i })).toBeTruthy()
+  })
+
+  it('donne à la carte Source et à la carte Montage une bordure et un rôle propres', async () => {
+    await mount('c2')
+
+    const source = screen.getByRole('group', { name: 'Source' })
+    const montage = screen.getByRole('group', { name: 'Montage' })
+    expect(within(source).getByLabelText('Titre')).toBeTruthy()
+    expect(within(montage).getByTestId('filmstrip')).toBeTruthy()
+    expect(source.className).toMatch(/\bborder\b/)
+    expect(montage.className).toMatch(/\bborder\b/)
+  })
+})
+
 describe('les valeurs limites', () => {
   it('désactive « clip précédent » sur le premier', async () => {
     await mount('c1')
@@ -670,16 +702,13 @@ describe('l’enregistrement en échec', () => {
 describe('le surlignage, dès l’ouverture', () => {
   it('connaît les mots même quand le store porte déjà ce clip', async () => {
     // L'écran remet la lecture à zéro au changement de clip **et** publie les
-    // mots du transcript. Dans le mauvais ordre, la remise à zéro efface les
-    // mots aussitôt publiés, et plus rien ne se surligne jusqu'à la première
-    // coupe — sur l'écran dont c'est une des deux nouveautés.
-    // Rouvert : `charger` n'a rien à faire, donc l'écran ne rend qu'une fois et
-    // l'ordre des deux effets décide seul de ce qui reste publié.
+    // mots du transcript ; dans le mauvais ordre, la remise à zéro efface les
+    // mots aussitôt publiés et rien ne se surligne jusqu'à la première coupe.
     await mount('c2')
-    await openEditing()
+    await findTranscript()
     cleanup()
     await mount('c2')
-    await openEditing()
+    await findTranscript()
     act(() => usePlayback.getState().definePosition(3.2))
     expect(screen.getByText(/m0-3/).getAttribute('aria-current')).toBe('location')
   })
@@ -691,7 +720,7 @@ describe('le curseur du clavier et les bornes', () => {
     // sélection : `I` posait donc la borne sur un mot cliqué trois gestes plus
     // tôt, sans que rien ne le dise. (relevé par Copilot)
     await mount('c2')
-    await openEditing()
+    await findTranscript()
     const word = screen.getByText(/m0-0/)
     fireEvent.pointerDown(word)
     fireEvent.pointerUp(word)

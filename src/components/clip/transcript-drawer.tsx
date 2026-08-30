@@ -11,9 +11,9 @@ import { formatSpan } from '@/lib/format'
 import { useEditor, useSegments } from '@/store/editor'
 
 /**
- * Le transcript, en mode Mots de la bande (spec du 28 août, §4.1) — la
- * surface d'édition du clip (spec §13, `CLAUDE.md`), qui change de viseur
- * plutôt que de visibilité.
+ * Le transcript, à côté de la bande (spec du 30 août, §2.5) — la surface
+ * d'édition du clip (spec §13, `CLAUDE.md`), toujours montée plutôt que
+ * derrière un mode.
  *
  * Rien n'est perdu de son ancien tiroir : chercher, placer la lecture,
  * retirer, poser les bornes, restaurer un mot, suivre la lecture. Annuler et
@@ -63,10 +63,6 @@ export function TranscriptDrawer({
     [words, segments, editor],
   )
 
-  // La sélection et la recherche ne survivent pas à la sortie du mode Mots
-  // (relevé par Aristarque, pour l'ancien tiroir modal) — `Timeline` s'en
-  // charge désormais, sur la transition plutôt qu'au démontage. (relevé par Copilot)
-
   return (
     <div role="group" aria-label="Transcript du clip" className="flex h-56 flex-col rounded-md border">
       <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1.5">
@@ -111,8 +107,8 @@ export function TranscriptDrawer({
           </>
         ) : duration === 0 ? (
           // Le cas prévu côté serveur, et le transcript reste la façon d'en
-          // sortir. L'écran le dit aussi hors du mode Mots, autrement : ici,
-          // c'est le geste qui compte.
+          // sortir. `clip-screen.tsx` le dit aussi, à côté ; ici, c'est le
+          // geste qui compte.
           <p className="text-[0.75rem] text-muted-foreground">
             Cliquer un mot barré fait recommencer le clip là.
           </p>

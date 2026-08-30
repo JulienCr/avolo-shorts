@@ -733,7 +733,6 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               <Timeline
                 clipId={clip.id}
                 segments={segments}
-                savedSegments={clip.segments}
                 framing={framing}
                 proxyUrl={proxyUrl}
                 sourceDuration={project.durationSec}
@@ -1017,14 +1016,12 @@ function RenderSettings({
 /**
  * Le cadre du plan sous la lecture, en toutes lettres (issue #277).
  *
- * **Un composant à part**, et c'est la raison qui compte : il s'abonne à la
- * position de lecture, qui change quatre fois par seconde. Lu dans
- * `ClipScreen`, il ferait rendre le transcript virtualisé et le lecteur à
- * cette cadence ; ici le sélecteur ne rend qu'un index de plan.
+ * **Un composant à part** : il s'abonne à la position de lecture, qui change
+ * quatre fois par seconde — lu dans `ClipScreen`, il ferait re-rendre le
+ * transcript virtualisé et le lecteur à cette cadence.
  *
- * **Ni ratio ni pourcentage sur un plan split ou de doublage** : un split n'a
- * pas de position de crop unique, et sur un plan de doublage c'est la
- * composition qui place les tuiles, pas un crop.
+ * **Ni ratio ni pourcentage sur un plan split ou de doublage** : l'un n'a pas
+ * de position de crop unique, l'autre laisse la composition placer les tuiles.
  */
 function ShotFrameLine({
   framing,

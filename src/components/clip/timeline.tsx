@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { usePlayback } from '@/components/clip/playback'
+import { useClipRevision } from '@/lib/queries'
 import { TranscriptDrawer } from '@/components/clip/transcript-drawer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { normalizeSegments, type Segment } from '@/core/edl'
@@ -76,7 +77,6 @@ export type BandMode = 'time' | 'words'
 export function Timeline({
   clipId,
   segments,
-  savedSegments,
   framing,
   proxyUrl,
   sourceDuration,
@@ -93,14 +93,6 @@ export function Timeline({
   /** L'identifiant du clip : construit l'URL de la planche, sépare le transcript d'un clip à l'autre. */
   clipId: string
   segments: Segment[]
-  /**
-   * Le montage tel que le serveur le connaît — la référence de
-   * `useAutosave`, jamais `segments`. La planche ne se recharge qu'une
-   * fois la borne confirmée : la lier au montage optimiste la ferait
-   * demander une image que le serveur n'a pas encore, pendant les 600 ms
-   * de temporisation. (relevé par Copilot)
-   */
-  savedSegments: Segment[]
   /** Les plans traversés, publiés par le serveur. On les lit, on ne les calcule pas. */
   framing: PublishedFraming
   proxyUrl: string | null
@@ -243,7 +235,12 @@ export function Timeline({
     }
   }, [drag, commit])
 
-  const savedBounds = clipBounds(savedSegments)
+  // La planche ne se recharge que sur la révision **confirmée** par le
+  // serveur (issue #280) : `onMutate` écrit l'optimiste dans le même cache
+  // que `clip.segments` de façon synchrone, au départ même du `PATCH` — un
+  // simple `clipBounds(savedSegments)` restait donc périmé jusqu'à la
+  // réponse, quelques dizaines de ms plutôt que les 600 ms d'avant `df18e1c`.
+  const revision = useClipRevision(clipId)
   const span = view.end - view.start
   const toFraction = (t: number) => Math.min(Math.max((t - view.start) / span, 0), 1)
 
@@ -381,10 +378,10 @@ export function Timeline({
                       style={{
                         left: `${toFraction(bounds.start) * 100}%`,
                         width: `${Math.max(0, toFraction(bounds.end) - toFraction(bounds.start)) * 100}%`,
-                        // `savedBounds`, pas `bounds` : sinon le navigateur
-                        // garde une planche déjà chargée pendant les 600 ms
-                        // où le serveur ne les connaît pas encore.
-                        backgroundImage: `url("/api/clips/${encodeURIComponent(clipId)}/filmstrip${savedBounds !== null ? `?bounds=${savedBounds.start.toFixed(2)}-${savedBounds.end.toFixed(2)}` : ''}")`,
+                        // La route ignore la requête (`filmstrip/route.ts`) : le
+                        // paramètre ne sert qu'à casser le cache du navigateur
+                        // quand la révision confirmée avance.
+                        backgroundImage: `url("/api/clips/${encodeURIComponent(clipId)}/filmstrip${revision > 0 ? `?rev=${revision}` : ''}")`,
                         backgroundSize: '100% 100%',
                       }}
                     />

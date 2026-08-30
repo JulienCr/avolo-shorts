@@ -11,7 +11,7 @@
  */
 
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
 
 import {
   createProject,
@@ -52,6 +52,7 @@ import {
   schedulePublication,
   unschedulePublication,
 } from '@/lib/api'
+import { clipBounds } from '@/lib/editing'
 import type { TranscriptLine } from '@/lib/editing'
 import type { Platform, PublicationRecord } from '@/core/publication'
 
@@ -160,7 +161,20 @@ export function useCandidates(projectId: string) {
 }
 
 export function useClip(clipId: string) {
-  return useQuery({ queryKey: keys.clip(clipId), queryFn: () => getClip(clipId) })
+  const query = useQuery({ queryKey: keys.clip(clipId), queryFn: () => getClip(clipId) })
+
+  // Amorce la révision confirmée (issue #280) sur la première lecture d'un
+  // clip, avant tout `PATCH` : sans elle, la toute première écriture réussie
+  // de la session — même une simple couleur de hook — n'aurait rien à quoi
+  // se comparer et avancerait le compteur à tort.
+  const segments = query.data?.clip.segments
+  useEffect(() => {
+    if (segments !== undefined && !confirmedBounds.has(clipId)) {
+      confirmedBounds.set(clipId, clipBounds(segments))
+    }
+  }, [clipId, segments])
+
+  return query
 }
 
 type Variables = {
@@ -223,6 +237,57 @@ function gestureToken(): number {
   const now = Date.now()
   lastToken = now > lastToken ? now : lastToken + 1
   return lastToken
+}
+
+/**
+ * Les bornes confirmées par le serveur, par clip, et le compteur de révision
+ * qui n'avance qu'à leur mouvement réel (issue #280). `onMutate` écrit
+ * l'optimiste dans `keys.clip(clipId)` de façon synchrone, au départ même du
+ * `PATCH` : entre ce moment et la réponse, un consommateur qui veut la
+ * version serveur plutôt que la version affichée n'a nulle part où la lire.
+ *
+ * **Compte, pas cache complet** : ne rien garder de plus que ce qui sert à
+ * détecter le mouvement évite de dupliquer `ClipDetail` pour un seul besoin.
+ */
+const confirmedBounds = new Map<string, { start: number; end: number } | null>()
+const revision = new Map<string, number>()
+const revisionListeners = new Map<string, Set<() => void>>()
+
+function boundsEqual(
+  a: { start: number; end: number } | null,
+  b: { start: number; end: number } | null,
+): boolean {
+  if (a === null || b === null) return a === b
+  return a.start === b.start && a.end === b.end
+}
+
+function bumpRevision(clipId: string) {
+  revision.set(clipId, (revision.get(clipId) ?? 0) + 1)
+  revisionListeners.get(clipId)?.forEach((listener) => listener())
+}
+
+/**
+ * La révision **confirmée** d'un clip, pour un consommateur qui doit ignorer
+ * la fenêtre optimiste — la planche de vignettes de `Timeline`, dont la clé de
+ * cache-busting périmerait sur chaque écriture réussie si elle suivait
+ * `clip.segments` telle quelle (issue #280).
+ */
+export function useClipRevision(clipId: string): number {
+  return useSyncExternalStore(
+    useCallback(
+      (onStoreChange) => {
+        let listeners = revisionListeners.get(clipId)
+        if (!listeners) {
+          listeners = new Set()
+          revisionListeners.set(clipId, listeners)
+        }
+        listeners.add(onStoreChange)
+        return () => listeners!.delete(onStoreChange)
+      },
+      [clipId],
+    ),
+    () => revision.get(clipId) ?? 0,
+  )
 }
 
 /**
@@ -387,6 +452,17 @@ export function usePatchClip() {
       client.setQueryData<ClipDetail>(keys.clip(clipId), (detail) =>
         detail ? { ...detail, clip, outputs, framing } : detail,
       )
+
+      // La révision confirmée avance seulement si les bornes ont vraiment
+      // bougé — jamais sur une couleur de hook ou les sous-titres, sans
+      // rapport avec ce que `Timeline` en tire. `useClip` amorce déjà la
+      // première valeur ; `hadBaseline` reste une garde défensive contre un
+      // clip jamais lu par lui. (issue #280)
+      const hadBaseline = confirmedBounds.has(clipId)
+      const previous = confirmedBounds.get(clipId) ?? null
+      const confirmed = clipBounds(clip.segments)
+      confirmedBounds.set(clipId, confirmed)
+      if (hadBaseline && !boundsEqual(confirmed, previous)) bumpRevision(clipId)
     },
 
     /**

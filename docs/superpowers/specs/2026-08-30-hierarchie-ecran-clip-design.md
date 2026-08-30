@@ -16,7 +16,7 @@ code du commit `02c66ba` — **avant** la PR #286, actuellement ouverte sur
 Segments et Cadre dans le pied de la bande, supprimer « Bornes ») n'est pas
 refait ici ; c'est supposé acquis.
 
-## 1. Ce qui est mesuré, et où la critique se trompe
+## 1. Ce qui est mesuré, dans un vrai navigateur
 
 Mesures prises avec Playwright (Chromium 130, headless) sur
 `http://localhost:4014/clips/2026-03-08-caro-mdlm_005472883-005518477`, la même
@@ -27,10 +27,48 @@ piloté depuis WSL. Playwright pilote un Chromium **headless**, natif à WSL, do
 le viewport se règle directement — le même besoin (un vrai moteur de rendu, pas
 jsdom) sans le contournement de l'iframe.
 
-### 1.1 Le débordement existe à 2560 × 1320, contrairement à ce que dit le contrat
+### 1.1 Deux débordements distincts, tous deux réels, vérifiés par deux méthodes indépendantes
 
-Le contrat de ce chantier affirme : « 32 px à 1920×1080, none at 2560×1320 ».
-**C'est faux, mesuré trois fois, avec capture d'écran à l'appui.**
+Le contrat affirme : « 32 px à 1920×1080, none at 2560×1320 ». **Ce chiffre
+est exact** — reproduit à l'identique par le coordinateur, par deux méthodes
+indépendantes (Chrome GUI en iframe pincée, et Playwright avec un settle de
+3,5 s), pour la paire vidéo/figure **contre le conteneur de la bande, l'onglet
+Temps et le ruban**. Ma première lecture de ce chiffre était fausse : je l'ai
+comparé à une mesure prise contre un **autre élément** (le bloc transport) et
+j'en ai conclu, à tort, que le contrat se trompait sur 2560×1320. Il ne se
+trompait pas — je mesurais une paire différente sans le dire.
+
+**Les deux débordements coexistent, contre des éléments différents, et il
+faut les nommer séparément :**
+
+```
+Playwright, deviceScaleFactor=1, domcontentloaded + 3,5 s de repos :
+
+                          2560 × 1320        1920 × 1080       1456 × 1010
+vidéo/figure vs bande     0                  32                0
+vidéo/figure vs onglet Temps  0              25                0
+vidéo/figure vs ruban     0                  0                 0
+vidéo/figure vs transport 28                 28                0
+```
+
+Les trois premières lignes sont **la mesure du contrat**, confirmée par le
+coordinateur (deux méthodes) et par moi (une troisième) : à 2560×1320 la
+figure déborde son propre conteneur de 43 px (1003 contre 960), ce qui suffit
+à recouvrir tout le bloc transport juste en dessous mais s'arrête 9 px avant
+d'atteindre la bande — d'où le 0 sur ces trois lignes à ce viewport. À
+1920×1080, le débordement est plus grand en absolu (84 px, la figure étant
+plus étroite donc proportionnellement plus haute) et il traverse le bloc
+transport en entier pour mordre sur la bande et son onglet.
+
+**La quatrième ligne est un second constat, distinct du premier, contre un
+élément que ni le contrat ni le coordinateur n'avaient testé** — le bloc
+transport (`ClipTransport`, entre la rangée et la bande). Il est non nul aux
+deux viewports larges, y compris à 2560×1320 où le contrat (à raison, pour sa
+propre paire) annonçait zéro. `closest('div[class*="shrink-0"]')` parti du
+ruban ne peut pas le trouver : le transport n'est pas un ancêtre du ruban,
+c'est un frère précédent de la bande dans le DOM, hors de portée d'un
+`closest()`. Ce n'est donc l'erreur de personne — les deux méthodes de mesure
+ne pouvaient tout simplement pas voir la même chose.
 
 ```
 Playwright, 2560 × 1320 :
@@ -43,12 +81,10 @@ Playwright, 2560 × 1320 :
     min(1003,1000) - max(242,972) = 28)
 ```
 
-À 1920 × 1080, le chevauchement mesuré est de **28 px**, proche des 32 annoncés
-(petit écart de commit, sans conséquence). **La différence qui compte, c'est
-1920×1080 vs 2560×1320** : le contrat présentait la seconde comme saine, elle ne
-l'est pas. Capture jointe : `overlap-2560.png` dans le scratchpad de cette
-tâche, montrant le rectangle de cadrage du plan qui déborde visiblement sur la
-ligne de transport en dessous.
+Capture jointe : `overlap-2560.png` dans le scratchpad de cette tâche,
+montrant le rectangle de cadrage du plan qui déborde visiblement sur la ligne
+de transport en dessous — c'est le débordement contre le transport que la
+capture montre, pas celui contre la bande.
 
 **Le mécanisme est plus large que « le calque vidéo ignore son plafond ».**
 `crop-picker.tsx` n'est pour rien dans le débordement en pixels — le vrai

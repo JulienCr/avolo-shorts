@@ -16,12 +16,13 @@ import type { Measure } from '@/core/captions/wrap'
 
 /**
  * `fontFamily` à `fontSizePx` — la même chaîne `ctx.font` que
- * `src/server/caption-measure.ts`, pour que les deux moteurs prennent les
- * mêmes décisions gloutonnes de retour à la ligne.
+ * `src/server/caption-measure.ts`, mêmes décisions gloutonnes de coupure.
  *
- * Hors d'un environnement qui rend un vrai `<canvas>` (jsdom, sous les
- * tests) : `getContext('2d')` y rend `null`, et la mesure se replie sur `0`
- * — jamais de coupure, le même comportement que `NO_WRAP` des tests d'`ass`.
+ * **Vérifié contre `@napi-rs/canvas`** (le serveur), 60 chaînes réelles à
+ * 18 px : écart maximal 0,005 px, `bold` inerte des deux côtés — `docs/lessons.md`.
+ *
+ * Hors d'un `<canvas>` réel (jsdom) : `getContext('2d')` y rend `null`, la
+ * mesure se replie sur `0` — jamais de coupure, comme `NO_WRAP` dans `ass`.
  */
 export function createDomMeasure(
   fontFamily: string,
@@ -41,6 +42,15 @@ export function createDomMeasure(
 
 function probeFont(fontFamily: string): string {
   return `16px ${fontFamily}`
+}
+
+/** Un seul avertissement par famille — un échec de police ne rejoue pas à chaque montage. */
+const warnedFamilies = new Set<string>()
+
+function warnFontUnavailable(fontFamily: string, reason: string): void {
+  if (warnedFamilies.has(fontFamily)) return
+  warnedFamilies.add(fontFamily)
+  console.warn(`useFontReady: « ${fontFamily} » ${reason} — calque masqué, pas de géométrie de repli.`)
 }
 
 function fontIsReady(fontFamily: string): boolean {
@@ -63,6 +73,9 @@ function fontIsReady(fontFamily: string): boolean {
  * `getSnapshot` rend vrai d'emblée : rien n'y détecte la course.
  */
 export function useFontReady(fontFamily: string): boolean {
+  // **Pas de repli temporisé qui dessinerait une géométrie de repli** :
+  // masquer le calque en échouant est le comportement voulu par cette PR,
+  // l'avertissement sert à le rendre observable, pas à le contourner.
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
       if (typeof document === 'undefined' || document.fonts === undefined) return () => {}
@@ -70,9 +83,15 @@ export function useFontReady(fontFamily: string): boolean {
       document.fonts
         .load(probeFont(fontFamily))
         .then(() => {
-          if (!cancelled) onStoreChange()
+          if (cancelled) return
+          if (!fontIsReady(fontFamily)) {
+            warnFontUnavailable(fontFamily, "a chargé sans passer `document.fonts.check()`")
+          }
+          onStoreChange()
         })
-        .catch(() => {})
+        .catch(() => {
+          if (!cancelled) warnFontUnavailable(fontFamily, "n'a pas pu charger")
+        })
       return () => {
         cancelled = true
       }

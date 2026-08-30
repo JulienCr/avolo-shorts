@@ -1,14 +1,12 @@
 /**
- * L'aperçu DOM des sous-titres pose-t-il la même géométrie que ce que libass
- * rend réellement ?
+ * L'aperçu DOM des sous-titres pose-t-il la même géométrie que libass ?
  *
  *     pnpm tsx scripts/measure-caption-geometry.ts
  *
- * Brûle deux cartons connus sur 1080×1920, mesure au pixel — cadratin,
- * interligne, extents, distance bas d'encre → bas du cadre — et compare à
- * la fraction que `CaptionOverlay` pose. Sort non-zéro si un écart dépasse
- * 2 px sur 1920. Chaque mesure isole un mot AU REPOS (`columnClusters`) : le
- * mot actif grossit de 108 % dès 110 ms, à ne pas confondre avec la géométrie.
+ * Mesure au pixel — cadratin, interligne, extents, distance bas d'encre →
+ * bas du cadre — et compare à la fraction que `CaptionOverlay` pose. Sort
+ * non-zéro si un écart dépasse 2 px sur 1920. Isole un mot AU REPOS
+ * (`columnClusters`) : le mot actif grossit de 108 % dès 110 ms.
  */
 
 import { execFileSync } from 'node:child_process'

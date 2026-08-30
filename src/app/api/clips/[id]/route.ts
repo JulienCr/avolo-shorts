@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import { z } from 'zod'
 
 import { normalizeSegments, type Clip } from '@/core/edl'
+import { clipBounds } from '@/lib/editing'
 import { framingWith, clipFraming, projectAnalysis } from '@/server/clip-framing'
 import {
   effectiveSettings,
@@ -334,7 +335,13 @@ export const PATCH = route(
     // écarté parce qu'un geste plus récent l'avait déjà déplacé laisse la
     // vignette juste : l'effacer ferait payer une régénération à une écriture
     // qui n'a pas eu lieu.
-    if (written.segments[0]?.start !== clip.segments[0]?.start) {
+
+    // Les deux comparaisons passent par `clipBounds`, qui normalise en interne :
+    // des segments non triés en base compareraient sinon la mauvaise borne.
+    // (relevé par Aristarque)
+    const boundsWritten = clipBounds(written.segments)
+    const boundsBefore = clipBounds(clip.segments)
+    if (boundsWritten?.start !== boundsBefore?.start) {
       try {
         fs.rmSync(vignettePath(clip.projectId, clip.id), { force: true })
       } catch (cause) {
@@ -346,8 +353,7 @@ export const PATCH = route(
     // déplacée seule la fausse sans toucher la vignette, d'où une seconde
     // condition plutôt qu'un test partagé.
     const boundsMoved =
-      written.segments[0]?.start !== clip.segments[0]?.start ||
-      written.segments.at(-1)?.end !== clip.segments.at(-1)?.end
+      boundsWritten?.start !== boundsBefore?.start || boundsWritten?.end !== boundsBefore?.end
     if (boundsMoved) {
       try {
         fs.rmSync(filmstripPath(clip.projectId, clip.id), { force: true })

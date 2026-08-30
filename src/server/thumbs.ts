@@ -72,26 +72,18 @@ export function filmstripPath(projectId: string, clipId: string): string {
  * se lit comme un chargement en cours.
  */
 export function momentVignette(clip: Clip): number {
-  return clip.segments[0]?.start ?? 0
+  return clipBounds(clip.segments)?.start ?? 0
 }
 
 /**
- * Produit la vignette si elle manque, et rend son chemin.
+ * Produit la vignette si elle manque, et rend son chemin. `null` sans proxy :
+ * l'encodage n'a pas fini, pas une erreur.
  *
- * `null` quand le proxy n'existe pas encore : il n'y a alors rien à extraire, et
- * ce n'est pas une erreur — c'est l'état d'un projet dont l'encodage n'a pas
- * fini.
- *
- * Comme partout ailleurs dans ce dépôt, l'écriture passe par un nom temporaire
- * renommé une fois seulement : un ffmpeg interrompu laisserait sinon un JPEG
- * tronqué que la visite suivante servirait sans le refaire.
- *
- * **Et le clip est relu juste avant le renommage.** L'extraction dure quelques
- * centaines de millisecondes, largement de quoi qu'un `PATCH` déplace la borne
- * de début entre-temps : son éviction ne trouvait alors rien à effacer, et
- * l'image d'avant prenait le nom définitif juste après — périmée pour de bon,
- * puisque plus rien ne viendrait l'invalider. On jette plutôt que de publier.
- * (relevé par Copilot)
+ * Écriture par temporaire renommé une fois (pas de JPEG tronqué). Renommage
+ * **synchrone** (#274) : `fsp.rename` cédait la main au threadpool libuv
+ * entre la garde et la publication, un `PATCH` concurrent pouvait évincer
+ * dans le vide puis voir publier une image périmée. Un clip disparu
+ * entre-temps ne publie rien, comme `filmstrip`.
  */
 export async function vignette(clip: Clip): Promise<string | null> {
   const proxy = proxyPath(clip.projectId)
@@ -108,11 +100,11 @@ export async function vignette(clip: Clip): Promise<string | null> {
       what: `vignette de ${clip.id}`,
     })
     const toDay = getClip(getDb(), clip.id)
-    if (toDay !== undefined && momentVignette(toDay) !== moment) {
+    if (toDay === undefined || momentVignette(toDay) !== moment) {
       await fsp.rm(temporary, { force: true }).catch(() => {})
       return null
     }
-    await fsp.rename(temporary, destination)
+    fs.renameSync(temporary, destination)
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause
@@ -122,11 +114,10 @@ export async function vignette(clip: Clip): Promise<string | null> {
 
 /**
  * La planche d'un clip : douze vues tuilées sur toute sa durée, gardée sur
- * disque comme `vignette` ci-dessus — même garde-fou, même relecture avant
- * renommage (relevé par Copilot).
+ * disque comme `vignette` — même garde, même renommage synchrone (#274).
  *
- * `null` sans proxy, ou quand `clipBounds` n'a rien à couvrir : un clip vidé de
- * ses segments n'a pas de durée à tuiler.
+ * `null` sans proxy, ou quand `clipBounds` n'a rien à couvrir : un clip vidé
+ * de ses segments n'a pas de durée à tuiler.
  */
 export async function filmstrip(clip: Clip): Promise<string | null> {
   const proxy = proxyPath(clip.projectId)
@@ -157,7 +148,7 @@ export async function filmstrip(clip: Clip): Promise<string | null> {
       await fsp.rm(temporary, { force: true }).catch(() => {})
       return null
     }
-    await fsp.rename(temporary, destination)
+    fs.renameSync(temporary, destination)
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause
@@ -167,19 +158,13 @@ export async function filmstrip(clip: Clip): Promise<string | null> {
 
 /**
  * L'affiche d'un clip du vivier : le premier repère du **rendu livré**,
- * jamais du proxy — voir `posterArgs`. `null` sans livraison à jour ou sans
- * fichier vidéo sur le disque.
+ * jamais du proxy. `null` sans livraison à jour ou sans fichier vidéo.
  *
- * **Fraîcheur sans point d'éviction.** Refaite quand elle manque, ou quand
- * elle est plus vieille que le rendu dont elle est extraite : `deliveredVideo`
- * n'a donc rien à savoir invalider ailleurs, ni `discardRenderStale`, ni le
- * `PATCH` d'édition.
+ * **Fraîcheur sans point d'éviction** : refaite si elle manque ou si le rendu
+ * est plus récent, rien d'autre n'a besoin de l'invalider.
  *
- * **La livraison est relue après ffmpeg, avant le renommage.** Un réexport
- * pendant l'extraction changerait `deliveredVideo` sans que rien ne le
- * signale : la mtime posée par le renommage suivrait alors le nouveau rendu
- * dans le temps, sans en porter le contenu — fraîche pour de bon, comme
- * `vignette` ci-dessus (relevé par Copilot).
+ * Livraison relue après ffmpeg, avant le renommage synchrone (#274) : un
+ * réexport pendant l'extraction ne doit pas publier une affiche périmée.
  */
 /**
  * La mtime d'un fichier, ou `null` s'il n'est pas là.
@@ -225,7 +210,7 @@ export async function renderPoster(clip: Clip, framing?: PublishedFraming): Prom
       await fsp.rm(temporary, { force: true }).catch(() => {})
       return null
     }
-    await fsp.rename(temporary, destination)
+    fs.renameSync(temporary, destination)
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause

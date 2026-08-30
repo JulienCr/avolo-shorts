@@ -1529,6 +1529,41 @@ describe('PATCH /api/clips/:id', () => {
       await patch({ title: 'Un autre titre', seq: 40 })
       expect(fs.existsSync(strip)).toBe(true)
     })
+
+    /**
+     * #275 : les deux gardes normalisent avant de comparer. `putClip` n'y
+     * passe pas — l'API ne peut pas produire cet état, mais un écrivain non
+     * gardé (`replaceClips`) le peut. Le tableau brut porte `{70,90}` en
+     * premier ; sa vraie borne de début, une fois trié, est `10`. Une lecture
+     * non normalisée comparerait `70` et laisserait la vignette périmée en
+     * place au lieu de l'évincer.
+     */
+    /**
+     * La fin brute du dernier segment stocké (90) est la même que celle
+     * écrite par le `PATCH` : une lecture non normalisée du dernier segment
+     * ne verrait donc *aucune* borne bouger (relevé par Copilot — l'ancienne
+     * version de ce test faisait bouger cette fin par accident, ce qui
+     * évinçait déjà la planche sans que la normalisation y soit pour rien).
+     */
+    it('lit la bonne borne quand les segments en base ne sont pas triés', async () => {
+      putClip(getDb(), {
+        ...baseClip(),
+        segments: [
+          { start: 70, end: 90 },
+          { start: 10, end: 90 },
+        ],
+      })
+      const vignetteFile = vignettePath(PROJECT, CLIP)
+      const strip = filmstripPath(PROJECT, CLIP)
+      fs.mkdirSync(path.dirname(vignetteFile), { recursive: true })
+      fs.writeFileSync(vignetteFile, 'jpeg')
+      fs.writeFileSync(strip, 'jpeg')
+
+      await patch({ segments: [{ start: 70, end: 90 }], seq: 40 })
+
+      expect(fs.existsSync(vignetteFile)).toBe(false)
+      expect(fs.existsSync(strip)).toBe(false)
+    })
   })
 })
 

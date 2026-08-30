@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -167,5 +168,35 @@ describe('renderPoster', () => {
 
     await renderPoster(baseClip())
     expect(ffmpegMock.runFfmpeg).toHaveBeenCalledTimes(2)
+  })
+
+  /**
+   * **La course #274, sans timing à deviner.** Même patron que `vignette` et
+   * `filmstrip` (`tests/server/filmstrip.test.ts`) : on intercepte `fsp.rename`
+   * et on joue dedans le réexport concurrent qui invaliderait la garde. Sur
+   * l'ancien code, l'appel a lieu et publie une affiche périmée ; le
+   * correctif n'appelle plus jamais `fsp.rename`.
+   */
+  it('ne publie jamais une affiche périmée si un réexport concurrent s’intercale dans le renommage', async () => {
+    putClip(getDb(), baseClip())
+    writeRender()
+    writeFingerprint(baseClip())
+
+    const renderPath = path.join(root, 'projects', PROJECT, 'renders', `${CLIP}-9x16.mp4`)
+    const originalRename = fsp.rename
+    const renameSpy = vi.spyOn(fsp, 'rename').mockImplementation(async (src, dst) => {
+      const future = new Date(Date.now() + 60_000)
+      fs.utimesSync(renderPath, future, future)
+      return originalRename.call(fsp, src, dst)
+    })
+
+    const destination = posterPath(PROJECT, CLIP)
+    try {
+      await renderPoster(baseClip())
+      expect(renameSpy).not.toHaveBeenCalled()
+    } finally {
+      renameSpy.mockRestore()
+    }
+    expect(fs.existsSync(destination)).toBe(true)
   })
 })

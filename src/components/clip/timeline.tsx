@@ -235,12 +235,10 @@ export function Timeline({
     }
   }, [drag, commit])
 
-  // La planche ne se recharge que sur la révision **confirmée** par le
-  // serveur (issue #280) : `onMutate` écrit l'optimiste dans le même cache
-  // que `clip.segments` de façon synchrone, au départ même du `PATCH` — un
-  // simple `clipBounds(savedSegments)` restait donc périmé jusqu'à la
-  // réponse, quelques dizaines de ms plutôt que les 600 ms d'avant `df18e1c`.
-  const revision = useClipRevision(clipId)
+  // `useClip` amorce l'état confirmé au premier chargement, `onSuccess` seul
+  // le fait avancer (issue #280) : ni la fenêtre optimiste du `PATCH` ni un
+  // champ sans rapport (couleur, sous-titres) ne rebustent la planche.
+  const { revision, bounds: confirmedBounds } = useClipRevision(clipId)
   const span = view.end - view.start
   const toFraction = (t: number) => Math.min(Math.max((t - view.start) / span, 0), 1)
 
@@ -378,10 +376,14 @@ export function Timeline({
                       style={{
                         left: `${toFraction(bounds.start) * 100}%`,
                         width: `${Math.max(0, toFraction(bounds.end) - toFraction(bounds.start)) * 100}%`,
-                        // La route ignore la requête (`filmstrip/route.ts`) : le
-                        // paramètre ne sert qu'à casser le cache du navigateur
-                        // quand la révision confirmée avance.
-                        backgroundImage: `url("/api/clips/${encodeURIComponent(clipId)}/filmstrip${revision > 0 ? `?rev=${revision}` : ''}")`,
+                        // `bounds` rend la clé correcte à travers un rechargement, que le
+                        // `GET` initial restaure avant tout `PATCH` ; `rev` est le compteur
+                        // générique que l'issue demandait, pour un futur consommateur sans bornes.
+                        backgroundImage: `url("/api/clips/${encodeURIComponent(clipId)}/filmstrip${
+                          confirmedBounds !== null
+                            ? `?bounds=${confirmedBounds.start.toFixed(2)}-${confirmedBounds.end.toFixed(2)}&rev=${revision}`
+                            : ''
+                        }")`,
                         backgroundSize: '100% 100%',
                       }}
                     />

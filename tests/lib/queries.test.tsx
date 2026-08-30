@@ -378,7 +378,7 @@ describe('useClipRevision (issue #280)', () => {
       ...renderHook(
         () => {
           useClip(id) // amorce la révision confirmée, comme en production
-          return { patch: usePatchClip(), revision: useClipRevision(id) }
+          return { patch: usePatchClip(), confirmed: useClipRevision(id) }
         },
         { wrapper: envelope },
       ),
@@ -401,7 +401,7 @@ describe('useClipRevision (issue #280)', () => {
     })
     // `onMutate` a déjà écrit l'optimiste dans le cache que lit `useClip` ;
     // la révision **confirmée**, elle, ne doit pas avoir bougé.
-    expect(result.current.revision).toBe(0)
+    expect(result.current.confirmed.revision).toBe(0)
 
     act(() => {
       resolveFetch(
@@ -415,7 +415,7 @@ describe('useClipRevision (issue #280)', () => {
       )
     })
 
-    return waitFor(() => expect(result.current.revision).toBe(1))
+    return waitFor(() => expect(result.current.confirmed.revision).toBe(1))
   })
 
   it('n’avance pas sur un champ sans rapport avec les bornes', async () => {
@@ -438,7 +438,7 @@ describe('useClipRevision (issue #280)', () => {
       await result.current.patch.mutateAsync({ clipId: id, projectId: 'p1', patch: { branding: false } })
     })
 
-    expect(result.current.revision).toBe(0)
+    expect(result.current.confirmed.revision).toBe(0)
   })
 
   it('avance quand les bornes confirmées par le serveur changent réellement', async () => {
@@ -461,7 +461,7 @@ describe('useClipRevision (issue #280)', () => {
       await result.current.patch.mutateAsync({ clipId: id, projectId: 'p1', patch: { segments: [{ start: 0, end: 15 }] } })
     })
 
-    expect(result.current.revision).toBe(1)
+    expect(result.current.confirmed.revision).toBe(1)
   })
 })
 

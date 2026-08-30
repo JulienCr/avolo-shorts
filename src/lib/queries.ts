@@ -163,14 +163,13 @@ export function useCandidates(projectId: string) {
 export function useClip(clipId: string) {
   const query = useQuery({ queryKey: keys.clip(clipId), queryFn: () => getClip(clipId) })
 
-  // Amorce la révision confirmée (issue #280) sur la première lecture d'un
-  // clip, avant tout `PATCH` : sans elle, la toute première écriture réussie
-  // de la session — même une simple couleur de hook — n'aurait rien à quoi
-  // se comparer et avancerait le compteur à tort.
+  // Amorce l'état confirmé (issue #280) : sans lui, la première écriture
+  // réussie de la session n'aurait rien à quoi se comparer, et un
+  // rechargement perdrait les bornes qu'un `PATCH` avait déjà confirmées.
   const segments = query.data?.clip.segments
   useEffect(() => {
-    if (segments !== undefined && !confirmedBounds.has(clipId)) {
-      confirmedBounds.set(clipId, clipBounds(segments))
+    if (segments !== undefined && !confirmed.has(clipId)) {
+      confirmed.set(clipId, { revision: 0, bounds: clipBounds(segments) })
     }
   }, [clipId, segments])
 
@@ -239,54 +238,55 @@ function gestureToken(): number {
   return lastToken
 }
 
-/**
- * Les bornes confirmées par le serveur, par clip, et le compteur de révision
- * qui n'avance qu'à leur mouvement réel (issue #280). `onMutate` écrit
- * l'optimiste dans `keys.clip(clipId)` de façon synchrone, au départ même du
- * `PATCH` : entre ce moment et la réponse, un consommateur qui veut la
- * version serveur plutôt que la version affichée n'a nulle part où la lire.
- *
- * **Compte, pas cache complet** : ne rien garder de plus que ce qui sert à
- * détecter le mouvement évite de dupliquer `ClipDetail` pour un seul besoin.
- */
-const confirmedBounds = new Map<string, { start: number; end: number } | null>()
-const revision = new Map<string, number>()
-const revisionListeners = new Map<string, Set<() => void>>()
+type ClipBounds = { start: number; end: number } | null
 
-function boundsEqual(
-  a: { start: number; end: number } | null,
-  b: { start: number; end: number } | null,
-): boolean {
+/**
+ * Les bornes confirmées par le serveur, par clip, et un compteur qui n'avance
+ * qu'à leur mouvement réel (issue #280) — `onMutate` écrit l'optimiste dans
+ * le même cache, de façon synchrone, avant que le serveur n'ait répondu.
+ *
+ * **Un objet par clip, remplacé plutôt que muté** : `useSyncExternalStore`
+ * compare alors deux lectures par référence, sans réabonnement à chaque rendu.
+ */
+type ConfirmedClip = { revision: number; bounds: ClipBounds }
+const EMPTY_CONFIRMED: ConfirmedClip = { revision: 0, bounds: null }
+const confirmed = new Map<string, ConfirmedClip>()
+const confirmedListeners = new Map<string, Set<() => void>>()
+
+function boundsEqual(a: ClipBounds, b: ClipBounds): boolean {
   if (a === null || b === null) return a === b
   return a.start === b.start && a.end === b.end
 }
 
-function bumpRevision(clipId: string) {
-  revision.set(clipId, (revision.get(clipId) ?? 0) + 1)
-  revisionListeners.get(clipId)?.forEach((listener) => listener())
+function notifyConfirmed(clipId: string) {
+  confirmedListeners.get(clipId)?.forEach((listener) => listener())
 }
 
 /**
- * La révision **confirmée** d'un clip, pour un consommateur qui doit ignorer
- * la fenêtre optimiste — la planche de vignettes de `Timeline`, dont la clé de
- * cache-busting périmerait sur chaque écriture réussie si elle suivait
- * `clip.segments` telle quelle (issue #280).
+ * Les bornes confirmées d'un clip, à l'image près, et le compteur qui
+ * n'avance qu'à leur mouvement réel — pour un consommateur qui doit ignorer
+ * la fenêtre optimiste. La clé de cache-busting de la planche de vignettes de
+ * `Timeline` périmerait sur chaque écriture réussie si elle suivait
+ * `clip.segments` telle quelle (issue #280) ; `revision` seul busterait sur
+ * un champ sans rapport (une couleur de hook), et `bounds` seul ne survivrait
+ * pas à un rechargement de page tant que la valeur affichée n'a pas bougé
+ * depuis le dernier `GET` — les deux sont donc exposés ensemble.
  */
-export function useClipRevision(clipId: string): number {
+export function useClipRevision(clipId: string): ConfirmedClip {
   return useSyncExternalStore(
     useCallback(
       (onStoreChange) => {
-        let listeners = revisionListeners.get(clipId)
+        let listeners = confirmedListeners.get(clipId)
         if (!listeners) {
           listeners = new Set()
-          revisionListeners.set(clipId, listeners)
+          confirmedListeners.set(clipId, listeners)
         }
         listeners.add(onStoreChange)
         return () => listeners!.delete(onStoreChange)
       },
       [clipId],
     ),
-    () => revision.get(clipId) ?? 0,
+    () => confirmed.get(clipId) ?? EMPTY_CONFIRMED,
   )
 }
 
@@ -453,16 +453,15 @@ export function usePatchClip() {
         detail ? { ...detail, clip, outputs, framing } : detail,
       )
 
-      // La révision confirmée avance seulement si les bornes ont vraiment
-      // bougé — jamais sur une couleur de hook ou les sous-titres, sans
-      // rapport avec ce que `Timeline` en tire. `useClip` amorce déjà la
-      // première valeur ; `hadBaseline` reste une garde défensive contre un
-      // clip jamais lu par lui. (issue #280)
-      const hadBaseline = confirmedBounds.has(clipId)
-      const previous = confirmedBounds.get(clipId) ?? null
-      const confirmed = clipBounds(clip.segments)
-      confirmedBounds.set(clipId, confirmed)
-      if (hadBaseline && !boundsEqual(confirmed, previous)) bumpRevision(clipId)
+      // N'avance que si les bornes ont vraiment bougé, jamais sur un champ
+      // sans rapport (issue #280). `hadBaseline` : garde défensive pour un
+      // clip que `useClip` n'a jamais amorcé.
+      const hadBaseline = confirmed.has(clipId)
+      const before = confirmed.get(clipId) ?? EMPTY_CONFIRMED
+      const bounds = clipBounds(clip.segments)
+      if (hadBaseline && boundsEqual(bounds, before.bounds)) return
+      confirmed.set(clipId, { revision: before.revision + (hadBaseline ? 1 : 0), bounds })
+      if (hadBaseline) notifyConfirmed(clipId)
     },
 
     /**

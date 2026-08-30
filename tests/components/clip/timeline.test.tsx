@@ -126,9 +126,9 @@ function clipFixture(id: string, segments = [{ start: 100, end: 120 }]): Clip {
  * que seul un `PATCH` réel fait avancer, un bouchon `onBoundary` ne le
  * pourrait pas.
  */
-function clipDetailFixture(id: string): ClipDetail {
+function clipDetailFixture(id: string, segments = [{ start: 100, end: 120 }]): ClipDetail {
   return {
-    clip: clipFixture(id),
+    clip: clipFixture(id, segments),
     project: { id: 'p1', title: 'p1', durationSec: 5940, createdAt: '' },
     lines: [],
     proxyUrl: '/api/projects/p1/proxy',
@@ -137,13 +137,17 @@ function clipDetailFixture(id: string): ClipDetail {
   }
 }
 
-function mountWithPatch(clipId: string, overrides: Partial<Parameters<typeof Timeline>[0]> = {}) {
+function mountWithPatch(
+  clipId: string,
+  overrides: Partial<Parameters<typeof Timeline>[0]> = {},
+  confirmedSegments = [{ start: 100, end: 120 }],
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   // Amorce la révision confirmée comme le ferait `useClip` en production,
   // avant que `ClipScreen`/`Timeline` ne montent (`src/app/clips/[id]/page.tsx`).
-  client.setQueryData(keys.clip(clipId), clipDetailFixture(clipId))
+  client.setQueryData(keys.clip(clipId), clipDetailFixture(clipId, confirmedSegments))
   const patchRef: { current: ReturnType<typeof usePatchClip> | null } = { current: null }
   function Capture() {
     patchRef.current = usePatchClip()
@@ -235,6 +239,28 @@ describe('le ruban', () => {
     // l'avance, donc c'est `proxyUrl` qui décide côté client.
     mount({ proxyUrl: null })
     expect(screen.queryByTestId('filmstrip')).toBeNull()
+  })
+
+  /**
+   * Un rechargement de page réévalue le module et remet la révision à 0 pour
+   * tout clip — une clé qui ne porterait que ce compteur serait alors
+   * byte-identique avant et après une édition faite dans une session
+   * précédente. Les bornes confirmées, elles, reviennent du `GET` initial.
+   */
+  it('deux clips jamais retouchés dans cette session affichent des planches distinctes si leurs bornes confirmées diffèrent', () => {
+    // Deux identifiants, pas le même clip rechargé : l'id figure dans le
+    // chemin et les distinguerait de toute façon. Seule la partie requête
+    // — après `filmstrip` — dit si le mécanisme, lui, fait la différence.
+    const query = (url: string) => url.split('/filmstrip')[1]
+
+    mountWithPatch('c-280-reload-a', {}, [{ start: 100, end: 120 }])
+    const first = query(screen.getByTestId('filmstrip').style.backgroundImage)
+    cleanup()
+
+    mountWithPatch('c-280-reload-b', {}, [{ start: 200, end: 260 }])
+    const second = query(screen.getByTestId('filmstrip').style.backgroundImage)
+
+    expect(first).not.toBe(second)
   })
 
   /**

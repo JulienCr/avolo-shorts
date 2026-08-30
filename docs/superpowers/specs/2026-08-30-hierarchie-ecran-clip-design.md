@@ -2,6 +2,16 @@
 
 Date : 30 août 2026. Statut : **arrêté**, pas encore implémenté.
 
+**Amendé le 30 août (nuit), après arbitrage du propriétaire** : le défilement
+dans le volet gauche est accepté (« c'est pas grave, au pire on scroll un
+peu »), en plus de la coexistence bande/transcript déjà approuvée. Ça retire
+la contrainte qui cadrait tout le §3 d'origine — deux volets fixes où rien ne
+défile — et avec elle la cause commune de chaque symptôme mesuré dans ce
+chantier : le débordement vidéo/bande, le débordement vidéo/transport, et un
+seuil recalculé qui retombait quand même sur un budget à tenir au pixel près.
+Les sections touchées le disent explicitement plutôt que de laisser l'ancien
+raisonnement en place à côté du nouveau.
+
 Répond à l'issue **#131** pour l'écran de clip. Amende
 `docs/superpowers/specs/2026-08-28-ecran-clip-design.md`, dont l'ossature à deux
 volets tient et n'est pas rediscutée ici : la sortie 9:16 garde le volet droit,
@@ -103,12 +113,26 @@ Playwright, 1024 × 1000 (le plancher actuel du seuil workbench) :
 ```
 
 **La fiche éditoriale déborde elle aussi**, de 90 px, et par un mécanisme
-différent (une hauteur de contenu, pas un `aspect-ratio`). Un simple
-`overflow-hidden` posé sur la rangée réglerait le débordement de la vidéo
-(perte tolérable — quelques pixels de bandes noires) mais **couperait des
-champs de saisie de la fiche** dans ce second cas — un défaut fonctionnel, pas
-seulement visuel. La correction ne peut donc pas être un `overflow-hidden`
-unique posé sur la rangée ; voir §4.
+différent (une hauteur de contenu, pas un `aspect-ratio`).
+
+**Ce que le défilement accepté (amendement du 30 août, nuit) change à cette
+analyse : ce ne sont plus deux débordements à contenir chacun dans son coin,
+c'est un seul bug de calcul à corriger à la racine.** Un simple
+`overflow-hidden` sur la rangée resterait un mauvais correctif — il
+couperait des champs de saisie de la fiche à la largeur plancher, un défaut
+fonctionnel, pas seulement visuel. Le bon correctif est plus direct :
+faire en sorte que la rangée **rende réellement** la hauteur de son plus
+grand enfant (`items-stretch` plutôt que `items-start`, ou une autre
+disposition qui n'oppose pas `aspect-ratio` et calcul de hauteur flex — le
+choix précis se tranche en phase 2, pas ici). Une fois ce calcul corrigé, les
+deux débordements du §1.1 disparaissent **par construction**, pas par un
+filet qui masque leurs pixels : il n'y a plus de bug à masquer. Et si le
+résultat pousse la colonne au-delà de la fenêtre, elle défile — la section
+`zone-image` porte déjà `workbench:overflow-y-auto`
+(`clip-screen.tsx:615`), qui n'a jamais pu jouer son rôle parce que le
+débordement se produisait *à l'intérieur* de la rangée, entre deux frères de
+même niveau, avant même d'atteindre le bord de la section qu'il aurait fallu
+faire défiler. Voir §2.1 et §4.1.
 
 ### 1.2 Le seuil `workbench` est à la fois inatteignable et, atteint, insuffisant
 
@@ -131,6 +155,14 @@ exactement, le contenu d'aujourd'hui ne tient déjà plus dedans.** Le budget de
 la bande (#278), avant la fiche éditoriale à droite de la source (#273), avant
 même les déclencheurs de modale de la #281. Personne ne l'a recalculé depuis.
 Relever le seuil sans le recalculer serait répéter l'erreur.
+
+**Amendement du 30 août (nuit) : ce relevé garde sa valeur de diagnostic, mais
+plus l'un et l'autre problème ne se recoupent après l'arbitrage du
+propriétaire.** Le premier (le seuil ne s'atteint pas sur 1080p) est corrigé
+au §3.4 — pas en cherchant plus de marge dans le même calcul, mais en
+changeant ce que le seuil doit garantir. Le second (le contenu déborde déjà
+au seuil actuel) est corrigé au §2.1/§4.2 — pas en resserrant le contenu,
+mais en le laissant défiler.
 
 ### 1.3 Une troisième rupture de la contrainte « pas de ratio ni de pourcentage sur split/doublage »
 
@@ -183,9 +215,12 @@ en phase 2. Voir §4.4.
 
 Le principe de la critique — fusionner plutôt qu'empiler — est retenu, avec un
 correctif : **la fusion en cartes est un gain de lisibilité, pas un gain de
-hauteur.** Voir le calcul du §3. Le vrai gain de hauteur vient d'ailleurs : la
-ligne d'outils unique (§2.3) et une hauteur de rangée **calculée**, plus une
-`fiche` qui défile en interne plutôt que de déborder (§2.1 et §4.1).
+hauteur** (§3.1-§3.3 le chiffrent). Ça n'a plus besoin d'être un gain de
+hauteur : depuis l'arbitrage du 30 août (nuit), le volet gauche peut défiler,
+donc la mise en page n'a plus à tenir sous un budget précis. Ce qui reste à
+faire tenir sans défiler, c'est la sortie 9:16 dans le volet droit — la seule
+pièce de l'écran qui n'a pas de scroll — et c'est elle qui cadre le seuil
+`workbench` refait au §3.4.
 
 ### 2.1 Carte Source
 
@@ -193,22 +228,24 @@ Bordure autour de la rangée source + fiche + transport, avec la légende
 existante (« la source — le rectangle est le cadre pris pour ce plan ») en
 guise d'en-tête — pas de nouveau `<h2>`. À l'intérieur :
 
-- la **figure source** (16:9, avec le rectangle de cadrage superposé) —
-  `overflow-hidden` en filet de sécurité, pas en mécanisme principal ;
-- la **fiche éditoriale** (Titre, Description, Hook, Badge) à droite, dans un
-  conteneur à `max-height: 100%` et `overflow-y-auto` propre — **c'est le
-  changement qui règle le débordement du §1.1** : la fiche ne peut plus pousser
-  le conteneur au-delà de la hauteur que la rangée lui accorde, elle défile en
-  interne au lieu d'échapper à sa boîte ;
+- la **figure source** (16:9, avec le rectangle de cadrage superposé) ;
+- la **fiche éditoriale** (Titre, Description, Hook, Badge) à droite ;
 - le **transport**, sous les deux, inchangé.
 
-La hauteur de la rangée n'est plus `max-h-[58vh]` (un pourcentage de la
-fenêtre, sans rapport avec ce qu'il y a autour) mais une valeur calculée contre
-le chrome fixe réel — voir §3. **La figure garde `overflow-hidden` en plus**,
-parce que même avec une hauteur calculée exacte, un cas limite (fenêtre très
-basse **et** très étroite en même temps) peut encore produire un `aspect-ratio`
-dont la hauteur voulue dépasse d'un pixel ou deux ; le filet coupe alors
-quelques pixels de bande noire, jamais du contenu qui compte.
+**Ni l'un ni l'autre n'a son propre défilement** — voir §1.1 pour le
+changement de raisonnement depuis l'amendement du 30 août (nuit). La rangée perd son
+`max-h-[58vh]` (un pourcentage de fenêtre sans rapport avec ce qu'il y a
+autour, cause du bug) sans qu'un calcul de remplacement le remplace pixel
+pour pixel : une fois le calcul de hauteur de la rangée corrigé à la racine
+(`items-stretch`, ou une disposition équivalente — le choix précis est un
+détail d'implémentation, tranché en phase 2), la rangée rend simplement la
+hauteur réelle de son plus grand enfant, qu'il s'agisse de la figure ou de la
+fiche selon la largeur disponible (§3.3). **Si le total dépasse la fenêtre,
+la carte Source pousse la carte Montage plus bas et la colonne défile** —
+`workbench:overflow-y-auto` existe déjà sur la section, il n'a simplement
+jamais pu jouer son rôle tant que le bug empêchait la rangée de rendre sa
+vraie taille. Plus de filet `overflow-hidden` à poser nulle part : sans bug
+à masquer, il n'y a rien à couper.
 
 ### 2.2 Carte Montage
 
@@ -295,12 +332,12 @@ demanderaient largement plus de lignes qu'un paragraphe de texte suivi. Le
 composant existant (`TranscriptSurface`, réutilisé sans réécriture, comme
 l'avait déjà décidé la refonte du 28 août au §4.3) rend déjà des phrases
 continues avec horodatage par ligne, pas des pastilles isolées — plus dense,
-et il n'a pas besoin d'être remplacé pour porter ce chantier. Ce qu'il lui
-manque, c'est une **borne de hauteur avec défilement interne**, exactement le
-mécanisme déjà retenu pour la fiche éditoriale au §4.2 : sans elle, un clip de
-88 s pousserait son panneau à 287 px, un clip plus long encore davantage, et
-le budget de la carte Montage grandirait avec la durée du clip au lieu de
-rester fixe.
+et il n'a pas besoin d'être remplacé pour porter ce chantier. Ce qu'il lui manque, c'est une **borne de hauteur avec défilement interne**
+— pas pour tenir un budget (§3.4 ne l'exige plus), mais pour que la carte
+Montage garde une taille stable et scannable d'un clip à l'autre : sans elle,
+un clip de 88 s pousserait son panneau à 287 px, un clip plus long encore
+davantage, et la carte grandirait avec la durée du clip plutôt que de
+présenter toujours la même forme.
 
 **Proposition : un panneau transcript de hauteur fixe (~150 px, l'ordre de
 grandeur de la bande elle-même), avec défilement interne, affiché en
@@ -310,50 +347,61 @@ référence (137 mots, ≈ 138 px estimés au prorata du relevé de 287 px pour
 l'émission n'oblige à agrandir ce chiffre — il borne le pire cas, pas la
 moyenne.
 
-**La bascule `◷ Temps | ❞ Mots` ne survit pas telle quelle, et c'est le seuil
-`workbench` lui-même qui tranche où.**
+**Second amendement, du 30 août (nuit) : le découpage ci-dessous ne tient
+plus, et se simplifie.** Il reposait sur « la colonne qui défile n'a pas la
+place pour les deux blocs à la fois » — or le propriétaire vient d'accepter
+que cette colonne défile (« c'est pas grave, au pire on scroll un peu »).
+Une fois le défilement acceptable **partout**, la raison de réserver la
+coexistence à un seul régime disparaît avec lui.
 
-- **Au-dessus du seuil : elle disparaît comme sélecteur de mode.** Les deux
-  panneaux étant tous les deux visibles, un composant `Tabs`
-  (`timeline.tsx:294-318`, un vrai `role="tablist"` avec un unique
-  `TabsContent`) n'a plus de sens — l'ARIA d'un tabpanel promet qu'un seul
-  panneau est visible à la fois, exactement le contrat que la coexistence
-  rompt. Garder les deux étiquettes comme simples ancres de défilement (cliquer
-  « Mots » amène le panneau transcript dans le viewport et y place le focus,
-  cliquer « Temps » fait le symétrique vers la bande) est une option
-  raisonnable si le propriétaire veut garder un raccourci visuel vers chacun,
-  mais ce n'est plus une bascule.
-- **En dessous du seuil : elle reste exactement ce qu'elle est aujourd'hui**,
-  bascule exclusive comprise. La colonne qui défile n'a pas la place pour les
-  deux blocs à la fois — c'est déjà la situation qui a fait écarter la
-  coexistence le 28 août, et rien dans cet amendement ne change ce calcul-là
-  en dessous du seuil. **Le même seuil qui décide entre volet fixe et colonne
-  qui défile décide donc aussi entre coexistence et bascule** — pas un
-  second seuil à inventer, le même.
+**La bascule `◷ Temps | ❞ Mots` ne survit pas, sans condition de seuil.** Les
+deux panneaux restent montés en permanence, que la mise en page soit à deux
+colonnes ou en une seule qui défile. Un composant `Tabs`
+(`timeline.tsx:294-318`, un vrai `role="tablist"` avec un unique
+`TabsContent`) n'a plus de sens dès l'instant où les deux panneaux sont
+visibles ensemble — l'ARIA d'un tabpanel promet qu'un seul est visible à la
+fois, exactement le contrat que la coexistence rompt, dans les deux régimes
+désormais. Les deux étiquettes peuvent rester comme simples ancres de
+défilement (cliquer « Mots » amène le panneau transcript dans le viewport et
+y place le focus, cliquer « Temps » fait le symétrique vers la bande) si le
+propriétaire tient à garder un raccourci visuel vers chacun ; sinon elles
+disparaissent avec la bascule qu'elles accompagnaient.
 
-**`Ctrl+F` suit la même coupure.** Au-dessus du seuil, il amène le focus dans
-le champ de recherche du panneau transcript déjà visible, sans rien démonter.
-En dessous, il continue de faire ce qu'il fait aujourd'hui
-(`shortcuts.tsx:172` ; `clip-screen.tsx:314-317`) : basculer en mode Mots.
+**`Ctrl+F` se simplifie pareil : un seul comportement, plus de coupure.** Il
+amène toujours le focus dans le champ de recherche du panneau transcript déjà
+visible (`shortcuts.tsx:172` ; `clip-screen.tsx:314-317`), qu'on soit
+au-dessus ou en dessous du seuil `workbench` — puisque rien ne démonte plus
+rien nulle part.
 
-**Conséquence chiffrée, qui revient au §3.** Ajouter un panneau de 150 px en
-permanence est le plus gros ajout de tout ce chantier au budget vertical —
-plus gros que tout ce que le regroupement en cartes a coûté ou fait gagner.
-Le §3.6 en tire l'arithmétique.
+**Conséquence chiffrée, revue au §3.4.** Le panneau de 150 px ajouté en
+permanence n'entre plus dans le calcul du seuil : il allonge simplement la
+colonne gauche, qui défile pour l'absorber. Ce n'est plus « le plus gros
+ajout au budget » — il n'y a plus de budget à charger, seulement une colonne
+qui grandit un peu.
 
-## 3. L'arithmétique du seuil `workbench`, refaite
+## 3. Le seuil `workbench`, recalculé sur une question plus faible
 
-Méthode identique à celle de `globals.css:8-29` (28 août) : sommer, à une
-largeur de référence, tout ce qui n'est ni la source ni la sortie, puis
-demander combien il reste aux deux aperçus à la hauteur de seuil.
+**Amendé le 30 août (nuit).** Les §3.1-§3.3 qui suivent datent de la première
+passe de ce document, écrite quand le volet gauche devait encore *tenir* sans
+défiler — la méthode de `globals.css:8-29` (23 août) : sommer tout ce qui
+n'est pas la source ni la sortie, et demander combien il reste aux deux
+aperçus pour que rien ne déborde. Ils restent utiles pour dimensionner un
+**confort par défaut** (le cas courant n'a pas besoin de défiler), mais ils
+ne répondent plus à la question que le seuil doit trancher. Cette question,
+depuis l'arbitrage du propriétaire, est plus faible : **pas « est-ce que tout
+tient », mais « la fenêtre a-t-elle la place pour deux colonnes côte à côte
+plutôt qu'une colonne empilée ».** Le §3.4 la retraite sur cette base ; §3.1
+à §3.3 sont conservés en contexte, réétiquetés en conséquence, et ne
+gouvernent plus le chiffre du seuil.
 
-**Largeur de référence : 1024 px, pas 1416.** Le 23 août avait choisi 1416 sans
-justifier le choix contre le plancher réel du seuil. Le pire cas pour la
-rangée source+fiche est justement à la largeur **minimale** que `workbench`
-autorise (1024), parce que c'est là que la fiche (largeur fixe minimale,
-360 px) mange le plus de place relative face à la figure.
+**Largeur de référence : 1024 px, inchangée.** Le seuil garde ses deux
+conditions (largeur **et** hauteur) : la largeur assure que les deux colonnes
+ont chacune une taille utilisable côte à côte, question qui ne dépend pas de
+ce qui défile. La rangée source+fiche est la plus contrainte à 1024 px
+(la fiche, largeur fixe minimale de 360 px, y mange le plus de place relative
+face à la figure) — ça reste vrai, et ça ne change rien à ce point.
 
-### 3.1 Ce qui est mesuré, indépendant de la largeur
+### 3.1 Ce qui est mesuré, indépendant de la largeur — pour le confort par défaut, plus pour le seuil
 
 Chrome vertical **hors** rangée source+fiche, relevé dans Chromium à 1416 px de
 large (ces pièces ne varient pas avec la largeur, vérifié en les relevant aussi
@@ -373,7 +421,7 @@ Somme aujourd'hui : **602 px**, contre 780,5 px le 23 août — la baisse vient 
 rail supprimé (83 px) et du `<dl>` de faits supprimé (84 px) par la refonte du
 28 août, en partie repris par le ruban de bande (qui n'existait pas encore).
 
-### 3.2 Ce qui change avec ce chantier — estimé, à revérifier une fois construit
+### 3.2 Ce qui change avec ce chantier pour ce confort par défaut — estimé, à revérifier une fois construit
 
 | Pièce | Avant | Après | Écart |
 |---|---|---|---|
@@ -390,6 +438,8 @@ améliore le premier et ne dégrade que légèrement le second.
 
 Nouvelle somme d'ensemble estimée : **602 + 52 = 654 px**, à revérifier dans un
 vrai navigateur une fois la carte construite (§6, tâche 3, dernière étape).
+**Ce chiffre sert à choisir un point confortable par défaut, plus à garantir
+un seuil** — voir §3.4.
 
 ### 3.3 Le budget qu'il reste à la rangée, à la largeur plancher (1024 px)
 
@@ -398,59 +448,72 @@ vrai navigateur une fois la carte construite (§6, tâche 3, dernière étape).
 `1024 − 32(remplissage) − 360(fiche) − 16(gap) = 616` px de large, soit
 `616 × 9 / 16 ≈ 347` px de haut à pleine largeur disponible.
 
-Avec la fiche bornée en interne (§2.1, `max-height` + défilement plutôt que
-hauteur naturelle), **la rangée n'a plus besoin d'accueillir le pire des deux
-côtés** : elle a juste besoin de la hauteur de la figure, 347 px, la fiche
-s'ajustant dans ce qu'on lui laisse.
+Avec la rangée corrigée pour rendre la hauteur réelle de son plus grand
+enfant (§2.1), ce chiffre (347 px pour la figure à 1024 px de large) reste
+une bonne cible de confort par défaut à la largeur plancher — le cas où ni la
+figure ni la fiche n'imposent de défilement interne à la colonne. Ce n'est
+plus une contrainte : si le contenu dépasse, la colonne défile (§2.1).
 
-### 3.4 Le nouveau seuil
+### 3.4 Le nouveau seuil — sur la question qu'il pose réellement maintenant
+
+**Ce que le seuil décide a changé.** Il ne garantit plus que rien ne déborde
+— le défilement s'en charge, §2.1. Il décide seulement si la fenêtre a la
+hauteur pour donner à la sortie 9:16 (le volet droit, la seule pièce de
+l'écran qui ne défile pas) une taille qui vaille la peine d'un affichage à
+deux colonnes plutôt qu'une colonne unique empilée.
 
 ```
-seuil ≥ chrome(654) + rangée_confortable(347) ≈ 1001 px
+chrome incompressible au-dessus des deux colonnes :
+  barre d'app                48
+  fresque des clips         146
+  remplissage de `main`      32
+  ────────────────────────────
+                             226
+
+hauteur de sortie 9:16 jugée confortable, en dessous de laquelle
+un aperçu vertical cesse de rendre service : 400 px (≈ 225 px de large)
+                                                          — jugement, pas dérivé
+
+seuil ≥ 226 + 400 = 626 px
 ```
 
-**Conclusion inattendue : le chiffre ne bouge presque pas.** 1001 px calculé
-contre 1000 px aujourd'hui — à un pixel près. Ce n'est pas une coïncidence
-suspecte, c'est la conséquence directe du §3.2 : ce chantier fait à peu près du
-surplace sur le budget vertical (+52 de chrome, mais l'assouplissement de la
-fiche libère un peu plus que ça sur la rangée elle-même). **Garder 1000 px**,
-mais avec deux différences par rapport à aujourd'hui :
+**Le chiffre de confort (400 px) est un choix, pas un calcul** — contrairement
+au 226, mesuré et robuste à la largeur. Le seuil précédent (1000, puis 1001
+recalculé) dérivait d'exiger que *tout* le volet gauche tienne sans défiler ;
+cette contrainte n'existe plus, donc il n'y a plus de second terme mesurable
+à additionner — seulement la question de quand un 9:16 devient trop petit
+pour être utile. 400 px est un point de départ raisonnable, pas une valeur à
+défendre au pixel près : le propriétaire peut la resserrer ou la desserrer
+sans que rien d'autre dans ce document n'en dépende.
 
-1. **Le chiffre est maintenant vrai.** Aujourd'hui, à 1024×1000 exactement, le
-   contenu déborde déjà (§1.2). Avec la fiche bornée en interne, il ne
-   débordera plus — la marge est fine (moins de 1 px sur le calcul ci-dessus),
-   donc à vérifier à l'œil une fois construit, pas seulement recalculé.
-2. **Le seuil reste inatteignable sur un 1920×1080 réel** (hauteur utile
-   mesurée : 937 px, §1.2). Ce n'est pas un défaut de calcul, c'est un fait :
-   il n'y a pas 1000 px de hauteur utile sur cet écran une fois la fenêtre du
-   navigateur et la barre des tâches Windows déduites, quelle que soit la
-   mise en page. Le repli en colonne qui défile (§2.4) **est** la réponse
-   pour ce cas, pas un pis-aller à corriger davantage — c'est déjà ce que dit
-   le commentaire de `globals.css`, et rien dans cette mesure ne le contredit.
+**Conséquence directe : le seuil descend d'environ 1000 à environ 630**,
+arrondi à **640 px** pour une marge ronde. Ça résout, de fait, la tension que
+la première passe de ce document avait signalée entre coexistence et
+couverture d'écran (ancien §3.6, retiré ci-dessous) : un 1920×1080 réel offre
+~937 px de hauteur utile (§1.2), largement au-dessus de 640. **Le volet fixe
+à deux colonnes redevient atteignable sur l'écran le plus courant** — pas
+parce que le budget a été regagné ailleurs, mais parce que la question posée
+au seuil ne demande plus qu'un aperçu confortable, sans plus jamais exiger
+que la colonne entière y tienne sans défiler.
 
-Si le propriétaire préfère élargir la couverture des écrans 1080p plutôt que
-garder un budget confortable, la marge du §3.3 (347 px pour la figure) peut
-descendre jusqu'à ~250 px sans que la figure devienne illisible, ramenant le
-seuil à ~904 px — **mais ça reste sous les 937 px mesurés d'un 1080p réel**
-sans jamais les atteindre confortablement tant que la barre d'app (48) et la
-fresque des clips (146) occupent 194 px avant même la colonne Image. Ce
-chiffre-là (904) est proposé, pas arrêté : c'est un curseur à trancher avec le
-propriétaire, pas une déduction unique.
+**Sous 640 px de hauteur**, la mise en page repasse en colonne unique
+empilée (§2.4) — inchangé dans sa forme, seulement plus rarement déclenché.
 
-**Ce chiffre est repris et corrigé au §3.6** : l'amendement du §2.5 (la
-coexistence bande/transcript) ajoute un poste que le calcul ci-dessus ne
-porte pas encore.
+**Le §3.3 (347 px pour la figure à la largeur plancher) n'entre plus dans ce
+calcul** : il reste une donnée de confort par défaut pour le volet gauche
+(§3.2), qui peut désormais défiler indépendamment de la sortie.
 
 ### 3.5 Pourquoi ça reste une `@media`, jamais une container query
 
 Une container query répond à la taille du **conteneur**, jamais à celle du
-**viewport**. La question posée par `workbench` — « est-ce que la fenêtre a la
-place verticale pour deux volets fixes sans défiler » — porte sur le viewport
-par construction : c'est justement parce que la fenêtre est haute qu'on peut se
-permettre de ne pas faire défiler `main`. Un conteneur n'a pas de hauteur
-propre à interroger avant que le reste de la page (barre d'app, fresque) ait
-déjà pris la sienne — la seule taille disponible à ce moment-là **est** celle
-du viewport.
+**viewport**. La question posée par `workbench` a changé de forme depuis le
+§3.4 (elle ne demande plus si tout tient sans défiler, seulement si la sortie
+9:16 a une taille confortable en deux colonnes) mais elle porte toujours sur
+le viewport par construction : c'est la hauteur de la *fenêtre*, moins la
+barre d'app et la fresque, qui donne sa hauteur au volet droit. Un conteneur
+n'a pas de hauteur propre à interroger avant que le reste de la page (barre
+d'app, fresque) ait déjà pris la sienne — la seule taille disponible à ce
+moment-là **est** celle du viewport.
 
 Il y a un second problème, plus subtil, et il est déjà visible dans le code
 d'aujourd'hui : la section Image porte `workbench:[container-type:inline-size]`
@@ -459,9 +522,9 @@ d'aujourd'hui : la section Image porte `workbench:[container-type:inline-size]`
 question du seuil à une container query demanderait `container-type: size`
 (largeur **et** hauteur), qui force le navigateur à calculer la taille du
 conteneur *avant* de savoir combien de place il occupera dans la page — un
-problème circulaire quand ce même conteneur décide, via le seuil, s'il doit
-être un volet fixe ou une colonne qui défile. Le viewport, lui, est toujours
-connu avant la mise en page : c'est précisément pour ça qu'une `@media` reste
+problème circulaire quand ce même conteneur décide, via le seuil, si l'écran
+s'affiche à deux colonnes ou en une seule qui défile. Le viewport, lui, est
+toujours connu avant la mise en page : c'est précisément pour ça qu'une `@media` reste
 la bonne réponse à cette question-là, et une container query la bonne réponse
 à la question — différente — de la largeur de la fiche.
 
@@ -471,50 +534,23 @@ critique d'entrée (§5) ; les deux disent la même chose sans le démontrer. Ce
 paragraphe est la démonstration, pour que la question ne revienne pas une
 troisième fois.
 
-### 3.6 L'arithmétique de la coexistence, et la tension qu'elle rend visible
+### 3.6 La tension de la première passe, retirée par l'arbitrage du propriétaire
 
-Le §2.5 ajoute un panneau transcript de ~150 px, affiché en permanence
-au-dessus du seuil, plus un espacement (~16 px) qui n'existait pas. Reporté
-dans le calcul du §3.4 :
+Cette section posait, dans la première passe de ce document, une tension
+entre deux demandes : ajouter le panneau transcript en permanence poussait le
+seuil recalculé de ~1001 à ~1167 px, ce qui rendait le volet fixe à deux
+colonnes **moins** atteignable sur un 1080p — à l'opposé du but affiché de
+l'issue #131 — et deux options étaient proposées : accepter le seuil haut, ou
+réduire le panneau transcript sous 150 px pour limiter la casse.
 
-```
-ancien seuil (§3.4)              : chrome(654) + rangée(347)         ≈ 1001 px
-avec le panneau transcript       : chrome(654) + rangée(347)
-                                    + panneau(150) + espacement(16)  ≈ 1167 px
-```
-
-**Ce chiffre va dans le sens contraire du but affiché de l'issue #131** —
-rendre le seuil atteignable sur l'écran le plus courant. Un 1920×1080 réel
-offre ~937 px de hauteur utile (§1.2) ; même l'ancien seuil, à 1000, ne
-l'atteignait déjà pas. À 1167, l'écart se creuse : **aucun 1080p, même sans
-barre de titre ni barre des tâches, n'atteindra ce chiffre.** Ce n'est pas un
-défaut d'arithmétique à corriger en cherchant encore de la marge ailleurs — il
-n'y a plus grand-chose à gratter (le §3.2 avait déjà trouvé la fusion de la
-ligne d'outils, sa seule vraie économie, et elle est comptée dans les 654).
-**C'est une tension réelle entre deux demandes qui tirent en sens opposé**, et
-elle doit se trancher par un choix, pas par un calcul plus fin.
-
-**Deux issues, à choisir par le propriétaire :**
-
-1. **Accepter le seuil à ~1170-1200 px.** Le volet fixe à deux colonnes ne
-   s'active plus que sur les écrans les plus hauts (2560×1320 et au-delà) ;
-   tout le reste — 1080p compris — passe par le repli en colonne qui défile
-   du §2.4. Ce repli n'est plus le mode dégradé et cassé d'aujourd'hui : avec
-   la fiche bornée (§4.2) et le calcul refait, il fonctionne. Un repli qui
-   marche n'est pas un pis-aller : c'était déjà l'intention du commentaire du
-   23 août dans `globals.css`, avant que les mesures de ce chantier ne
-   montrent qu'il ne marchait plus.
-2. **Réduire le panneau transcript en dessous de 150 px** (par exemple ~90 px,
-   trois à quatre lignes visibles avant défilement) pour limiter la casse sur
-   le seuil, au prix d'un panneau qui défile plus souvent, y compris sur des
-   clips courts.
-
-Ce document ne tranche pas entre les deux : c'est un arbitrage de confort
-d'écran contre couverture d'écran, pas une question qui se déduit d'une
-mesure. **Recommandation, pas décision** : l'option 1, parce que la coexistence
-est la demande la plus récente et la plus explicite du propriétaire, et
-qu'elle a plus de valeur que la couverture du seuil sur un 1080p — mais c'est
-son arbitrage à faire, pas celui de ce document.
+**Cette tension n'existe plus.** Elle reposait sur l'hypothèse que le volet
+gauche devait tenir sans défiler ; l'arbitrage du 30 août (nuit) lève cette
+hypothèse. Le panneau transcript reste à ~150 px (§2.5) pour de bonnes raisons
+de confort d'affichage, mais son coût ne remonte plus dans le calcul du seuil
+— il allonge la colonne gauche, qui défile pour l'absorber (§2.1). Le seuil
+recalculé au §3.4 (~640 px) ne porte donc plus trace de ce panneau, et n'a
+pas eu besoin d'arbitrage entre deux options : la question qui aurait exigé
+un choix a été dissoute plutôt que tranchée.
 
 ## 4. Ce qui se retire, explicitement, pour que ça se veto avant de disparaître
 
@@ -523,23 +559,38 @@ dans un ordre de risque croissant :
 
 ### 4.1 Le `max-h-[58vh]` de la rangée
 
-Remplacé par une valeur calculée contre le chrome réel plutôt qu'une fraction
-arbitraire du viewport. **58vh n'a jamais eu de rapport avec ce qui entoure la
-rangée** — c'était un chiffre qui marchait par coïncidence à une combinaison de
-tailles, pas un calcul. C'est la cause directe du bug du §1.1 : un pourcentage
-de fenêtre ignore complètement combien de chrome fixe se trouve au-dessus et
-en dessous de la rangée.
+**Amendé le 30 août (nuit) : retiré, sans remplacement calculé.** La première
+passe de ce document proposait de le remplacer par un `calc(100dvh - X)`
+tenant le chrome mesuré au §3.1-§3.3. Ce calcul n'a plus d'objet : il servait
+à garantir que la rangée tienne exactement sous un budget, et cette garantie
+n'est plus demandée. **58vh n'a jamais eu de rapport avec ce qui entoure la
+rangée** — c'était un chiffre qui marchait par coïncidence à une combinaison
+de tailles — et c'est la cause directe du bug du §1.1, mais la correction
+n'est pas de lui substituer un autre chiffre : c'est de corriger le calcul de
+hauteur de la rangée lui-même (§2.1, §4.2 ci-dessous) pour qu'il n'ait plus
+besoin d'aucun plafond.
 
-### 4.2 La hauteur naturelle de la fiche éditoriale
+### 4.2 Le calcul de hauteur de la rangée, corrigé à la racine
 
-Elle perd le droit de pousser son conteneur : `max-height: 100%` +
-`overflow-y-auto`, propre à la fiche, pas à toute la rangée. **Conséquence
-visible pour l'utilisateur** : une description très longue, ou beaucoup de
-mots-dièse, peut désormais faire défiler la fiche à l'intérieur de sa propre
-carte plutôt que de repousser la figure ou déborder sur le transport. C'est un
-changement de comportement, pas seulement de code — à valider avec le
-propriétaire avant de l'implémenter, puisque défiler dans un petit encart n'est
-pas gratuit pour l'ergonomie.
+**Ce point remplace, dans cette version du document, l'ancienne proposition
+de borner la fiche éditoriale avec son propre défilement interne** — devenue
+inutile une fois le défilement de toute la colonne accepté (§2.1). Le
+correctif porte sur la ligne `flex ... items-start ... aspect-ratio`
+(`clip-screen.tsx:626` et `:635`) : sous Chromium, cette combinaison peut
+rendre une rangée plus courte que son plus grand enfant, sans qu'aucune règle
+ne le clippe — c'est le mécanisme derrière les deux débordements du §1.1.
+Le correctif exact (`items-stretch`, ou une disposition qui ne mélange pas
+`aspect-ratio` et calcul flex de hauteur) est un détail d'implémentation à
+trancher en phase 2 ; ce qui est acquis ici, c'est le résultat attendu : la
+rangée rend toujours la hauteur réelle de son plus grand enfant, et
+**`workbench:overflow-y-auto`, déjà posé sur la section (`clip-screen.tsx:615`)
+mais jusqu'ici sans effet utile**, absorbe le reste si la rangée pousse la
+carte Montage hors de la fenêtre. **Conséquence visible pour l'utilisateur** :
+une description très longue peut désormais allonger toute la colonne gauche
+plutôt que de déborder sur le transport ou la bande — un changement de
+comportement, mais plus doux que l'ancienne proposition (défiler dans un
+petit encart), puisque c'est la colonne entière qui s'ajuste, pas une carte
+isolée.
 
 ### 4.3 Trois blocs `shrink-0` redevenant un
 
@@ -561,15 +612,16 @@ vérifier en phase 2, pas fait ici puisque `src/` n'est pas touché en phase 1).
 comportement de rendu, seulement un texte, et elle corrige une rupture
 mesurée, en direct, de la contrainte absolue de ce chantier.
 
-### 4.5 La bascule Temps/Mots, comme sélecteur de mode exclusif — au-dessus du seuil seulement
+### 4.5 La bascule Temps/Mots, comme sélecteur de mode exclusif
 
-Décrit au §2.5. Les deux panneaux restant montés, le composant `Tabs`
-(`timeline.tsx:294-318`) n'a plus de `tabpanel` unique à annoncer ; il se
-retire au profit de deux ancres de défilement, ou disparaît complètement si le
-propriétaire ne tient pas à garder un raccourci visuel vers chacun. **En
-dessous du seuil, rien ne bouge** : la bascule reste, exclusive, exactement
-comme aujourd'hui — §2.5 explique pourquoi le même seuil tranche les deux
-questions.
+**Simplifié le 30 août (nuit) : la qualification « au-dessus du seuil
+seulement » tombe.** Elle tenait tant que la coexistence n'était possible que
+là où tout tenait sans défiler ; le défilement étant maintenant acceptable
+partout (§2.5), les deux panneaux restent montés **sans condition de seuil**.
+Le composant `Tabs` (`timeline.tsx:294-318`) n'a donc plus de `tabpanel`
+unique à annoncer nulle part ; il se retire au profit de deux ancres de
+défilement, ou disparaît complètement si le propriétaire ne tient pas à
+garder un raccourci visuel vers chacun.
 
 ### 4.6 Ce qui NE se retire PAS, à nouveau, pour éviter une quatrième rupture
 
@@ -587,8 +639,8 @@ Deux choix de cette refonte sont porteurs et non rediscutés :
   constante partagée avec la source** (`PREVIEW_FRAME`, annulée le 28 août).
   Ce chantier ne touche pas le volet droit, et l'idée — que deux aperçus
   peuvent avoir des logiques de taille indépendantes — est justement ce qui
-  motive de donner à la fiche sa propre borne de hauteur (§4.2) plutôt que de
-  la laisser dicter celle de toute la rangée.
+  motive de corriger le calcul de hauteur de la rangée plutôt que de lui
+  imposer un budget partagé avec la sortie (§4.2).
 - **`Temps` et `Mots` comme deux viseurs d'une même édition, au niveau des
   données.** `setBoundaryAt` et `poserBound` écrivent la même liste de
   segments et empilent le même point d'annulation (spec du 28 août, §4.1).
@@ -612,13 +664,30 @@ puis jamais rouvert :
   ne portaient déjà pas grand-chose de plus. Elle ne l'est plus une fois que
   le budget lui-même est reconnu insuffisant (point précédent) : masquer le
   transcript n'était pas une décision de fond, c'était la conséquence d'un
-  budget qui n'avait pas de marge pour lui. Le §2.5 la défait, à la demande du
-  propriétaire, et le §3.6 en chiffre le prix.
+  budget qui n'avait pas de marge pour lui. Le §2.5 la défait, sans plus
+  avoir besoin de la conditionner à un seuil (§4.5).
 
-Un troisième point, qui n'est ni un acquis ni un raté mais une découverte de ce
-chantier : **le mécanisme de débordement de flexbox (`items-start` +
-`aspect-ratio` + `flex-wrap`) touche potentiellement d'autres endroits de
-l'écran qui utilisent le même patron.** Il n'a pas été cherché ailleurs que
+**Un même commitment porte les deux — et, en le regardant depuis
+l'arbitrage du 30 août (nuit), porte aussi tout le reste de ce chantier.**
+Le 28 août avait tranché pour **deux volets fixes où rien ne défile**. Chaque
+symptôme mesuré ici en découle directement : le `<dl>` qui doublonnait les
+bornes A/B (§1 de `D-critique.md`, l'entrée de ce chantier, déjà en cours de
+correction par la PR #286 — voir la note d'ouverture de ce document) venait
+d'un budget qu'il fallait faire tenir à tout prix, poussant à répéter une
+valeur affichée ailleurs plutôt qu'à lui trouver une place ; le débordement
+vidéo/bande et vidéo/transport (§1.1) vient d'un plafond (`58vh`) posé pour la
+même raison, sur un calcul de rangée qui ne le respectait déjà pas ; le seuil
+recalculé une première fois (§3.4, version initiale de ce document) retombait,
+lui aussi, sur un budget à tenir au pixel près. Retirer
+ce commitment — l'arbitrage du propriétaire, « au pire on scroll un peu » —
+ne corrige donc pas un symptôme de plus : il retire la cause commune aux
+quatre. Ce que corrigent encore §4.1-§4.2, c'est le bug de calcul CSS
+lui-même (`items-start` + `aspect-ratio` + `flex-wrap`), qui resterait un
+défaut même sans budget à tenir — mais il cesse d'être **entretenu** par une
+contrainte qui le forçait à mentir sur sa propre taille.
+
+Ce mécanisme de débordement flexbox touche potentiellement d'autres endroits
+de l'écran qui utilisent le même patron ; il n'a pas été cherché ailleurs que
 dans la rangée source+fiche — signalé pour un futur audit, pas traité ici.
 
 ## 6. Rapport à l'issue #131

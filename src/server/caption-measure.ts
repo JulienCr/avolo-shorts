@@ -16,8 +16,9 @@ import { ensureFontRegistered } from './hook-image'
 export function createCaptionMeasure(fontsDir: string, fontFamily: string, fontSizePx: number): Measure {
   ensureFontRegistered(fontsDir)
   const ctx = createCanvas(1, 1).getContext('2d')
-  // `bold` : la ligne `Style:` de `renderAss` écrit toujours `Bold=1`, et Anton
-  // Bold n'a pas la même largeur qu'Anton normal à la frontière de `maxWidth`.
+  // `bold` : `Style:` écrit toujours `Bold=1`. Sans effet mesuré sur la
+  // largeur (Anton n'a qu'une graisse, Skia n'en synthétise pas — mesuré le
+  // 30 août 2026) mais posé pour matcher la chaîne `ctx.font` que lit libass.
   ctx.font = `bold ${fontSizePx}px ${fontFamily}`
   return (text: string) => ctx.measureText(text).width
 }

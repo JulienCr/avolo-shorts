@@ -47,6 +47,9 @@ import { cn } from '@/lib/utils'
 /** Le petit côté du canevas, en pixels. Un quart du rendu : la décision se voit à cette taille. */
 const PETIT_SIDE = 270
 
+/** Le canevas de sortie passé à `CaptionOverlay` — même valeur que `HookOverlay` (`@/components/clip/hook-overlay.tsx`). */
+const CANVAS = outputSize('9:16')
+
 /**
  * La part de la hauteur d'un écran 9:16 qu'occupe un contenu de ce ratio.
  *
@@ -369,22 +372,20 @@ export function PreviewOutput({
       {/* Le cadre du téléphone. C'est lui qui donne l'échelle : le canvas y
           occupe la part que le ratio lui laisse, et rien d'autre ne le dit.
 
-          **`self-start` reste, et c'est mesuré, pas recopié de l'ancien
-          code.** La hauteur vient de `frame`, posé par l'appelant (le repli
-          fixe en dessous du seuil `workbench`, ou dérivé du volet
-          au-dessus), et `aspect-ratio` en déduit la largeur — mais seulement
-          si l'axe transversal (la largeur, ici, puisque la figure est en
-          colonne) n'est pas étiré. Sans `self-start`, mesuré dans un vrai
-          Chrome :
-          `align-items: stretch` l'emportait sur `aspect-ratio`, la largeur
-          valait la largeur du volet entier quelle que soit la hauteur, et
-          `aspect-ratio` en déduisait la hauteur *depuis cette largeur-là* —
-          exactement le sens inverse de celui voulu, et invisible tant qu'on
-          ne mesure pas les deux dimensions à la fois. Aucun `max-width`
-          n'entre en jeu : c'est la condition de recette du lot, tenue. */}
+          **Un axe transversal non étiré reste obligatoire** — mesuré dans un
+          vrai Chrome : sous `align-items: stretch` (l'hérité), la largeur
+          valait celle du volet entier quelle que soit la hauteur, et
+          `aspect-ratio` en déduisait la hauteur *depuis cette largeur-là*, le
+          sens inverse de celui voulu. `self-start` le tenait tant que la
+          boîte remplissait `w-full` ; devenue `w-auto` (la largeur se déduit
+          désormais de la hauteur, voir `frame` dans `clip-screen.tsx`),
+          `self-start` la collerait à gauche dans une figure `w-full` —
+          `self-center` empêche le même étirement tout en la centrant. Aucun
+          `max-width` n'entre en jeu : c'est la condition de recette du lot,
+          tenue. */}
       <div
         className={cn(
-          'relative flex min-h-0 self-start overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border',
+          'relative flex min-h-0 self-center overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border',
           'items-center justify-center',
           frame ?? 'w-40',
         )}
@@ -415,6 +416,7 @@ export function PreviewOutput({
             cards={captionCards}
             time={elapsedInClip(segments, time) ?? -1}
             style={captionStyle}
+            canvas={CANVAS}
           />
         )}
       </div>

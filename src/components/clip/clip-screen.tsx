@@ -40,6 +40,7 @@ import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
 import { clipDuration } from '@/core/edl'
+import { RATIOS } from '@/core/framing'
 import { resolveHook } from '@/core/hook'
 import { isGuard } from '@/core/phase'
 import { clipExportEligibility, composeDescription } from '@/core/publication'
@@ -793,10 +794,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                 framing={framing}
                 ratio={editor.ratio}
                 cropX={editor.cropX}
-                // Largeur **et** hauteur explicites, jamais l'une déduite de
-                // l'autre ici : le volet est déjà 9:16, le canevas n'a plus
-                // qu'à le remplir plutôt que se mesurer lui-même.
-                frame="h-72 w-auto workbench:h-full workbench:min-h-0 workbench:w-full"
+                // Hauteur explicite, largeur déduite : le volet est 9:16,
+                // pas la boîte — légende et interrupteur lui retirent 60 px,
+                // `aspect-ratio` doit dériver la largeur, pas remplir `w-full`.
+                frame="h-72 w-auto workbench:h-full workbench:min-h-0 workbench:w-auto"
                 figureClassName="workbench:w-full workbench:min-h-0 workbench:flex-1"
                 captionCards={clip.captions ? captionCards : undefined}
                 captionStyle={DEFAULT_CAPTION_STYLE}
@@ -818,7 +819,13 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                   src={outputs.variant9x16Url ?? outputs.mp4Url ?? undefined}
                   controls
                   preload="metadata"
-                  className="h-72 w-auto rounded-lg bg-zinc-950 workbench:h-full workbench:min-h-0 workbench:w-full"
+                  // Même cadre que l'aperçu (`w-auto`/`self-center` contre
+                  // `align-items: stretch`) — sinon l'interrupteur changeait la taille du cadre.
+                  className="h-72 w-auto self-center rounded-lg bg-zinc-950 workbench:h-full workbench:min-h-0 workbench:w-auto"
+                  // En dur, pas l'intrinsèque (300 px par défaut sans
+                  // métadonnées) : vrai des deux sources, `mp4Url` inclus —
+                  // `RENDER_NATIVE` à faux n'y laisse un natif que déjà 9:16.
+                  style={{ aspectRatio: String(RATIOS['9:16']) }}
                 />
               </figure>
             )}

@@ -75,9 +75,11 @@ export function CaptionOverlay({
   // `font-metrics.ts`. L'interligne réel est donc l'ancien `fontSize`.
   const fontSizeFraction = ASS_FONTSIZE_TO_EM * (units.sizeUnits / PLAYRES_Y)
   const lineHeightFraction = units.sizeUnits / PLAYRES_Y
-  // libass ancre le BAS du glyphe (`baseline + winDescent`) ; CSS ancre le
-  // bas de la boîte de ligne, plus basse de `CSS_HALF_LEADING_OVER_EM`.
-  const paddingBottomFraction = units.marginUnits / PLAYRES_Y - CSS_HALF_LEADING_OVER_EM * fontSizeFraction
+  // libass ancre le BAS du glyphe, CSS celui de la boîte de ligne — d'où
+  // `CSS_HALF_LEADING_OVER_EM`, en `marginBottom` et non `paddingBottom` :
+  // elle peut dépasser `marginUnits` (légal à 0), qu'un `padding` écrêterait.
+  const paddingBottomFraction = units.marginUnits / PLAYRES_Y
+  const halfLeadingCorrectionFraction = CSS_HALF_LEADING_OVER_EM * fontSizeFraction
   const paddingSideFraction = MARGIN_SIDE / PLAYRES_X
 
   let wordIndex = -1
@@ -99,6 +101,7 @@ export function CaptionOverlay({
           fontSize: cqh(fontSizeFraction),
           lineHeight: cqh(lineHeightFraction),
           paddingBottom: cqh(paddingBottomFraction),
+          marginBottom: cqh(-halfLeadingCorrectionFraction),
           paddingLeft: cqw(paddingSideFraction),
           paddingRight: cqw(paddingSideFraction),
         }}

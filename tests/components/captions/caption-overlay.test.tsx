@@ -98,4 +98,16 @@ describe('CaptionOverlay', () => {
     expect(active.style.color).toBe('rgb(255, 229, 0)')
     expect(other.style.color).toBe('rgb(255, 255, 255)')
   })
+
+  // `marginV: 0` est légal (`bound(style.marginV, 0, 200, ...)`) : la correction
+  // de demi-interligne doit alors porter sur `marginBottom`, jamais sur
+  // `paddingBottom` — un `padding` négatif s'écrête à zéro (relevé en passe 2).
+  it('paddingBottom ne devient jamais négatif quand marginV vaut 0, et marginBottom porte la correction', () => {
+    const { container } = render(
+      <CaptionOverlay cards={cards} time={0.1} style={{ ...DEFAULT_CAPTION_STYLE, marginV: 0 }} />,
+    )
+    const card = container.querySelector('[data-caption="card"]') as HTMLElement
+    expect(card.style.paddingBottom).toBe('calc(0cqh)')
+    expect(card.style.marginBottom).toMatch(/^calc\(-[\d.]+cqh\)$/)
+  })
 })

@@ -1,0 +1,12 @@
+[
+  "Dialogue: 0,0:00:00.08,0:00:01.64,Default,,0,0,0,,{\\c&H00E5FF&\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}REBOOTY{\\r} MATILDUS",
+  "Dialogue: 0,0:00:01.64,0:00:02.52,Default,,0,0,0,,REBOOTY {\\c&H00E5FF&\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}MATILDUS{\\r}",
+  "Dialogue: 0,0:00:02.56,0:00:03.22,Default,,0,0,0,,{\\c&H00E5FF&\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}MEOR{\\r} ET LÀ, ON ÉTAIT EN MODE,\\NPUTAIN",
+  "Dialogue: 0,0:00:03.22,0:00:03.30,Default,,0,0,0,,MEOR {\\c&H00E5FF&\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}ET{\\r} LÀ, ON ÉTAIT EN MODE,\\NPUTAIN",
+  "Dialogue: 0,0:00:03.30,0:00:03.46,Default,,0,0,0,,MEOR ET {\\c&H00E5FF&\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}LÀ,{\\r} ON ÉTAIT EN MODE,\\NPUTAIN",
+  "Dialogue: 0,0:00:03.46,0:00:03.52,Default,,0,0,0,,MEOR ET LÀ, {\\c&H00E5FF&\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}ON{\\r} ÉTAIT EN MODE,\\NPUTAIN",
+  "Dialogue: 0,0:00:03.52,0:00:03.64,Default,,0,0,0,,MEOR ET LÀ, ON {\\c&H00E5FF&\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}ÉTAIT{\\r} EN MODE,\\NPUTAIN",
+  "Dialogue: 0,0:00:03.64,0:00:03.72,Default,,0,0,0,,MEOR ET LÀ, ON ÉTAIT {\\c&H00E5FF&\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}EN{\\r} MODE,\\NPUTAIN",
+  "Dialogue: 0,0:00:03.72,0:00:04.04,Default,,0,0,0,,MEOR ET LÀ, ON ÉTAIT EN {\\c&H00E5FF&\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}MODE,{\\r}\\NPUTAIN",
+  "Dialogue: 0,0:00:04.04,0:00:04.78,Default,,0,0,0,,MEOR ET LÀ, ON ÉTAIT EN MODE,\\N{\\c&H00E5FF&\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}PUTAIN{\\r}"
+]

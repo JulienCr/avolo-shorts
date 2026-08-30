@@ -821,14 +821,12 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                   src={outputs.variant9x16Url ?? outputs.mp4Url ?? undefined}
                   controls
                   preload="metadata"
-                  // Même cadre que l'aperçu : `w-auto` dérive la largeur
-                  // de la hauteur, `self-center` empêche `align-items:
-                  // stretch` de l'écraser — sinon l'interrupteur changeait la taille du cadre.
+                  // Même cadre que l'aperçu (`w-auto`/`self-center` contre
+                  // `align-items: stretch`) — sinon l'interrupteur changeait la taille du cadre.
                   className="h-72 w-auto self-center rounded-lg bg-zinc-950 workbench:h-full workbench:min-h-0 workbench:w-auto"
-                  // `RATIOS['9:16']` en dur, pas l'intrinsèque (300 px par
-                  // défaut tant que les métadonnées ne sont pas chargées) :
-                  // vrai des deux sources, `mp4Url` inclus — `RENDER_NATIVE`
-                  // à faux n'y laisse un clip natif que s'il est déjà 9:16.
+                  // En dur, pas l'intrinsèque (300 px par défaut sans
+                  // métadonnées) : vrai des deux sources, `mp4Url` inclus —
+                  // `RENDER_NATIVE` à faux n'y laisse un natif que déjà 9:16.
                   style={{ aspectRatio: String(RATIOS['9:16']) }}
                 />
               </figure>

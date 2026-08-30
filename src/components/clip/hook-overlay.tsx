@@ -53,9 +53,8 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
 
   const layout = hookLayout(hook)
   // Même fonction que le rasteriseur, sur le canevas complet — pas le jeu de
-  // marges/`justifyContent` d'un flex : un flex child rétrécit sous
-  // contrainte pendant que ses enfants en position absolue gardent leur
-  // taille, ils débordaient hors du composite (relevé par Copilot, passe 3).
+  // marges/`justifyContent` d'un flex, où un enfant rétréci laissait ses
+  // enfants absolus déborder (relevé par Copilot, passe 3).
   const placement = hookPlacement(
     { w: geometry.compositeWidth, h: geometry.compositeHeight },
     CANVAS,

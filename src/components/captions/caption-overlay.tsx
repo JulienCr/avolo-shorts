@@ -37,12 +37,10 @@ function popScale(elapsedMs: number): number {
  * Le calque de preview des sous-titres, sur le modèle de `HookOverlay` : un
  * calque DOM en unités `cqh`, jamais peint dans le canevas.
  *
- * **`canvas` choisit le régime de coupure.** `captionLines` calibre son
- * budget pour un conteneur au ratio de la sortie qu'il nomme — fourni
- * (`PreviewOutput`, 9:16) ; `undefined` laisse le navigateur couper
- * librement (`ShowPlayer`, 16:9, où la coupure calibrée romprait trop tôt).
+ * **`canvas` choisit le régime de coupure.** Fourni (`PreviewOutput`, 9:16),
+ * `captionLines` calibre sa coupure pour ce ratio ; `undefined` (`ShowPlayer`,
+ * 16:9) laisse le navigateur couper librement, la coupure calibrée y romprait trop tôt.
  *
- * @param cards Les cartons de `splitIntoCards`, sur la timeline choisie par l'appelant.
  * @param canvas Le canevas de sortie visé, ou `undefined` pour la coupure libre.
  */
 export function CaptionOverlay({

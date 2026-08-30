@@ -44,6 +44,19 @@ function probeFont(fontFamily: string): string {
   return `16px ${fontFamily}`
 }
 
+/**
+ * La première famille de la liste `next/font/local` (`'hookFont', 'hookFont
+ * Fallback'`) — celle que le navigateur retient réellement, guillemets
+ * compris (un nom peut porter un espace). `document.fonts.check()` ne rend
+ * vrai que si **toutes** les familles listées sont chargées ; le repli
+ * synthétique ne l'est jamais, donc sonder la liste entière rend `false`
+ * pour toujours (relevé à la mesure, passe 4).
+ */
+function firstFamily(fontFamily: string): string {
+  const comma = fontFamily.indexOf(',')
+  return (comma === -1 ? fontFamily : fontFamily.slice(0, comma)).trim()
+}
+
 /** Un seul avertissement par famille — un échec de police ne rejoue pas à chaque montage. */
 const warnedFamilies = new Set<string>()
 
@@ -56,7 +69,7 @@ function warnFontUnavailable(fontFamily: string, reason: string): void {
 function fontIsReady(fontFamily: string): boolean {
   if (typeof document === 'undefined' || document.fonts === undefined) return true
   try {
-    return document.fonts.check(probeFont(fontFamily))
+    return document.fonts.check(probeFont(firstFamily(fontFamily)))
   } catch {
     return true
   }

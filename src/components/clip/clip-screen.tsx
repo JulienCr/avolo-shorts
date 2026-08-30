@@ -820,7 +820,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                   src={outputs.variant9x16Url ?? outputs.mp4Url ?? undefined}
                   controls
                   preload="metadata"
-                  className="h-72 w-auto rounded-lg bg-zinc-950 workbench:h-full workbench:min-h-0 workbench:w-full"
+                  // Même cadre que l'aperçu : `w-auto` dérive la largeur
+                  // de la hauteur, `self-center` empêche `align-items:
+                  // stretch` de l'écraser — sinon l'interrupteur changeait la taille du cadre.
+                  className="h-72 w-auto self-center rounded-lg bg-zinc-950 workbench:h-full workbench:min-h-0 workbench:w-auto"
                 />
               </figure>
             )}

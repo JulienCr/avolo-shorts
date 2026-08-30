@@ -470,21 +470,21 @@ chrome incompressible au-dessus des deux colonnes :
   ────────────────────────────
                              226
 
-hauteur de sortie 9:16 jugée confortable, en dessous de laquelle
-un aperçu vertical cesse de rendre service : 400 px (≈ 225 px de large)
-                                                          — jugement, pas dérivé
+hauteur de sortie 9:16 en dessous de laquelle un aperçu vertical
+cesse de rendre service : 400 px (≈ 225 px de large)
+                                          — décidé par le propriétaire
 
 seuil ≥ 226 + 400 = 626 px
 ```
 
-**Le chiffre de confort (400 px) est un choix, pas un calcul** — contrairement
-au 226, mesuré et robuste à la largeur. Le seuil précédent (1000, puis 1001
-recalculé) dérivait d'exiger que *tout* le volet gauche tienne sans défiler ;
-cette contrainte n'existe plus, donc il n'y a plus de second terme mesurable
-à additionner — seulement la question de quand un 9:16 devient trop petit
-pour être utile. 400 px est un point de départ raisonnable, pas une valeur à
-défendre au pixel près : le propriétaire peut la resserrer ou la desserrer
-sans que rien d'autre dans ce document n'en dépende.
+**Le chiffre de confort (400 px) est la décision du propriétaire, pas un
+calcul** — contrairement au 226, mesuré et robuste à la largeur. Le seuil
+précédent (1000, puis 1001 recalculé) dérivait d'exiger que *tout* le volet
+gauche tienne sans défiler ; cette contrainte n'existe plus, donc il n'y a
+plus de second terme mesurable à additionner — seulement la question de
+quand un 9:16 devient trop petit pour être utile, et c'est lui qui a
+tranché. **Confirmé le 30 août** : 400 px reste la valeur retenue pour la
+phase 2, écrite comme telle dans `globals.css`.
 
 **Conséquence directe : le seuil descend d'environ 1000 à environ 630**,
 arrondi à **640 px** pour une marge ronde. Ça résout, de fait, la tension que

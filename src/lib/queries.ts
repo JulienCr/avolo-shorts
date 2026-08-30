@@ -163,13 +163,14 @@ export function useCandidates(projectId: string) {
 export function useClip(clipId: string) {
   const query = useQuery({ queryKey: keys.clip(clipId), queryFn: () => getClip(clipId) })
 
-  // Amorce l'état confirmé (issue #280) : sans lui, la première écriture
-  // réussie de la session n'aurait rien à quoi se comparer, et un
-  // rechargement perdrait les bornes qu'un `PATCH` avait déjà confirmées.
+  // Amorce l'état confirmé (issue #280) et notifie même sans abonné : le
+  // descendant qui appelle `useClipRevision` (`Timeline`) peut s'abonner
+  // avant cet effet-ci. (relevé par Copilot et par Codex)
   const segments = query.data?.clip.segments
   useEffect(() => {
     if (segments !== undefined && !confirmed.has(clipId)) {
       confirmed.set(clipId, { revision: 0, bounds: clipBounds(segments) })
+      notifyConfirmed(clipId)
     }
   }, [clipId, segments])
 
@@ -260,6 +261,21 @@ function boundsEqual(a: ClipBounds, b: ClipBounds): boolean {
 
 function notifyConfirmed(clipId: string) {
   confirmedListeners.get(clipId)?.forEach((listener) => listener())
+}
+
+/**
+ * Adopte des bornes venues du serveur dans le store confirmé, si elles ont
+ * réellement bougé, et notifie. Partagé par `onSuccess` et par la
+ * réconciliation de `onSettled` (issue #280) : les deux lisent une réponse
+ * serveur, jamais un `setQueryData` optimiste.
+ */
+function adoptConfirmedBounds(clipId: string, segments: { start: number; end: number }[]): void {
+  const hadBaseline = confirmed.has(clipId)
+  const before = confirmed.get(clipId) ?? EMPTY_CONFIRMED
+  const bounds = clipBounds(segments)
+  if (hadBaseline && boundsEqual(bounds, before.bounds)) return
+  confirmed.set(clipId, { revision: before.revision + (hadBaseline ? 1 : 0), bounds })
+  if (hadBaseline) notifyConfirmed(clipId)
 }
 
 /**
@@ -436,32 +452,16 @@ export function usePatchClip() {
       client.setQueryData<CandidateClip[]>(keys.candidats(projectId), (list) =>
         list?.map((c) => (c.id === clipId ? { ...c, ...clip } : c)),
       )
-      // Les sorties viennent du serveur elles aussi : une écriture qui remonte
-      // un clip exporté écarte ses MP4, et le cache ne doit pas garder l'URL
-      // d'un fichier que ce `PATCH` vient de faire disparaître.
-      //
-      // **Le cadrage aussi, et c'est celui des trois qui bouge le plus souvent.**
-      // Le ratio et les crops se recalculent sur les segments et ne sont pas
-      // stockés : retirer un passage peut les changer sans qu'aucun geste de
-      // cadrage n'ait eu lieu. Ne pas l'adopter laisserait le rectangle, l'aperçu
-      // et le panneau d'export sur le cadrage d'avant la coupe jusqu'à la
-      // prochaine navigation — pendant que l'export, lui, utiliserait déjà le
-      // nouveau. C'est exactement le mensonge que le champ existe pour fermer, et
-      // le publier sans l'adopter le déplace d'un cran au lieu de le refermer.
-      // (relevé par Codex)
+      // Sorties et cadrage viennent du serveur eux aussi : un `PATCH` qui
+      // ré-exporte ou touche les segments les recalcule, sans quoi le cache
+      // resterait sur l'ancien jusqu'à la prochaine navigation. (Codex)
       client.setQueryData<ClipDetail>(keys.clip(clipId), (detail) =>
         detail ? { ...detail, clip, outputs, framing } : detail,
       )
 
       // N'avance que si les bornes ont vraiment bougé, jamais sur un champ
-      // sans rapport (issue #280). `hadBaseline` : garde défensive pour un
-      // clip que `useClip` n'a jamais amorcé.
-      const hadBaseline = confirmed.has(clipId)
-      const before = confirmed.get(clipId) ?? EMPTY_CONFIRMED
-      const bounds = clipBounds(clip.segments)
-      if (hadBaseline && boundsEqual(bounds, before.bounds)) return
-      confirmed.set(clipId, { revision: before.revision + (hadBaseline ? 1 : 0), bounds })
-      if (hadBaseline) notifyConfirmed(clipId)
+      // sans rapport (issue #280).
+      adoptConfirmedBounds(clipId, clip.segments)
     },
 
     /**
@@ -476,13 +476,21 @@ export function usePatchClip() {
      * Le rollback de `onError`, lui, reste immédiat : une invalidation laisserait
      * l'écran dans son état optimiste, donc faux, le temps du rechargement.
      */
-    onSettled(_data, _error, { clipId, projectId }: Variables) {
+    async onSettled(_data, _error, { clipId, projectId }: Variables) {
       if (!clipsOverlapping.has(clipId)) return
       // Une, parce que celle-ci y est encore.
       if (inFlight(clipId) > 1) return
       clipsOverlapping.delete(clipId)
-      void client.invalidateQueries({ queryKey: keys.clip(clipId) })
+      await client.invalidateQueries({ queryKey: keys.clip(clipId) })
       void client.invalidateQueries({ queryKey: keys.candidats(projectId) })
+
+      // La réponse gagnante pouvait porter un autre champ que les bornes ;
+      // sans reprendre l'adoption sur ce `GET`, le store confirmé reste sur
+      // l'ancienne valeur. (relevé par Codex)
+      const reconciled = client.getQueryData<ClipDetail>(keys.clip(clipId))?.clip
+      if (reconciled) {
+        adoptConfirmedBounds(clipId, reconciled.segments)
+      }
     },
   })
 }

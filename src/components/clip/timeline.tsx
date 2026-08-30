@@ -860,21 +860,39 @@ function useFramePreview(drag: Drag | null, proxyUrl: string | null) {
 }
 
 /**
- * Un temps tapé au clavier — `h:mm:ss`, `m:ss` ou `ss`. `null` devant une
- * saisie qui ne s'y prête pas : une ambiguïté se rejette, elle ne se devine
- * pas au hasard.
+ * Un temps tapé au clavier — `h:mm:ss:ff`, `h:mm:ss`, `m:ss` ou `ss`. `null`
+ * devant une saisie qui ne s'y prête pas : une ambiguïté se rejette, elle ne
+ * se devine pas au hasard.
+ *
+ * **La composante d'image, en dernier**, garde le format réversible avec ce
+ * que `BoundField` affiche : sans elle, retaper une borne à l'image près la
+ * ramenait à la seconde pleine (issue #279).
  */
 function parseTimecode(text: string): number | null {
   const parts = text.trim().split(':')
-  if (parts.length === 0 || parts.length > 3 || parts.some((p) => !/^\d+$/.test(p))) return null
+  if (parts.length === 0 || parts.length > 4 || parts.some((p) => !/^\d+$/.test(p))) return null
+  const hasFrame = parts.length === 4
+  const frame = hasFrame ? Number(parts[parts.length - 1]) : 0
+  if (hasFrame && frame >= 30) return null
+  const timeParts = hasFrame ? parts.slice(0, -1) : parts
   // Les parties `mm`/`ss` sont strictement inférieures à 60 : `1:90` ne
   // vaut rien, il ne se relit pas comme `2:30`. (relevé par Aristarque)
-  if (parts.slice(1).some((p) => Number(p) >= 60)) return null
-  const result = parts.reduce((total, part) => total * 60 + Number(part), 0)
+  if (timeParts.slice(1).some((p) => Number(p) >= 60)) return null
+  const wholeSeconds = timeParts.reduce((total, part) => total * 60 + Number(part), 0)
+  const result = wholeSeconds + frame / 30
   // Une chaîne de centaines de chiffres passe le regex et déborde en
   // `Infinity`, qu'`onCommit` écrirait comme borne — rejeté ici plutôt
   // que laissé à l'autosave, qui le tournerait en `null`. (relevé par Aristarque)
   return Number.isFinite(result) ? result : null
+}
+
+/**
+ * Le timecode affiché par `BoundField`, à l'image près — `h:mm:ss:ff`,
+ * réversible avec `parseTimecode`. `formatDuration`, arrondi à la seconde,
+ * perdait jusqu'à 29 images à chaque saisie (issue #279).
+ */
+function formatBoundTimecode(seconds: number): string {
+  return `${formatTimecode(seconds)}:${String(frameWithinSecond(seconds)).padStart(2, '0')}`
 }
 
 /**
@@ -910,12 +928,13 @@ function BoundField({
     <label className="flex items-center gap-1 text-[0.75rem] text-muted-foreground">
       {label}
       <input
-        // Le libellé visible reste `A`/`B` ; le nom accessible reprend celui
-        // des oreilles (`Handle`, plus bas), lisible hors contexte.
-        // (relevé par Copilot)
-        aria-label={edge === 'start' ? 'Borne d’entrée' : 'Borne de sortie'}
+        // Le nom accessible **commence** par le libellé visible (`A`/`B`),
+        // suivi de celui des oreilles (`Handle`, plus bas) : WCAG 2.5.3 veut
+        // le libellé visible contenu dans le nom accessible, sans quoi « dire
+        // A » ne trouve rien à la commande vocale.
+        aria-label={`${label} — ${edge === 'start' ? 'Borne d’entrée' : 'Borne de sortie'}`}
         className="w-20 rounded border bg-background px-1.5 py-0.5 font-mono text-[0.75rem] text-foreground tabular-nums"
-        value={draft ?? formatDuration(seconds)}
+        value={draft ?? formatBoundTimecode(seconds)}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         // **`Entrée` valide, sans forcer le flou.** Un `blur()` immédiat

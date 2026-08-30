@@ -279,19 +279,19 @@ describe('les champs de bornes', () => {
       ],
     })
 
-    const start = screen.getByRole<HTMLInputElement>('textbox', { name: 'Borne d’entrée' })
-    expect(start.value).toBe('1:40')
+    const start = screen.getByRole<HTMLInputElement>('textbox', { name: /Borne d’entrée/ })
+    expect(start.value).toBe('0:01:40:00')
     await user.clear(start)
-    await user.type(start, '0:01:48{Enter}')
+    await user.type(start, '0:01:48:00{Enter}')
 
-    expect(start.value).toBe('1:40')
+    expect(start.value).toBe('0:01:40:00')
   })
 
   it('écrit par le même chemin qu’un glissé, une fois validé', async () => {
     const user = userEvent.setup()
     const { onBoundary } = mount()
 
-    const end = screen.getByRole('textbox', { name: 'Borne de sortie' })
+    const end = screen.getByRole('textbox', { name: /Borne de sortie/ })
     await user.clear(end)
     await user.type(end, '1:50{Enter}')
 
@@ -305,7 +305,7 @@ describe('les champs de bornes', () => {
     const user = userEvent.setup()
     const { onBoundary } = mount()
 
-    const end = screen.getByRole('textbox', { name: 'Borne de sortie' })
+    const end = screen.getByRole('textbox', { name: /Borne de sortie/ })
     await user.clear(end)
     await user.type(end, '1:90{Enter}')
 
@@ -318,11 +318,45 @@ describe('les champs de bornes', () => {
     const user = userEvent.setup()
     const { onBoundary } = mount()
 
-    const end = screen.getByRole('textbox', { name: 'Borne de sortie' })
+    const end = screen.getByRole('textbox', { name: /Borne de sortie/ })
     await user.clear(end)
     await user.type(end, `${'9'.repeat(320)}{Enter}`)
 
     expect(onBoundary).not.toHaveBeenCalled()
+  })
+})
+
+describe('précision à l’image dans les champs de bornes (issue #279)', () => {
+  it('affiche l’image plutôt que de l’arrondir à la seconde', () => {
+    // 100,4 s tombe sur l'image 12 ; arrondi à la seconde, `formatDuration`
+    // affichait « 1:40 » et retaper cette valeur déplaçait la borne de 13
+    // images.
+    mount({ segments: [{ start: 100.4, end: 120 }] })
+    const start = screen.getByRole<HTMLInputElement>('textbox', { name: /Borne d’entrée/ })
+    expect(start.value).toBe('0:01:40:12')
+  })
+
+  it('retaper la valeur affichée reconstitue exactement la même borne', async () => {
+    const user = userEvent.setup()
+    const { onBoundary } = mount({ segments: [{ start: 100.4, end: 120 }] })
+
+    const start = screen.getByRole<HTMLInputElement>('textbox', { name: /Borne d’entrée/ })
+    const displayed = start.value
+    await user.clear(start)
+    await user.type(start, `${displayed}{Enter}`)
+
+    expect(onBoundary).toHaveBeenCalledTimes(1)
+    expect(onBoundary.mock.calls[0][0]).toBeCloseTo(100.4, 5)
+  })
+
+  it('le nom accessible commence par le libellé visible (WCAG 2.5.3)', () => {
+    mount()
+    expect(
+      screen.getByRole('textbox', { name: /^A —/ }).getAttribute('aria-label'),
+    ).toBe('A — Borne d’entrée')
+    expect(
+      screen.getByRole('textbox', { name: /^B —/ }).getAttribute('aria-label'),
+    ).toBe('B — Borne de sortie')
   })
 })
 

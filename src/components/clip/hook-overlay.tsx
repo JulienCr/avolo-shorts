@@ -9,6 +9,7 @@ import {
   hookGeometry,
   hookIsBurned,
   hookLayout,
+  hookPlacement,
   hookRgba,
   type HookMeasure,
   type ResolvedHook,
@@ -51,102 +52,94 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
   if (geometry === null) return null
 
   const layout = hookLayout(hook)
+  // Même fonction que le rasteriseur, sur le canevas complet — pas le jeu de
+  // marges/`justifyContent` d'un flex : un flex child rétrécit sous
+  // contrainte pendant que ses enfants en position absolue gardent leur
+  // taille, ils débordaient hors du composite (relevé par Copilot, passe 3).
+  const placement = hookPlacement(
+    { w: geometry.compositeWidth, h: geometry.compositeHeight },
+    CANVAS,
+    hook,
+    layout,
+  )
 
   return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-0 flex flex-col"
-      style={{
-        justifyContent:
-          hook.position === 'top' ? 'flex-start' : hook.position === 'bottom' ? 'flex-end' : 'center',
-        overflow: 'hidden',
-      }}
-    >
+    <div aria-hidden className="pointer-events-none absolute inset-0" style={{ overflow: 'hidden' }}>
       <div
         style={{
-          width: '100%',
-          display: 'flex',
-          justifyContent:
-            hook.alignment === 'left' ? 'flex-start' : hook.alignment === 'right' ? 'flex-end' : 'center',
-          paddingLeft: cqw(layout.marginXFraction),
-          paddingRight: cqw(layout.marginXFraction),
-          paddingTop: hook.position === 'top' ? cqw(layout.marginYFraction) : undefined,
-          paddingBottom: hook.position === 'bottom' ? cqh(layout.marginYFraction) : undefined,
+          position: 'absolute',
+          left: cqwPx(placement.x),
+          top: cqhPx(placement.y),
+          width: cqwPx(geometry.compositeWidth),
+          height: cqhPx(geometry.compositeHeight),
+          overflow: 'hidden',
         }}
       >
         <div
+          data-hook="card"
+          className={hookFont.className}
           style={{
-            position: 'relative',
-            width: cqwPx(geometry.compositeWidth),
-            height: cqhPx(geometry.compositeHeight),
+            position: 'absolute',
+            left: cqwPx(geometry.cardX),
+            top: cqwPx(geometry.cardTop),
+            width: cqwPx(geometry.cardWidth),
+            height: cqhPx(geometry.cardHeightDrawn),
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-start',
+            overflow: 'hidden',
+            color: hook.textColor,
+            backgroundColor: hookRgba(hook.backgroundColor, hook.backgroundOpacity),
+            borderRadius: cqw(layout.radiusFraction),
+            paddingLeft: cqwPx(geometry.paddingXPx),
+            paddingRight: cqwPx(geometry.paddingXPx),
+            paddingTop: cqwPx(geometry.paddingYPx),
+            paddingBottom: cqwPx(geometry.paddingYPx),
+            fontSize: cqwPx(geometry.fontSizePx),
+            lineHeight: cqwPx(geometry.lineHeightPx),
+            textAlign: hook.alignment,
+            whiteSpace: 'pre',
           }}
         >
+          {geometry.lines.map((line, i) => (
+            <div key={i} style={{ flexShrink: 0 }}>
+              {line}
+            </div>
+          ))}
+        </div>
+        {geometry.hasBadge && (
           <div
-            data-hook="card"
+            data-hook="badge"
             className={hookFont.className}
             style={{
               position: 'absolute',
-              left: cqwPx(geometry.cardX),
-              top: cqwPx(geometry.cardTop),
-              width: cqwPx(geometry.cardWidth),
-              height: cqhPx(geometry.cardHeightDrawn),
+              left: cqwPx(geometry.badgeX),
+              top: 0,
+              width: cqwPx(geometry.badgeWidth),
+              height: cqwPx(geometry.badgeHeight),
               display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'flex-start',
+              alignItems: 'center',
+              justifyContent:
+                hook.alignment === 'left'
+                  ? 'flex-start'
+                  : hook.alignment === 'right'
+                    ? 'flex-end'
+                    : 'center',
               overflow: 'hidden',
-              color: hook.textColor,
-              backgroundColor: hookRgba(hook.backgroundColor, hook.backgroundOpacity),
-              borderRadius: cqw(layout.radiusFraction),
-              paddingLeft: cqwPx(geometry.paddingXPx),
-              paddingRight: cqwPx(geometry.paddingXPx),
-              paddingTop: cqwPx(geometry.paddingYPx),
-              paddingBottom: cqwPx(geometry.paddingYPx),
-              fontSize: cqwPx(geometry.fontSizePx),
-              lineHeight: cqwPx(geometry.lineHeightPx),
-              textAlign: hook.alignment,
-              whiteSpace: 'pre',
+              color: hook.badgeColor,
+              // Nu, jamais `hookRgba` — `backgroundOpacity` est le réglage
+              // du carton, pas de la pastille.
+              backgroundColor: hook.badgeBackground,
+              borderRadius: cqw(layout.badgeRadiusFraction),
+              paddingLeft: cqwPx(geometry.badgePaddingXPx),
+              paddingRight: cqwPx(geometry.badgePaddingXPx),
+              fontSize: cqwPx(geometry.badgeFontSizePx),
+              whiteSpace: 'nowrap',
             }}
           >
-            {geometry.lines.map((line, i) => (
-              <div key={i} style={{ flexShrink: 0 }}>
-                {line}
-              </div>
-            ))}
+            {geometry.badgeText}
           </div>
-          {geometry.hasBadge && (
-            <div
-              data-hook="badge"
-              className={hookFont.className}
-              style={{
-                position: 'absolute',
-                left: cqwPx(geometry.badgeX),
-                top: 0,
-                width: cqwPx(geometry.badgeWidth),
-                height: cqwPx(geometry.badgeHeight),
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent:
-                  hook.alignment === 'left'
-                    ? 'flex-start'
-                    : hook.alignment === 'right'
-                      ? 'flex-end'
-                      : 'center',
-                overflow: 'hidden',
-                color: hook.badgeColor,
-                // Nu, jamais `hookRgba` — `backgroundOpacity` est le réglage
-                // du carton, pas de la pastille.
-                backgroundColor: hook.badgeBackground,
-                borderRadius: cqw(layout.badgeRadiusFraction),
-                paddingLeft: cqwPx(geometry.badgePaddingXPx),
-                paddingRight: cqwPx(geometry.badgePaddingXPx),
-                fontSize: cqwPx(geometry.badgeFontSizePx),
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {geometry.badgeText}
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   )

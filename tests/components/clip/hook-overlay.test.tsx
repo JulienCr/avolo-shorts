@@ -13,11 +13,19 @@
  */
 
 import { cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import * as useTextMeasure from '@/components/captions/use-text-measure'
 import { HookOverlay } from '@/components/clip/hook-overlay'
 import { outputSize } from '@/core/framing'
-import { HOOK_DEFAULTS, hookGeometry, hookLayout, type HookMeasure, type ResolvedHook } from '@/core/hook'
+import {
+  HOOK_DEFAULTS,
+  hookGeometry,
+  hookLayout,
+  hookPlacement,
+  type HookMeasure,
+  type ResolvedHook,
+} from '@/core/hook'
 
 afterEach(cleanup)
 
@@ -121,42 +129,55 @@ describe('HookOverlay', () => {
     expect(layer.getAttribute('aria-hidden')).toBe('true')
   })
 
-  it('convertit la marge de sécurité gauche/droite (marginXFraction) en cqw', () => {
-    const hook = resolved({ position: 'top' })
+  // Le composite n'est plus positionné par un jeu de marges/`justifyContent`
+  // flex, mais par `hookPlacement` — la même fonction que le rasteriseur,
+  // sur le canevas complet (relevé par Copilot, passe 3).
+  function placementFor(hook: ResolvedHook) {
+    const geometry = geometryFor(hook)
     const layout = hookLayout(hook)
-    const { container } = render(<HookOverlay hook={hook} />)
-    const inner = container.firstElementChild?.firstElementChild as HTMLElement
-    expect(inner.style.paddingLeft).toMatch(new RegExp(`^calc\\(${percent(layout.marginXFraction)}cqw\\)$`))
-    expect(inner.style.paddingRight).toMatch(new RegExp(`^calc\\(${percent(layout.marginXFraction)}cqw\\)$`))
-  })
+    return hookPlacement({ w: geometry.compositeWidth, h: geometry.compositeHeight }, CANVAS, hook, layout)
+  }
 
-  it('convertit la marge du haut (position top) en cqw, et laisse le bas nul', () => {
+  it('positionne le composite via hookPlacement (position top, alignment center)', () => {
     const hook = resolved({ position: 'top' })
-    const layout = hookLayout(hook)
+    const placement = placementFor(hook)
     const { container } = render(<HookOverlay hook={hook} />)
-    const inner = container.firstElementChild?.firstElementChild as HTMLElement
-    expect(inner.style.paddingTop).toMatch(new RegExp(`^calc\\(${percent(layout.marginYFraction)}cqw\\)$`))
-    expect(inner.style.paddingBottom).toBe('')
+    const composite = container.firstElementChild?.firstElementChild as HTMLElement
+    expectCqwPx(composite.style.left, placement.x)
+    expectCqhPx(composite.style.top, placement.y)
   })
 
-  it('convertit la marge du bas (position bottom) en cqh — hauteur, pas largeur, différente de celle du haut', () => {
-    const top = hookLayout(resolved({ position: 'top' }))
-    const bottom = hookLayout(resolved({ position: 'bottom' }))
-    expect(bottom.marginYFraction).not.toBe(top.marginYFraction)
-    const { container } = render(<HookOverlay hook={resolved({ position: 'bottom' })} />)
-    const inner = container.firstElementChild?.firstElementChild as HTMLElement
-    // `cqh`, pas `cqw` : la marge basse protège une zone de chrome de
-    // plateforme dont l'étendue suit la hauteur du canevas, voir la doc de
-    // `HOOK_MARGIN_BOTTOM_FRACTION` dans `@/core/hook`.
-    expect(inner.style.paddingBottom).toMatch(new RegExp(`^calc\\(${percent(bottom.marginYFraction)}cqh\\)$`))
-    expect(inner.style.paddingTop).toBe('')
+  it("positionne le composite plus bas en position bottom qu'en position top", () => {
+    const top = placementFor(resolved({ position: 'top' }))
+    const bottom = placementFor(resolved({ position: 'bottom' }))
+    expect(bottom.y).toBeGreaterThan(top.y)
   })
 
-  it('la position centre ne pose ni marge haute ni marge basse', () => {
-    const { container } = render(<HookOverlay hook={resolved({ position: 'center' })} />)
-    const inner = container.firstElementChild?.firstElementChild as HTMLElement
-    expect(inner.style.paddingTop).toBe('')
-    expect(inner.style.paddingBottom).toBe('')
+  it("positionne le composite plus à droite en alignment right qu'en alignment left", () => {
+    const left = placementFor(resolved({ alignment: 'left' }))
+    const right = placementFor(resolved({ alignment: 'right' }))
+    expect(right.x).toBeGreaterThan(left.x)
+  })
+
+  it("un mot démesuré ne rétrécit pas le composite et ne déborde pas hors de lui", () => {
+    // `createDomMeasure` mesuré : un mot très long dépasse `CANVAS.w`, le cas
+    // que le rasteriseur borne déjà (`hookPlacement`) et que le flex du calque
+    // laissait déborder (relevé par Copilot, passe 3).
+    const measureSpy = vi
+      .spyOn(useTextMeasure, 'createDomMeasure')
+      .mockImplementation((_family, fontSizePx) => (text: string) => text.length * fontSizePx)
+    const hook = resolved({ text: 'X'.repeat(200), alignment: 'left' })
+    const geometry = hookGeometry(hook, CANVAS, (fontSizePx) => (text: string) => text.length * fontSizePx)
+    const { container } = render(<HookOverlay hook={hook} />)
+    measureSpy.mockRestore()
+
+    const composite = container.firstElementChild?.firstElementChild as HTMLElement
+    expect(composite.style.overflow).toBe('hidden')
+    expectCqwPx(composite.style.width, geometry.compositeWidth)
+    // Le mot insécable en alignment `left` fait plafonner `compositeWidth` à
+    // `CANVAS.w` : `hookPlacement` pince alors `x` à 0, quelle que soit la
+    // marge — vérifié à la mesure, pas déduit.
+    expectCqwPx(composite.style.left, 0)
   })
 
   it('la taille du texte dérive de fontSizeFraction (sizePermille / 1000)', () => {

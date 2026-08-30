@@ -12,10 +12,10 @@
  * décoder : le canevas de sortie se peint sur celui-ci.
  */
 
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ClipPlayer, togglePlayback, placePlayback } from '@/components/clip/clip-player'
+import { ClipPlayer, ClipTransport, togglePlayback, placePlayback } from '@/components/clip/clip-player'
 import { usePlayback } from '@/components/clip/playback'
 
 afterEach(cleanup)
@@ -73,6 +73,66 @@ describe('placePlayback', () => {
     const v = player(0)
     placePlayback(v, segments, 30)
     expect(v.currentTime).toBe(40)
+  })
+})
+
+describe('ClipTransport', () => {
+  function transport(video: ReturnType<typeof player> | null = player(0)) {
+    return render(
+      <ClipTransport video={video} proxyUrl="/proxy.mp4" segments={segments} />,
+    )
+  }
+
+  it('va au premier segment du montage, pas au début de la source', () => {
+    // Le clip est une liste de segments : ses bornes sont celles du premier et
+    // du dernier segment gardé, jamais 0 ni la durée de la source.
+    const v = player(0)
+    transport(v)
+    fireEvent.click(screen.getByRole('button', { name: 'Aller au début du clip' }))
+    expect(v.currentTime).toBe(10)
+  })
+
+  it('va au dernier segment du montage, pas à la durée de la source', () => {
+    // Pas exactement `bounds.end` (hors de tout segment, `playbackAction` y
+    // ramènerait au premier) : `toBeCloseTo` accepte le cran sous-image requis.
+    const v = player(0)
+    transport(v)
+    fireEvent.click(screen.getByRole('button', { name: 'Aller à la fin du clip' }))
+    expect(v.currentTime).toBeCloseTo(50, 1)
+    expect(v.currentTime).toBeLessThan(50)
+  })
+
+  it('met en pause avant de se caler sur la fin, sinon la lecture franchit aussitôt la borne', () => {
+    // Sans la pause, `onTime` (dans `ClipPlayer`, pas simulé ici) lirait une
+    // fin de clip dès l'image suivante et ramènerait la tête au premier
+    // segment — le bouton semblerait ne rien faire (relevé par Copilot).
+    const v = player(0, false)
+    transport(v)
+    fireEvent.click(screen.getByRole('button', { name: 'Aller à la fin du clip' }))
+    expect(v.pause).toHaveBeenCalled()
+    expect(v.currentTime).toBeCloseTo(50, 1)
+  })
+
+  it('désactive les trois boutons quand le montage est vide, et dit pourquoi', () => {
+    render(
+      <>
+        <ClipTransport
+          video={player(0)}
+          proxyUrl="/proxy.mp4"
+          segments={[]}
+          emptyReasonId="raison-vide"
+        />
+        <p id="raison-vide">Il ne reste rien du clip.</p>
+      </>,
+    )
+    const start = screen.getByRole('button', { name: 'Aller au début du clip' })
+    const end = screen.getByRole('button', { name: 'Aller à la fin du clip' })
+    const play = screen.getByRole('button', { name: 'Lire' })
+    expect(start.hasAttribute('disabled')).toBe(true)
+    expect(end.hasAttribute('disabled')).toBe(true)
+    expect(play.hasAttribute('disabled')).toBe(true)
+    expect(start.getAttribute('aria-describedby')).toBe('raison-vide')
+    expect(end.getAttribute('aria-describedby')).toBe('raison-vide')
   })
 })
 

@@ -236,6 +236,16 @@ describe('le ruban', () => {
     expect(film.style.backgroundImage).toContain('/api/clips/c9/filmstrip')
   })
 
+  it('demande un compte de vignettes, jamais un rapport étiré côté client', () => {
+    // jsdom rend zéro sur `getBoundingClientRect` : le compte retombe sur le
+    // défaut, mais le paramètre est de toute façon là — c'est le serveur qui
+    // choisit combien de vues tuiler, plus `background-size` qui étire.
+    mount({ clipId: 'c9' })
+    const film = screen.getByTestId('filmstrip')
+    expect(film.style.backgroundImage).toMatch(/\/filmstrip\?count=\d+/)
+    expect(film.style.backgroundSize).toBe('100% 100%')
+  })
+
   it('ne pose rien sans proxy', () => {
     // La route rend 404 sans proxy ; un composant ne peut pas le savoir à
     // l'avance, donc c'est `proxyUrl` qui décide côté client.

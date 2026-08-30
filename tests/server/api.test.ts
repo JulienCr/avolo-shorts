@@ -41,6 +41,7 @@ import {
 import { launch, lireStatus, progression } from '@/server/run'
 import { GeminiBlockedError } from '@/server/steps/candidates'
 import { filmstripPath, vignettePath } from '@/server/thumbs'
+import { FILMSTRIP_COUNT_DEFAULT } from '@/lib/filmstrip'
 
 /**
  * Les routes, appelées comme Next les appelle.
@@ -1513,7 +1514,7 @@ describe('PATCH /api/clips/:id', () => {
      * fausse : c'est le cas que l'éviction partagée aurait manqué.
      */
     it('efface la planche quand seule la fin du dernier segment bouge', async () => {
-      const strip = filmstripPath(PROJECT, CLIP)
+      const strip = filmstripPath(PROJECT, CLIP, FILMSTRIP_COUNT_DEFAULT)
       fs.mkdirSync(path.dirname(strip), { recursive: true })
       fs.writeFileSync(strip, 'jpeg')
 
@@ -1521,8 +1522,22 @@ describe('PATCH /api/clips/:id', () => {
       expect(fs.existsSync(strip)).toBe(false)
     })
 
+    it('efface toutes les planches, quel que soit le compte de vignettes servi', async () => {
+      // Un fichier par compte (`filmstripPath`) : la bande a pu être servie à
+      // deux largeurs différentes avant que les bornes ne bougent, et
+      // l'éviction ne doit oublier aucune des deux.
+      const strips = [12, 20].map((count) => filmstripPath(PROJECT, CLIP, count))
+      for (const strip of strips) {
+        fs.mkdirSync(path.dirname(strip), { recursive: true })
+        fs.writeFileSync(strip, 'jpeg')
+      }
+
+      await patch({ segments: [{ start: 60, end: 95 }], seq: 40 })
+      for (const strip of strips) expect(fs.existsSync(strip)).toBe(false)
+    })
+
     it('ne touche pas à la planche quand les bornes ne bougent pas', async () => {
-      const strip = filmstripPath(PROJECT, CLIP)
+      const strip = filmstripPath(PROJECT, CLIP, FILMSTRIP_COUNT_DEFAULT)
       fs.mkdirSync(path.dirname(strip), { recursive: true })
       fs.writeFileSync(strip, 'jpeg')
 
@@ -1554,7 +1569,7 @@ describe('PATCH /api/clips/:id', () => {
         ],
       })
       const vignetteFile = vignettePath(PROJECT, CLIP)
-      const strip = filmstripPath(PROJECT, CLIP)
+      const strip = filmstripPath(PROJECT, CLIP, FILMSTRIP_COUNT_DEFAULT)
       fs.mkdirSync(path.dirname(vignetteFile), { recursive: true })
       fs.writeFileSync(vignetteFile, 'jpeg')
       fs.writeFileSync(strip, 'jpeg')

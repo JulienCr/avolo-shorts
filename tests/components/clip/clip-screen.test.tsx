@@ -18,6 +18,7 @@ import { DUBBING_ANCHORS, dubbingCellsFor } from '@/core/dubbing'
 import { defaultPlatformAvailability } from '@/core/publication'
 import type { CandidateClip, ClipDetail } from '@/lib/api'
 import { startHistory } from '@/lib/history'
+import { toMontageTime } from '@/lib/editing'
 import { useEditor } from '@/store/editor'
 import { usePlayback } from '@/components/clip/playback'
 
@@ -51,6 +52,16 @@ vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(async () => {})
 vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
   () => ({ height: 40, width: 800, top: 0, left: 0, right: 800, bottom: 40, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
 )
+// jsdom n'implémente pas la capture de pointeur, ni `PointerEvent` avec une
+// coordonnée exploitable : mêmes bouchons que `timeline.test.tsx`.
+Element.prototype.setPointerCapture = function () {}
+Element.prototype.releasePointerCapture = function () {}
+Element.prototype.hasPointerCapture = function () {
+  return true
+}
+function pointerAt(target: Element | Window, type: string, clientX: number) {
+  fireEvent(target, new MouseEvent(type, { clientX, bubbles: true, cancelable: true }))
+}
 
 /** Le transcript servi avec le clip : le clip va de 100 à 120, le contexte de 0 à 200. */
 function detail(id = 'c2', segments = [{ start: 100, end: 120 }]): ClipDetail {
@@ -1152,5 +1163,63 @@ describe('l’annonce de réussite', () => {
     fireEvent.click(screen.getByRole('button', { name: /exporter/i }))
     expect(await screen.findByText(/^rendu terminé\.$/i)).toBeTruthy()
     expect(screen.queryByText(/rien n’a été refait/i)).toBeNull()
+  })
+})
+
+describe('la bande cale le fichier livré', () => {
+  /**
+   * Deux segments avec un trou entre les deux : sans lui, la position
+   * montée coïnciderait avec la position source, et le test validerait un
+   * copié plutôt qu'une conversion.
+   */
+  const segments = [
+    { start: 0, end: 10 },
+    { start: 20, end: 40 },
+  ]
+
+  function deliveredMultiSegment(): ReturnType<typeof detail> {
+    const d = detail('c2', segments)
+    d.outputs = {
+      mp4Url: null,
+      mp4Due: false,
+      variant9x16Url: '/api/clips/c2/renders/c2-9x16.mp4',
+      variant9x16Due: false,
+      textsUrl: '/api/clips/c2/renders/c2.txt',
+    }
+    return d
+  }
+
+  it('cale le fichier livré sur l’instant monté, pas sur l’instant source', async () => {
+    await mount('c2', deliveredMultiSegment())
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+    const exportVideo = (await screen.findByLabelText('Variante 9:16')) as HTMLVideoElement
+
+    const track = screen.getByRole('group', { name: 'Bande de temps du clip' })
+    // 800 px de large (mock global) ; la fenêtre couvre [0, 43] (3 s de
+    // contexte de chaque côté de [0, 40]) : viser ~30 dans le second segment.
+    pointerAt(track, 'pointerdown', 558)
+    pointerAt(window, 'pointerup', 558)
+
+    const sourceVideo = document.querySelector('video[src="/api/projects/p1/proxy"]') as HTMLVideoElement | null
+    const landed = sourceVideo?.currentTime ?? NaN
+
+    expect(landed).toBeGreaterThan(20)
+    expect(landed).toBeLessThan(40)
+    // Le point discriminant : l'export n'a pas simplement recopié la
+    // position source, il l'a fait passer par le montage.
+    expect(exportVideo.currentTime).not.toBe(landed)
+    expect(exportVideo.currentTime).toBeCloseTo(toMontageTime(segments, landed) as number, 5)
+  })
+
+  it('ne touche pas au fichier livré tant que sa propre horloge n’est pas montée', async () => {
+    // Mode Aperçu : le `<video>` de l'export n'existe pas dans le DOM, donc
+    // rien ne doit lever en cliquant la bande.
+    await mount('c2', deliveredMultiSegment())
+    const track = screen.getByRole('group', { name: 'Bande de temps du clip' })
+    expect(() => {
+      pointerAt(track, 'pointerdown', 558)
+      pointerAt(window, 'pointerup', 558)
+    }).not.toThrow()
+    expect(screen.queryByLabelText('Variante 9:16')).toBeNull()
   })
 })

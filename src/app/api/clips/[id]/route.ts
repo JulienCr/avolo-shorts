@@ -25,7 +25,7 @@ import {
   discardRenderStale,
   publicationWriteText,
 } from '@/server/steps/render'
-import { filmstripPath, vignettePath } from '@/server/thumbs'
+import { filmstripCounts, filmstripPath, vignettePath } from '@/server/thumbs'
 import { clipLinesAround, summaryProject, projectTranscript, urlProxy } from '@/server/views'
 
 /**
@@ -355,10 +355,15 @@ export const PATCH = route(
     const boundsMoved =
       boundsWritten?.start !== boundsBefore?.start || boundsWritten?.end !== boundsBefore?.end
     if (boundsMoved) {
-      try {
-        fs.rmSync(filmstripPath(clip.projectId, clip.id), { force: true })
-      } catch (cause) {
-        console.warn(`Planche non effacée pour ${clip.id} :`, cause)
+      // Un fichier par compte (`filmstripPath`) : celui qui a servi une bande
+      // large n'est pas celui qui en sert une étroite, et les bornes qui
+      // bougent périment les deux sans savoir lesquels existent sur disque.
+      for (const count of filmstripCounts()) {
+        try {
+          fs.rmSync(filmstripPath(clip.projectId, clip.id, count), { force: true })
+        } catch (cause) {
+          console.warn(`Planche non effacée pour ${clip.id} (compte ${count}) :`, cause)
+        }
       }
     }
 

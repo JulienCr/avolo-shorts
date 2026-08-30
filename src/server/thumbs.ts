@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { Clip } from '@/core/edl'
 import { filmstripArgs, posterArgs, thumbArgs } from '@/core/ffmpeg/args'
 import { clipBounds } from '@/lib/editing'
+import { FILMSTRIP_COUNT_DEFAULT, FILMSTRIP_COUNT_MAX, FILMSTRIP_COUNT_MIN } from '@/lib/filmstrip'
 import type { PublishedFraming } from '@/lib/api'
 import { isAAbsence } from '@/server/bytes'
 import { getClip, getDb } from '@/server/db'
@@ -56,12 +57,21 @@ export function posterPath(projectId: string, clipId: string): string {
   return path.join(projectDir(projectId), 'thumbs', `${verifyIdClip(clipId)}.render.jpg`)
 }
 
-/** Le nombre de vues d'une planche. Douze : 43 Ko et 0,44 s, mesurés le 28 août 2026. */
-export const FILMSTRIP_COUNT = 12
+/**
+ * `projects/<projet>/thumbs/<clip>.strip.<count>.jpg`. Le compte fait partie
+ * du nom : chaque largeur de bande demande un tuilage différent, et deux
+ * comptes ne peuvent pas partager un fichier sans que l'un écrase l'autre.
+ */
+export function filmstripPath(projectId: string, clipId: string, count: number): string {
+  return path.join(projectDir(projectId), 'thumbs', `${verifyIdClip(clipId)}.strip.${count}.jpg`)
+}
 
-/** `projects/<projet>/thumbs/<clip>.strip.jpg`. */
-export function filmstripPath(projectId: string, clipId: string): string {
-  return path.join(projectDir(projectId), 'thumbs', `${verifyIdClip(clipId)}.strip.jpg`)
+/** Tous les comptes qu'une planche a pu prendre — pour l'effacer au complet
+ * quand les bornes bougent, sans lister le dossier. */
+export function filmstripCounts(): number[] {
+  const counts: number[] = []
+  for (let count = FILMSTRIP_COUNT_MIN; count <= FILMSTRIP_COUNT_MAX; count++) counts.push(count)
+  return counts
 }
 
 /**
@@ -113,20 +123,21 @@ export async function vignette(clip: Clip): Promise<string | null> {
 }
 
 /**
- * La planche d'un clip : douze vues tuilées sur toute sa durée, gardée sur
+ * La planche d'un clip : `count` vues tuilées sur toute sa durée, gardée sur
  * disque comme `vignette` — même garde, même renommage synchrone (#274).
  *
  * `null` sans proxy, ou quand `clipBounds` n'a rien à couvrir : un clip vidé
- * de ses segments n'a pas de durée à tuiler.
+ * de ses segments n'a pas de durée à tuiler. `count` vient du client
+ * (largeur de bande) et doit déjà être validé : voir `parseFilmstripCount`.
  */
-export async function filmstrip(clip: Clip): Promise<string | null> {
+export async function filmstrip(clip: Clip, count: number = FILMSTRIP_COUNT_DEFAULT): Promise<string | null> {
   const proxy = proxyPath(clip.projectId)
   if (!fs.existsSync(proxy)) return null
 
   const bounds = clipBounds(clip.segments)
   if (bounds === null) return null
 
-  const destination = filmstripPath(clip.projectId, clip.id)
+  const destination = filmstripPath(clip.projectId, clip.id, count)
   if (fs.existsSync(destination)) return destination
 
   await fsp.mkdir(path.dirname(destination), { recursive: true })
@@ -138,7 +149,7 @@ export async function filmstrip(clip: Clip): Promise<string | null> {
         dst: temporary,
         at: bounds.start,
         duration: bounds.end - bounds.start,
-        count: FILMSTRIP_COUNT,
+        count,
       }),
       { what: `planche de ${clip.id}` },
     )

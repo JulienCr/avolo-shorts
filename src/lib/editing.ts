@@ -209,6 +209,24 @@ export function clipBounds(segments: Segment[]): { start: number; end: number } 
 }
 
 /**
+ * La position dans le montage — continu, de 0 à sa durée — qui correspond à
+ * `sourceTime` dans la source (le proxy).
+ *
+ * `null` dans un passage retiré : le point tombe entre deux candidats sans
+ * qu'aucun ne soit plus juste que l'autre — une ambiguïté, pas une absence —
+ * et `CLAUDE.md` tranche : rejeter plutôt que deviner.
+ */
+export function toMontageTime(segments: Segment[], sourceTime: number): number | null {
+  let elapsed = 0
+  for (const s of normalizeSegments(segments)) {
+    if (sourceTime < s.start) return null
+    if (sourceTime <= s.end) return elapsed + (sourceTime - s.start)
+    elapsed += s.end - s.start
+  }
+  return null
+}
+
+/**
  * Le segment qui contient `position`, ou le premier qui commence après elle.
  *
  * C'est ce dont le lecteur a besoin pour sauter les passages retirés : à

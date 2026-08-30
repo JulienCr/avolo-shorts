@@ -47,7 +47,7 @@ import { clipExportEligibility, composeDescription } from '@/core/publication'
 import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
 import { ApiError, HOOK_DEFAULTS } from '@/lib/api'
 import { LABELS_STATUS } from '@/lib/clip-status'
-import { indexTranscript, lineInitial } from '@/lib/editing'
+import { indexTranscript, lineInitial, toMontageTime } from '@/lib/editing'
 import { differences, useAutosave } from '@/lib/autosave'
 import { clipNext, linkClip } from '@/lib/navigation'
 import {
@@ -62,6 +62,14 @@ import {
 import type { Platform } from '@/core/publication'
 import { cn } from '@/lib/utils'
 import { useEditor, useCanCancel, useCanRestore, useSegments } from '@/store/editor'
+
+/**
+ * Cale le fichier livré sur une position montée — jamais inline dans le
+ * composant, où muter directement l'état d'un `useState` est refusé.
+ */
+function seekExport(player: HTMLVideoElement | null, time: number): void {
+  if (player !== null) player.currentTime = time
+}
 
 /**
  * Ce que montre le viseur : l'aperçu vivant, ou le fichier livré, au même
@@ -168,6 +176,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     settings.data === undefined ? undefined : (settings.data.publication?.descriptionFooter ?? '')
 
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
+  // Le fichier livré : sa propre horloge, jamais raccordée à la lecture tant
+  // que rien ne les cale explicitement (voir `onScrub`, plus bas).
+  const [exportVideo, setExportVideo] = useState<HTMLVideoElement | null>(null)
   const [search, setSearch] = useState(false)
   /**
    * Les champs de texte dont l'écriture est restée en échec.
@@ -203,6 +214,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   // le sélecteur de ratio, désignée par le rectangle. Un seul identifiant pour
   // les deux, sans quoi l'un décrirait un paragraphe que l'autre ne rend pas.
   const cropReasonId = useId()
+  // Même principe pour le transport : ses trois boutons se désactivent quand
+  // le montage est vide, et pointent vers le paragraphe qui le dit déjà plus
+  // bas — pas un second texte à tenir synchrone avec le premier.
+  const emptyClipReasonId = useId()
 
   // Le store se charge du clip une fois, et pas à chaque passage de la requête :
   // la garde est dans `charger`.
@@ -714,7 +729,12 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               </div>
 
               <div className="mt-4 shrink-0">
-                <ClipTransport video={video} proxyUrl={proxyUrl} segments={segments} />
+                <ClipTransport
+                  video={video}
+                  proxyUrl={proxyUrl}
+                  segments={segments}
+                  emptyReasonId={emptyClipReasonId}
+                />
               </div>
             </div>
 
@@ -722,7 +742,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               // Le cas prévu côté serveur et qui n'avait pas de rendu propre :
               // tout a été retiré. Le transcript, toujours visible, est déjà
               // là pour le dire (spec du 30 août, §2.5).
-              <p className="shrink-0 text-[0.75rem] text-muted-foreground">
+              <p id={emptyClipReasonId} className="shrink-0 text-[0.75rem] text-muted-foreground">
                 Il ne reste rien du clip. Cliquer un mot barré dans le transcript le fait
                 recommencer là.
               </p>
@@ -745,6 +765,13 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                   // retraits : `placePlayback` ramène la position dans le
                   // montage plutôt que de lire un passage retiré.
                   placePlayback(video, segments, time)
+
+                  // Cale le fichier livré sur la position résolue (pas la
+                  // demandée : un clic dans un passage retiré fait déjà sauter
+                  // la source au segment suivant). Sens unique, pour ce geste.
+                  const landed = video?.currentTime
+                  const montageTime = landed === undefined ? null : toMontageTime(segments, landed)
+                  if (montageTime !== null) seekExport(exportVideo, montageTime)
                 }}
                 onBoundary={editor.setBoundaryAt}
                 lines={linesIndexed}
@@ -809,6 +836,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                   fichier livré
                 </figcaption>
                 <video
+                  ref={setExportVideo}
                   // Même intitulé que les lecteurs d'`ExportsView` (relevé
                   // par Aristarque).
                   aria-label={

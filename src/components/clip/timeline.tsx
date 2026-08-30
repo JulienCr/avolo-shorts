@@ -16,6 +16,7 @@ import { normalizeSegments, type Segment } from '@/core/edl'
 import type { Clip, PublishedFraming } from '@/lib/api'
 import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
 import { clipBounds, type ClipWord, type IndexedLine } from '@/lib/editing'
+import { filmstripCountForBox, FILMSTRIP_COUNT_DEFAULT } from '@/lib/filmstrip'
 import { formatDuration, formatSpan, formatTimecode } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -123,6 +124,7 @@ export function Timeline({
   // directement dans le transcript déjà monté.
   const track = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
+  const { ref: filmstripBox, count: filmstripCount } = useFilmstripCount()
   const bounds = clipBounds(segments)
   // Une durée nulle voudrait dire « aucune position n'est atteignable » et
   // écraserait tout le glissé sur zéro. Le cas ne devrait pas se produire — le
@@ -339,13 +341,17 @@ export function Timeline({
                         // `bounds` rend la clé correcte à travers un rechargement, que le
                         // `GET` initial restaure avant tout `PATCH` ; `rev` est le compteur
                         // générique que l'issue demandait, pour un futur consommateur sans bornes.
-                        backgroundImage: `url("/api/clips/${encodeURIComponent(clipId)}/filmstrip${
+                        backgroundImage: `url("/api/clips/${encodeURIComponent(clipId)}/filmstrip?count=${filmstripCount}${
                           confirmedBounds !== null
-                            ? `?bounds=${confirmedBounds.start.toFixed(2)}-${confirmedBounds.end.toFixed(2)}&rev=${revision}`
+                            ? `&bounds=${confirmedBounds.start.toFixed(2)}-${confirmedBounds.end.toFixed(2)}&rev=${revision}`
                             : ''
                         }")`,
+                        // `filmstripCount` vues pour cette largeur
+                        // (`useFilmstripCount`) : `100% 100%` cale sur la
+                        // boîte, résidu d'arrondi sous une demi-vignette.
                         backgroundSize: '100% 100%',
                       }}
+                      ref={filmstripBox}
                     />
                   )}
 
@@ -709,16 +715,53 @@ function Handle({
 }
 
 /**
+ * Le compte de vignettes qui couvre la planche sans l'étirer, mesuré sur sa
+ * propre boîte plutôt que déduit d'un `h-12` qui pourrait changer sous nos
+ * pieds. Débattu de 250 ms, sinon chaque pixel de glissé de fenêtre
+ * redemanderait une planche neuve au serveur.
+ */
+function useFilmstripCount(): { ref: (node: HTMLDivElement | null) => void; count: number } {
+  const [count, setCount] = useState(FILMSTRIP_COUNT_DEFAULT)
+  const observer = useRef<ResizeObserver | null>(null)
+  const timeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  const ref = useCallback((element: HTMLDivElement | null) => {
+    observer.current?.disconnect()
+    clearTimeout(timeout.current)
+    if (element === null) return
+
+    // Une mesure immédiate, sans attendre le premier redimensionnement :
+    // sinon la planche part au compte par défaut jusqu'au premier geste sur
+    // la fenêtre.
+    const initial = element.getBoundingClientRect()
+    if (initial.width > 0 && initial.height > 0) {
+      setCount(filmstripCountForBox(initial.width, initial.height))
+    }
+
+    // jsdom n'implémente pas `ResizeObserver` : sans cette garde, chaque test
+    // qui monte la bande lève au montage plutôt que de rendre zéro comme le
+    // reste de la mesure de mise en page sous jsdom.
+    if (typeof ResizeObserver === 'undefined') return
+
+    observer.current = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect
+      if (!box || box.width === 0 || box.height === 0) return
+      clearTimeout(timeout.current)
+      timeout.current = setTimeout(() => setCount(filmstripCountForBox(box.width, box.height)), 250)
+    })
+    observer.current.observe(element)
+  }, [])
+
+  return { ref, count }
+}
+
+/**
  * L'image de la position demandée, pendant qu'on tire.
  *
  * **Au plus une recherche en vol.** Un `pointermove` part soixante fois par
- * seconde ; en faire soixante recherches sur un proxy servi en requêtes
- * partielles produit une tempête d'abandons — et ce chemin est déjà fragile côté
- * serveur : une requête `Range` abandonnée y lève une `uncaughtException`
- * (issue #75, corrigée ailleurs). On garde donc la dernière position demandée et
- * on ne relance qu'au `seeked` précédent : le rythme s'aligne sur ce que le
- * décodeur sait tenir au lieu de le noyer. Ce n'est pas une optimisation, c'est
- * ce qui rend le geste tenable.
+ * seconde ; un proxy servi en requêtes partielles y répond mal (issue #75).
+ * On garde la dernière position demandée et on ne relance qu'au `seeked`
+ * précédent, au rythme que le décodeur sait tenir.
  */
 function useFramePreview(drag: Drag | null, proxyUrl: string | null) {
   const video = useRef<HTMLVideoElement | null>(null)

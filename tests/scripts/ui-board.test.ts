@@ -38,6 +38,15 @@ describe('pairShots', () => {
     expect(pairs).toHaveLength(0)
     expect(unmatched.sort()).toEqual(['clip-after-1024x640.png', 'clip-before-2560x1320.png'])
   })
+
+  it('refuse une paire quand les dossiers sont inversés plutôt que d’en inverser le jugement', () => {
+    const { pairs, unmatched } = pairShots(
+      ['clip-after-1920x1080.png'],
+      ['clip-before-1920x1080.png'],
+    )
+    expect(pairs).toHaveLength(0)
+    expect(unmatched.sort()).toEqual(['clip-after-1920x1080.png', 'clip-before-1920x1080.png'])
+  })
 })
 
 describe('renderUiBoardPage', () => {

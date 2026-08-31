@@ -44,7 +44,7 @@ export function pairShots(
 
   for (const file of beforeFiles) {
     const shot = parseShotFilename(file)
-    if (shot === null) {
+    if (shot === null || shot.label !== 'before') {
       unmatched.push(file)
       continue
     }
@@ -55,7 +55,7 @@ export function pairShots(
   const seen = new Set<string>()
   for (const file of afterFiles) {
     const shot = parseShotFilename(file)
-    if (shot === null) {
+    if (shot === null || shot.label !== 'after') {
       unmatched.push(file)
       continue
     }

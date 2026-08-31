@@ -32,6 +32,10 @@ is not. Record the rows you touch before, check them after.
 
 Use `pnpm ui-shot`, never an improvised Playwright path — see `scripts/ui-shot.ts`.
 
+**First run on a fresh checkout:** `pnpm install` gets the `playwright` package,
+not the Chromium binary — run `pnpm exec playwright install chromium` once per
+machine, or `chromium.launch()` fails asking for it.
+
 **The rule: an image goes to the human; a table of numbers does not replace
 it.** Measuring proves the page renders, not that it is right.
 `claude-in-chrome` screenshots are unreliable here (the viewport shrinks on

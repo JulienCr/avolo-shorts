@@ -55,7 +55,7 @@ export const SCREEN_PAIRS: Readonly<Record<string, readonly OverlapPair[]>> = {
   clip: CLIP_SCREEN_PAIRS,
 }
 
-/** L'overlap vertical de deux rectangles `DOMRect`-like — jamais négatif. */
+/** Le recouvrement vertical de deux rectangles `DOMRect`-like — jamais négatif. */
 export function verticalOverlap(a: { top: number; bottom: number }, b: { top: number; bottom: number }): number {
   return Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top))
 }

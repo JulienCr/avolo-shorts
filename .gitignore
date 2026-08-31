@@ -73,6 +73,12 @@ assets/brand/*
 # dépendance.
 /tmp/
 
+# `impeccable` n'est plus outillé ici, mais un `hook.cache.json` et un
+# `config.local.json` peuvent encore traîner sur une machine où le hook a
+# tourné avant cette PR — jamais à committer, UUID de session et chemins
+# absolus compris.
+.impeccable/
+
 # Divers
 .DS_Store
 *.log

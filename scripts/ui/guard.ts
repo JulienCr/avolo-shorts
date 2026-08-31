@@ -1,7 +1,7 @@
 /**
  * Les deux gardes de `ui-shot.ts` qui n'ont pas besoin du réseau pour se
- * tester : la décision « ce port sert-il bien ce dépôt » (guarantee 3 du
- * contrat) et la réécriture `127.0.0.1` → `localhost` (guarantee 4). Le
+ * tester : la décision « ce port sert-il bien ce dépôt » (garantie 3 du
+ * contrat) et la réécriture `127.0.0.1` → `localhost` (garantie 4). Le
  * reste — trouver le PID à l'écoute, lire `/proc/<pid>/cwd` — est de l'I/O
  * et vit dans `ui-shot.ts`.
  */

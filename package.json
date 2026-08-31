@@ -12,6 +12,7 @@
     "framing-preview": "tsx scripts/framing-preview.ts",
     "framing-preview:stop": "lsof -t -iTCP:${PORT:-4321} -sTCP:LISTEN | xargs -r kill -INT",
     "framing-board": "tsx scripts/framing-board.ts",
+    "ui-shot": "tsx scripts/ui-shot.ts",
     "generate-env:local": "tsx scripts/generate-env-local.ts"
   },
   "dependencies": {
@@ -44,6 +45,7 @@
     "eslint-config-next": "16.3.1",
     "globals": "^17.11.0",
     "jsdom": "^26.1.0",
+    "playwright": "^1.62.1",
     "shadcn": "^4.18.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.12",

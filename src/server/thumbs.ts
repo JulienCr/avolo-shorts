@@ -66,6 +66,12 @@ export function filmstripPath(projectId: string, clipId: string, count: number):
   return path.join(projectDir(projectId), 'thumbs', `${verifyIdClip(clipId)}.strip.${count}.jpg`)
 }
 
+/** `projects/<projet>/thumbs/<clip>.strip.jpg` — le nom d'avant #292, sans
+ * compte, laissé orphelin sur tout clip ouvert avant ce déploiement (#295). */
+export function filmstripLegacyPath(projectId: string, clipId: string): string {
+  return path.join(projectDir(projectId), 'thumbs', `${verifyIdClip(clipId)}.strip.jpg`)
+}
+
 /** Tous les comptes qu'une planche a pu prendre — pour l'effacer au complet
  * quand les bornes bougent, sans lister le dossier. */
 export function filmstripCounts(): number[] {
@@ -160,6 +166,14 @@ export async function filmstrip(clip: Clip, count: number = FILMSTRIP_COUNT_DEFA
       return null
     }
     fs.renameSync(temporary, destination)
+    // #295 : sur le chemin froid seulement, ce clip vient de produire une
+    // planche pour de vrai — l'occasion d'effacer l'héritage d'avant #292
+    // sans un `unlink` de plus quand elle est déjà servie du cache.
+    try {
+      fs.rmSync(filmstripLegacyPath(clip.projectId, clip.id), { force: true })
+    } catch {
+      // Au pire, pas d'erreur : un héritage absent est le cas nominal.
+    }
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause

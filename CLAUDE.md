@@ -169,7 +169,7 @@ avec les labels du dépôt, et son numéro est consigné dans la réponse au rel
 
 ## Agent skills
 
-Configuration lue par les skills d'ingénierie. Quatre fichiers, une règle chacun.
+Configuration lue par les skills d'ingénierie. Cinq fichiers, une règle chacun.
 
 ### Issue tracker
 
@@ -191,3 +191,8 @@ Aristarque ne se déclenche pas au push et poste un commentaire, pas une review 
 
 Dépôt à contexte unique : `CONTEXT.md` et `docs/adr/` à la racine, créés
 paresseusement. Voir [`docs/agents/domain.md`](docs/agents/domain.md).
+
+### UI loop
+
+Sur un jugement visuel, une image tranche, pas un tableau de chiffres. Voir
+[`docs/agents/ui-loop.md`](docs/agents/ui-loop.md).

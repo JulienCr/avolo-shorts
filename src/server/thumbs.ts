@@ -171,8 +171,10 @@ export async function filmstrip(clip: Clip, count: number = FILMSTRIP_COUNT_DEFA
     // sans un `unlink` de plus quand elle est déjà servie du cache.
     try {
       fs.rmSync(filmstripLegacyPath(clip.projectId, clip.id), { force: true })
-    } catch {
-      // Au pire, pas d'erreur : un héritage absent est le cas nominal.
+    } catch (cause) {
+      // `force: true` avale déjà l'absence : ce qui atterrit ici est un
+      // échec inattendu (droits, E/S), qu'on veut voir dans les logs.
+      console.warn(`Planche héritée non effacée pour ${clip.id} :`, cause)
     }
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
@@ -235,11 +237,10 @@ export async function renderPoster(clip: Clip, framing?: PublishedFraming): Prom
       await fsp.rm(temporary, { force: true }).catch(() => {})
       return null
     }
-    // Course #288 : faire porter au temporaire la mtime de la vidéo validée
-    // remplace l'inégalité entre deux lectures par une égalité. `utimesSync`,
-    // jamais `fsp.utimes` (rouvrirait la fenêtre fermée par #274).
-    // `Math.ceil` avant la division ms→s : la conversion peut arrondir en
-    // dessous de `videoMtime` (mesuré), et c'est le sens qui casserait `>=`.
+    // Course #288 : le temporaire porte la mtime de la vidéo validée, pas
+    // l'instant du renommage. `utimesSync`, jamais `fsp.utimes` (#274).
+    // `Math.ceil` : l'arrondi porte sur l'étiquette qu'on pose, jamais sur
+    // la mtime relue — un `floor` casserait `>=` à chaque appel.
     const secondsVideo = Math.ceil(videoMtime) / 1000
     fs.utimesSync(temporary, secondsVideo, secondsVideo)
     fs.renameSync(temporary, destination)

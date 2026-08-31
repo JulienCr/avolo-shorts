@@ -169,7 +169,7 @@ avec les labels du dépôt, et son numéro est consigné dans la réponse au rel
 
 ## Agent skills
 
-Configuration lue par les skills d'ingénierie. Quatre fichiers, une règle chacun.
+Configuration lue par les skills d'ingénierie. Cinq fichiers, une règle chacun.
 
 ### Issue tracker
 

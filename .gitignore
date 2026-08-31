@@ -73,12 +73,6 @@ assets/brand/*
 # dépendance.
 /tmp/
 
-# `impeccable` : `config.json` porte les règles du projet et se versionne, les
-# deux autres non — un consentement propre à la machine, et un cache indexé sur
-# des UUID de session et des chemins absolus.
-.impeccable/config.local.json
-.impeccable/hook.cache.json
-
 # Divers
 .DS_Store
 *.log

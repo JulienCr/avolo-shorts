@@ -21,6 +21,13 @@ no proxy and renders no clip screen.
 Reference clip: `2026-03-08-caro-mdlm_005472883-005518477`. The long one
 (88.3 s, 284 words) is `2026-03-08-caro-mdlm_007212212-007300496`.
 
+**A browser run is not inert.** `projects/avolo.db` is the real database, shared
+by every worktree through the `projects` symlink, and the dev server writes to
+it for real. On 30 August a hostile browser scenario emptied a real clip's
+segments on disk, and another dropped a clip from `exported` back to `kept`.
+Navigating and screenshotting are safe; anything that clicks, drags or submits
+is not. Record the rows you touch before, check them after.
+
 ## Capturing and comparing
 
 Use `pnpm ui-shot`, never an improvised Playwright path — see `scripts/ui-shot.ts`.

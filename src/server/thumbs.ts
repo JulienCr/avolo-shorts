@@ -221,6 +221,13 @@ export async function renderPoster(clip: Clip, framing?: PublishedFraming): Prom
       await fsp.rm(temporary, { force: true }).catch(() => {})
       return null
     }
+    // Course #288 : faire porter au temporaire la mtime de la vidéo validée
+    // remplace l'inégalité entre deux lectures par une égalité. `utimesSync`,
+    // jamais `fsp.utimes` (rouvrirait la fenêtre fermée par #274).
+    // `Math.ceil` avant la division ms→s : la conversion peut arrondir en
+    // dessous de `videoMtime` (mesuré), et c'est le sens qui casserait `>=`.
+    const secondsVideo = Math.ceil(videoMtime) / 1000
+    fs.utimesSync(temporary, secondsVideo, secondsVideo)
     fs.renameSync(temporary, destination)
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})

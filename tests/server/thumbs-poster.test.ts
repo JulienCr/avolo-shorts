@@ -199,4 +199,31 @@ describe('renderPoster', () => {
     }
     expect(fs.existsSync(destination)).toBe(true)
   })
+
+  /**
+   * **Course #288, verrouillée par une propriété plutôt qu'un timing** — la
+   * vraie granularité fs n'est pas fiable à reproduire ici (mesuré : ns).
+   * L'affiche doit porter la mtime de la vidéo, pas l'instant du renommage :
+   * un vrai délai avant l'appel sépare nettement les deux sur l'ancien code.
+   * Tolérance de 2 ms : la conversion ms→s pour `utimesSync` perd la fraction
+   * sous-milliseconde (mesuré), sans se confondre avec l'écart de l'ancien code.
+   */
+  it('l’affiche publiée porte la mtime de la vidéo validée, pas celle du renommage', async () => {
+    putClip(getDb(), baseClip())
+    writeRender()
+    writeFingerprint(baseClip())
+
+    const renderPath = path.join(root, 'projects', PROJECT, 'renders', `${CLIP}-9x16.mp4`)
+    const videoMtime = fs.statSync(renderPath).mtimeMs
+
+    // Un vrai délai avant de générer l'affiche : sur l'ancien code, la mtime
+    // publiée est celle du `renameSync`, donc nettement postérieure à
+    // `videoMtime`.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const destination = await renderPoster(baseClip())
+    expect(destination).not.toBeNull()
+    const posterMtime = fs.statSync(destination as string).mtimeMs
+    expect(Math.abs(posterMtime - videoMtime)).toBeLessThan(2)
+  })
 })

@@ -1560,6 +1560,34 @@ describe('renderClip, chemin du saut', () => {
   })
 
   /**
+   * **#266.** L'écart de statut ne voit rien d'une décision prise **avant** le
+   * démarrage de l'export : si le clip était déjà `discarded` à l'instant où
+   * `renderClip` a lu son instantané de référence, `render.status` et
+   * `toDay.status` valent tous les deux `discarded`, l'écart est nul, et
+   * l'ancienne implémentation promeut le clip en `exported`.
+   */
+  it("refuse « exported » quand le clip de référence était déjà écarté", () => {
+    const { db, c } = prepare({ status: 'discarded' })
+    putClip(db, { ...c, status: 'discarded' })
+
+    markExported(db, c.id, c, framingFor(c))
+
+    expect(getClip(db, c.id)?.status).toBe('discarded')
+  })
+
+  it("promeut toujours un candidat de référence", () => {
+    // Contrôle négatif : exporter une proposition est un geste délibéré,
+    // indistinguable d'un export lancé depuis l'écran du clip. Seul
+    // `discarded` porte une décision que l'export défairait.
+    const { db, c } = prepare({ status: 'candidate' })
+    putClip(db, { ...c, status: 'candidate' })
+
+    markExported(db, c.id, c, framingFor(c))
+
+    expect(getClip(db, c.id)?.status).toBe('exported')
+  })
+
+  /**
    * **Le premier point de #48, et le plus grave.** L'écart de statut ne couvre
    * pas le montage : retirer un passage, déplacer une borne ou changer le ratio
    * laisse un clip `kept` en `kept`. `markExported` posait alors `exported`

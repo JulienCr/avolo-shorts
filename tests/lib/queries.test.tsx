@@ -331,6 +331,79 @@ describe('usePatchClip', () => {
 
     expect(client.getQueryData<ClipDetail>(keys.clip('c1'))?.framing).toEqual(winner)
   })
+
+  /**
+   * **`onMutate` doit se relire, comme `onError` et `onSuccess`.** Deux gestes
+   * sur deux champs différents ; `cancelQueries` du premier reste en vol
+   * pendant que le second — qui n'a plus rien à annuler — va jusqu'au bout et
+   * gagne la course (c'est lui le plus récent dans `lastWrite`). Le premier
+   * reprend ensuite et, sans garde, écrirait quand même son `framingStyle` en
+   * optimiste — puis, sa propre réponse écartée par le serveur (`applied:
+   * false`), personne ne le corrige : `onSuccess` porte le même garde que le
+   * garde manquant ici, donc lui aussi l'ignore, puisqu'il n'est plus le
+   * dernier geste sur ce clip. Le cache reste alors sur une valeur que le
+   * serveur vient de rejeter (issue #252).
+   */
+  it('ne laisse pas une écriture périmée dont le rejet ne sera jamais lu', async () => {
+    const id = 'c-252-race'
+    const { client, envelope } = harness()
+    const before = framing({ ratio: '16:9', shots: [shot(0, 20, '16:9', 0.5)] })
+    client.setQueryData<ClipDetail>(keys.clip(id), detail(before))
+
+    let resolveFirstCancel!: () => void
+    const firstCancelPending = new Promise<void>((resolve) => {
+      resolveFirstCancel = resolve
+    })
+    // Retarde les deux `cancelQueries` du premier geste : le second, qui n'a
+    // plus rien à annuler, les dépasse et écrit le cache avant que le premier
+    // ne reprenne.
+    const cancelSpy = vi.spyOn(client, 'cancelQueries')
+    cancelSpy.mockImplementationOnce(() => firstCancelPending)
+
+    const hookResult: PatchClipResult = {
+      applied: true,
+      clip: { ...clip!, hookStyle: { textColor: 'red' } },
+      outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+      framing: before,
+      seq: 2,
+    }
+    // Le serveur a déjà appliqué le second geste quand celui-ci arrive : il
+    // l'écarte et rend le clip gagnant, sur le modèle du test « adopte aussi
+    // le cadrage d'une écriture écartée » ci-dessus.
+    const framingRejected: PatchClipResult = {
+      applied: false,
+      clip: { ...clip!, hookStyle: { textColor: 'red' } },
+      outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+      framing: before,
+      seq: 2,
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(init?.body as string)
+        return response('framingStyle' in body ? framingRejected : hookResult)
+      }),
+    )
+
+    const { result } = renderHook(() => usePatchClip(), { wrapper: envelope })
+
+    let firstPromise!: Promise<PatchClipResult>
+    act(() => {
+      firstPromise = result.current.mutateAsync({ clipId: id, projectId: 'p1', patch: { framingStyle: { splitScreen: true } } })
+    })
+    await act(async () => {
+      await result.current.mutateAsync({ clipId: id, projectId: 'p1', patch: { hookStyle: { textColor: 'red' } } })
+    })
+
+    resolveFirstCancel()
+    await act(async () => {
+      await firstPromise
+    })
+
+    const cache = client.getQueryData<ClipDetail>(keys.clip(id))
+    expect(cache?.clip.hookStyle).toEqual({ textColor: 'red' })
+    expect(cache?.clip.framingStyle).toEqual({})
+  })
 })
 
 /**

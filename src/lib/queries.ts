@@ -390,6 +390,13 @@ export function usePatchClip() {
       await client.cancelQueries({ queryKey: keys.candidats(projectId) })
       await client.cancelQueries({ queryKey: keys.clip(clipId) })
 
+      // Même garde qu'`onError` et `onSuccess`, et pour la même raison : ce
+      // geste peut reprendre après un autre parti depuis, et écrire alors
+      // serait le seul des trois chemins à ne pas se relire (issue #252).
+      if (lastWrite.get(clipId) !== token) {
+        return { previousCandidate: undefined, previousClip: undefined, jeton: token }
+      }
+
       // **L'instantané ne porte que le clip touché, pas la liste entière.**
       // Sur vingt-cinq cartes on en trie plusieurs par seconde, donc plusieurs
       // écritures se chevauchent : une liste complète capturée avant celle-ci,

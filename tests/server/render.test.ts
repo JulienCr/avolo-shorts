@@ -1568,7 +1568,6 @@ describe('renderClip, chemin du saut', () => {
    */
   it("refuse « exported » quand le clip de référence était déjà écarté", () => {
     const { db, c } = prepare({ status: 'discarded' })
-    putClip(db, { ...c, status: 'discarded' })
 
     markExported(db, c.id, c, framingFor(c))
 
@@ -1580,7 +1579,6 @@ describe('renderClip, chemin du saut', () => {
     // indistinguable d'un export lancé depuis l'écran du clip. Seul
     // `discarded` porte une décision que l'export défairait.
     const { db, c } = prepare({ status: 'candidate' })
-    putClip(db, { ...c, status: 'candidate' })
 
     markExported(db, c.id, c, framingFor(c))
 

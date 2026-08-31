@@ -1,15 +1,11 @@
 /**
  * Les paires de recouvrement à surveiller, par écran — `ui-shot.ts` les
- * énumère toutes et échoue si l'une des deux moitiés d'une paire ne
- * résout à aucun élément (voir la garantie 1 du contrat `ui-shot`).
+ * énumère toutes et échoue si l'une des deux moitiés d'une paire ne résout
+ * à aucun élément.
  *
  * Repris de `docs/superpowers/plans/2026-08-30-hierarchie-ecran-clip.md`
- * (lignes 219-250 et 678-706), avec les sélecteurs corrigés sur le DOM
- * réel de cette branche : `[role="tab"]`/`aria-pressed` n'existent nulle
- * part sur `clip-screen.tsx`, `[role="region"][aria-label="Transcript du
- * clip"]` est en fait un `role="group"`, et l'enchaînement
- * `nextElementSibling` des deux snippets se réécrit en sélecteur CSS
- * (`+`) pour tenir dans le type `OverlapPair`.
+ * (lignes 219-250, 678-706), sélecteurs corrigés sur le DOM réel de cette
+ * branche — voir `docs/ui/systeme-visuel.md` pour le détail des écarts.
  */
 
 export type OverlapPair = { readonly name: string; readonly a: string; readonly b: string }

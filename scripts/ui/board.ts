@@ -1,14 +1,10 @@
 /**
  * La planche de comparaison de `ui-shot --board` : les paires avant/après
- * d'un même écran et d'un même viewport, côte à côte, une question par
- * groupe — jamais un tableau de chiffres à la place d'une image (post-mortem
- * du 30 août, `docs/postmortem-2026-08-30-fleet-ecran-clip.md`).
+ * d'un même écran et viewport, côte à côte, une question par groupe.
  *
- * Réutilise `STYLE_CSS` et `renderScript` de `scripts/framing/board/template.ts`
- * (feuille et script gelés de la skill `decision-sheet`) — jamais modifiés
- * ici. `page.ts` et `BOARD_CSS`, propres au cadrage (parts, plans, variantes
- * de crop), ne sont pas réutilisables : cette planche compare des captures
- * d'écran, pas des rendus de cadrage.
+ * Réutilise `STYLE_CSS`/`renderScript` de `scripts/framing/board/template.ts`
+ * (gelés, skill `decision-sheet`), jamais `page.ts`/`BOARD_CSS` — propres au
+ * cadrage, pas à des captures d'écran.
  */
 
 import fs from 'node:fs'

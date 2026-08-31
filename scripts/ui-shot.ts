@@ -1,25 +1,11 @@
 /**
- * L'œil versionné — `docs/postmortem-2026-08-30-fleet-ecran-clip.md`.
+ * L'œil versionné — `docs/agents/ui-loop.md`.
  *
- * Deux modes :
+ *     pnpm ui-shot --url <url> --screen clip --label before|after [--out <dir>]
+ *     pnpm ui-shot --board <dir-avant> <dir-après> --out tmp/<sujet>.html
  *
- *     pnpm ui-shot --url <url> --screen clip --label before|after \
- *       [--viewport 2560x1320,1920x1080,1024x640] [--out <dir>] [--force]
- *     pnpm ui-shot --board <dir-before> <dir-after> --out tmp/<sujet>.html
- *
- * Le premier capture une PNG par viewport et énumère les paires de
- * recouvrement de `scripts/ui/pairs.ts` pour l'écran donné. Le second
- * assemble une planche de comparaison depuis deux dossiers de captures.
- *
- * Quatre garanties, non négociables (voir le post-mortem) :
- *
- * 1. Un sélecteur qui ne résout à rien fait échouer la commande — jamais un
- *    recouvrement à 0 pour un élément introuvable.
- * 2. Le contrôle de recouvrement énumère et imprime **chaque** paire, pas un
- *    verdict global.
- * 3. Le port est vérifié avant toute mesure : le PID à l'écoute doit tourner
- *    depuis ce dépôt, sauf `--force`.
- * 4. `localhost`, jamais `127.0.0.1` — 403 sur l'adresse littérale ici.
+ * Un sélecteur introuvable fait échouer la commande, le recouvrement
+ * s'imprime paire par paire, le port est vérifié avant toute mesure.
  */
 
 import { execFileSync } from 'node:child_process'

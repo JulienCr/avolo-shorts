@@ -129,19 +129,10 @@ export async function vignette(clip: Clip): Promise<string | null> {
 }
 
 /**
- * La planche d'un clip : `count` vues tuilées sur toute sa durée, gardée sur
- * disque comme `vignette` — même garde, même renommage synchrone (#274).
- *
- * `null` sans proxy, ou quand `clipBounds` n'a rien à couvrir : un clip vidé
- * de ses segments n'a pas de durée à tuiler. `count` vient du client
- * (largeur de bande) et doit déjà être validé : voir `parseFilmstripCount`.
- */
-/**
  * Efface l'héritage d'avant #292 (`<clip>.strip.jpg`, sans compte) s'il
  * traîne encore. Appelé sur les deux chemins de `filmstrip` : un clip qui
  * n'est plus jamais `PATCH`é et dont la planche du jour est déjà en cache
- * ne passerait sinon plus jamais par un nettoyage (#295 corrigé une
- * première fois trop tôt : seul le chemin froid était couvert).
+ * ne croiserait sinon jamais ce nettoyage.
  *
  * `existsSync` d'abord : sur le chemin chaud (`GET` en boucle), ça évite un
  * `unlink` — donc un syscall d'écriture — à chaque appel une fois l'héritage
@@ -157,6 +148,14 @@ function purgeFilmstripLegacy(projectId: string, clipId: string): void {
   }
 }
 
+/**
+ * La planche d'un clip : `count` vues tuilées sur toute sa durée, gardée sur
+ * disque comme `vignette` — même garde, même renommage synchrone (#274).
+ *
+ * `null` sans proxy, ou quand `clipBounds` n'a rien à couvrir : un clip vidé
+ * de ses segments n'a pas de durée à tuiler. `count` vient du client
+ * (largeur de bande) et doit déjà être validé : voir `parseFilmstripCount`.
+ */
 export async function filmstrip(clip: Clip, count: number = FILMSTRIP_COUNT_DEFAULT): Promise<string | null> {
   const proxy = proxyPath(clip.projectId)
   if (!fs.existsSync(proxy)) return null
@@ -199,16 +198,6 @@ export async function filmstrip(clip: Clip, count: number = FILMSTRIP_COUNT_DEFA
 }
 
 /**
- * L'affiche d'un clip du vivier : le premier repère du **rendu livré**,
- * jamais du proxy. `null` sans livraison à jour ou sans fichier vidéo.
- *
- * **Fraîcheur sans point d'éviction** : refaite si elle manque ou si le rendu
- * est plus récent, rien d'autre n'a besoin de l'invalider.
- *
- * Livraison relue après ffmpeg, avant le renommage synchrone (#274) : un
- * réexport pendant l'extraction ne doit pas publier une affiche périmée.
- */
-/**
  * La mtime d'un fichier, ou `null` s'il n'est pas là.
  *
  * **Seule une absence vaut `null`** — un refus de droits ou un montage mort
@@ -224,6 +213,16 @@ function mtimeOrNull(file: string): number | null {
   }
 }
 
+/**
+ * L'affiche d'un clip du vivier : le premier repère du **rendu livré**,
+ * jamais du proxy. `null` sans livraison à jour ou sans fichier vidéo.
+ *
+ * **Fraîcheur sans point d'éviction** : refaite si elle manque ou si le rendu
+ * est plus récent, rien d'autre n'a besoin de l'invalider.
+ *
+ * Livraison relue après ffmpeg, avant le renommage synchrone (#274) : un
+ * réexport pendant l'extraction ne doit pas publier une affiche périmée.
+ */
 export async function renderPoster(clip: Clip, framing?: PublishedFraming): Promise<string | null> {
   const video = deliveredVideo(clip, framing)
   if (video === null) return null

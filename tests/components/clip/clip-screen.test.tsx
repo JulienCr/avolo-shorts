@@ -1034,6 +1034,34 @@ describe('la publication, sans vidéo rendue', () => {
   })
 })
 
+describe('la publication, sur un clip écarté après export (#266)', () => {
+  function delivered(): ReturnType<typeof detail> {
+    const d = detail('c2')
+    d.clip.status = 'discarded'
+    d.outputs = {
+      mp4Url: null,
+      mp4Due: false,
+      variant9x16Url: '/api/clips/c2/renders/c2-9x16.mp4',
+      variant9x16Due: true,
+      textsUrl: '/api/clips/c2/renders/c2.txt',
+    }
+    return d
+  }
+
+  it('n’offre pas « Publier », même avec un rendu produit pendant l’attente', async () => {
+    await mount('c2', delivered())
+    expect(screen.queryByRole('button', { name: /^publier$/i })).toBeNull()
+  })
+
+  it('laisse le fichier visible dans le viseur, via la bascule Export', async () => {
+    // Le fichier reste là (#266 ne fait que fermer la publication) : la
+    // bascule Aperçu/Export doit encore le proposer.
+    await mount('c2', delivered())
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+    expect(await screen.findByText('fichier livré')).toBeTruthy()
+  })
+})
+
 describe('l’état périmé', () => {
   it('confirme toujours l’écrasement, même seul en primaire', async () => {
     const fetch = vi.fn(async (url: string, options?: RequestInit) => {

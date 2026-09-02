@@ -132,6 +132,21 @@ describe('ExportsView', () => {
     expect(screen.getByText(/exporter avant de publier/i)).toBeTruthy()
   })
 
+  it('garde le fichier visible mais ferme la publication sur un clip écarté après export (#266)', () => {
+    mount({
+      clip: clipFixture({ status: 'discarded' }),
+      outputs: {
+        ...nothingIsProduced,
+        variant9x16Url: '/api/clips/c1/renders/c1-9x16.mp4',
+        textsUrl: '/api/clips/c1/renders/c1.txt',
+      },
+    })
+
+    expect(screen.getByLabelText('Variante 9:16')).toBeTruthy()
+    expect(screen.getByText(/exporter avant de publier/i)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /forcer un nouvel export/i })).toBeNull()
+  })
+
   it('copie les trois textes de publication séparément', async () => {
     const write = vi.fn(async (text: string) => {
       void text

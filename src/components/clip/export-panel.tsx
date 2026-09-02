@@ -9,6 +9,11 @@ import type { ClipOutputs } from '@/lib/api'
 import type { Clip } from '@/core/edl'
 import type { outputNames } from '@/components/clip/texts'
 
+/** Y a-t-il un rendu à montrer — sans préjuger de son éligibilité à la publication. */
+export function hasRenderedVideo(outputs: Pick<ClipOutputs, 'mp4Url' | 'variant9x16Url'>): boolean {
+  return outputs.mp4Url !== null || outputs.variant9x16Url !== null
+}
+
 /**
  * L'état de livraison d'un clip.
  *
@@ -16,6 +21,15 @@ import type { outputNames } from '@/components/clip/texts'
  * le signal qui compte est celui d'une vidéo rendue — `mp4Url` ou
  * `variant9x16Url`, jamais le seul `.txt` — parce que `RENDER_NATIVE` peut
  * laisser `mp4Url` définitivement nul sur un clip pourtant livré.
+ *
+ * `discarded` prime sur ce signal (#266) : un clip écarté n'est jamais
+ * `'delivered'`, même si `renderClip` a produit des fichiers pendant qu'il
+ * patientait dans la file d'export. `'stale'` porte alors ce cas comme il
+ * porte déjà un `exported` sans fichiers — une livraison qui ne compte plus
+ * pour publier — plutôt qu'un quatrième état pour une distinction (fichiers
+ * présents ou non) qu'aucun appelant n'a besoin de faire sur `state` :
+ * `OutputsList` et les aperçus vidéo lisent `outputs` via `hasRenderedVideo`,
+ * jamais `state`, donc rien n'y disparaît.
  */
 export type DeliveryState = 'never' | 'stale' | 'delivered'
 
@@ -23,8 +37,9 @@ export function deriveDeliveryState(
   status: Clip['status'],
   outputs: Pick<ClipOutputs, 'mp4Url' | 'variant9x16Url'>,
 ): DeliveryState {
-  const hasRenderedVideo = outputs.mp4Url !== null || outputs.variant9x16Url !== null
-  if (hasRenderedVideo) return 'delivered'
+  const rendered = hasRenderedVideo(outputs)
+  if (status === 'discarded') return rendered ? 'stale' : 'never'
+  if (rendered) return 'delivered'
   return status === 'exported' ? 'stale' : 'never'
 }
 

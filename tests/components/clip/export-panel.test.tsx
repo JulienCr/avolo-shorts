@@ -46,10 +46,20 @@ describe('deriveDeliveryState', () => {
     expect(deriveDeliveryState('exported', nothingIsProduced)).toBe('stale')
   })
 
-  it('est livré dès qu’une vidéo est disponible, quel que soit le statut', () => {
+  it('est livré dès qu’une vidéo est disponible — sauf `discarded`, voir plus bas', () => {
     expect(
       deriveDeliveryState('kept', { ...nothingIsProduced, variant9x16Url: '/c1-9x16.mp4' }),
     ).toBe('delivered')
+  })
+
+  it('n’est jamais livré une fois écarté, même avec une vidéo produite pendant l’attente (#266)', () => {
+    expect(
+      deriveDeliveryState('discarded', { ...nothingIsProduced, variant9x16Url: '/c1-9x16.mp4' }),
+    ).toBe('stale')
+  })
+
+  it('n’est jamais livré non plus sans vidéo, une fois écarté', () => {
+    expect(deriveDeliveryState('discarded', nothingIsProduced)).toBe('never')
   })
 })
 

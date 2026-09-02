@@ -18,7 +18,9 @@ vi.mock('@/server/ffmpeg', async (importOriginal) => {
 })
 
 const { runFfmpeg } = await import('@/server/ffmpeg')
-const { filmstrip, filmstripCounts, filmstripPath, vignette, vignettePath } = await import('@/server/thumbs')
+const { filmstrip, filmstripCounts, filmstripLegacyPath, filmstripPath, vignette, vignettePath } = await import(
+  '@/server/thumbs',
+)
 const { FILMSTRIP_COUNT_DEFAULT, FILMSTRIP_COUNT_MAX, FILMSTRIP_COUNT_MIN, parseFilmstripCount } = await import(
   '@/lib/filmstrip',
 )
@@ -155,6 +157,45 @@ describe('filmstrip', () => {
     const second = await filmstrip(baseClip())
     expect(second).toBe(first)
     expect(runFfmpeg).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * #295 : l'héritage d'avant #292 (`<clip>.strip.jpg`, sans le compte) ne
+   * traverse pas la purge du `PATCH` sur un clip qu'on n'ouvre jamais. Le
+   * nettoyer ici, sur le chemin froid, couvre ce cas — un `unlink` de plus
+   * est gratuit à côté d'un ffmpeg qui tourne déjà.
+   */
+  it('efface la planche héritée d’avant #292 quand elle produit vraiment une planche', async () => {
+    putClip(getDb(), baseClip())
+    writeProxy()
+
+    const legacy = filmstripLegacyPath(PROJECT, CLIP)
+    fs.mkdirSync(path.dirname(legacy), { recursive: true })
+    fs.writeFileSync(legacy, Buffer.from('jpeg'))
+
+    await filmstrip(baseClip())
+    expect(fs.existsSync(legacy)).toBe(false)
+  })
+
+  /**
+   * #295, deuxième relecture : le premier correctif ne couvrait que le
+   * chemin froid, et loupait donc tout clip dont la planche au nouveau nom
+   * a déjà été produite avant l'ouverture de ce correctif — la population
+   * même que #295 vise. Le retour de cache doit purger l'héritage aussi.
+   */
+  it('efface aussi la planche héritée quand la planche du jour est déjà en cache', async () => {
+    putClip(getDb(), baseClip())
+    writeProxy()
+    await filmstrip(baseClip())
+
+    const legacy = filmstripLegacyPath(PROJECT, CLIP)
+    fs.mkdirSync(path.dirname(legacy), { recursive: true })
+    fs.writeFileSync(legacy, Buffer.from('jpeg'))
+
+    vi.mocked(runFfmpeg).mockClear()
+    await filmstrip(baseClip())
+    expect(runFfmpeg).not.toHaveBeenCalled()
+    expect(fs.existsSync(legacy)).toBe(false)
   })
 
   it('un compte différent régénère, sur un fichier différent', async () => {

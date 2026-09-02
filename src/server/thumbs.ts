@@ -66,6 +66,12 @@ export function filmstripPath(projectId: string, clipId: string, count: number):
   return path.join(projectDir(projectId), 'thumbs', `${verifyIdClip(clipId)}.strip.${count}.jpg`)
 }
 
+/** `projects/<projet>/thumbs/<clip>.strip.jpg` — le nom d'avant #292, sans
+ * compte, laissé orphelin sur tout clip ouvert avant ce déploiement (#295). */
+export function filmstripLegacyPath(projectId: string, clipId: string): string {
+  return path.join(projectDir(projectId), 'thumbs', `${verifyIdClip(clipId)}.strip.jpg`)
+}
+
 /** Tous les comptes qu'une planche a pu prendre — pour l'effacer au complet
  * quand les bornes bougent, sans lister le dossier. */
 export function filmstripCounts(): number[] {
@@ -123,6 +129,26 @@ export async function vignette(clip: Clip): Promise<string | null> {
 }
 
 /**
+ * Efface l'héritage d'avant #292 (`<clip>.strip.jpg`, sans compte) s'il
+ * traîne encore. Appelé sur les deux chemins de `filmstrip` : un clip qui
+ * n'est plus jamais `PATCH`é et dont la planche du jour est déjà en cache
+ * ne croiserait sinon jamais ce nettoyage.
+ *
+ * `existsSync` d'abord : sur le chemin chaud (`GET` en boucle), ça évite un
+ * `unlink` — donc un syscall d'écriture — à chaque appel une fois l'héritage
+ * déjà effacé.
+ */
+function purgeFilmstripLegacy(projectId: string, clipId: string): void {
+  const legacy = filmstripLegacyPath(projectId, clipId)
+  if (!fs.existsSync(legacy)) return
+  try {
+    fs.rmSync(legacy, { force: true })
+  } catch (cause) {
+    console.warn(`Planche héritée non effacée pour ${clipId} :`, cause)
+  }
+}
+
+/**
  * La planche d'un clip : `count` vues tuilées sur toute sa durée, gardée sur
  * disque comme `vignette` — même garde, même renommage synchrone (#274).
  *
@@ -138,7 +164,10 @@ export async function filmstrip(clip: Clip, count: number = FILMSTRIP_COUNT_DEFA
   if (bounds === null) return null
 
   const destination = filmstripPath(clip.projectId, clip.id, count)
-  if (fs.existsSync(destination)) return destination
+  if (fs.existsSync(destination)) {
+    purgeFilmstripLegacy(clip.projectId, clip.id)
+    return destination
+  }
 
   await fsp.mkdir(path.dirname(destination), { recursive: true })
   const temporary = pathTemporary(destination)
@@ -160,6 +189,7 @@ export async function filmstrip(clip: Clip, count: number = FILMSTRIP_COUNT_DEFA
       return null
     }
     fs.renameSync(temporary, destination)
+    purgeFilmstripLegacy(clip.projectId, clip.id)
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause
@@ -167,16 +197,6 @@ export async function filmstrip(clip: Clip, count: number = FILMSTRIP_COUNT_DEFA
   return destination
 }
 
-/**
- * L'affiche d'un clip du vivier : le premier repère du **rendu livré**,
- * jamais du proxy. `null` sans livraison à jour ou sans fichier vidéo.
- *
- * **Fraîcheur sans point d'éviction** : refaite si elle manque ou si le rendu
- * est plus récent, rien d'autre n'a besoin de l'invalider.
- *
- * Livraison relue après ffmpeg, avant le renommage synchrone (#274) : un
- * réexport pendant l'extraction ne doit pas publier une affiche périmée.
- */
 /**
  * La mtime d'un fichier, ou `null` s'il n'est pas là.
  *
@@ -193,6 +213,16 @@ function mtimeOrNull(file: string): number | null {
   }
 }
 
+/**
+ * L'affiche d'un clip du vivier : le premier repère du **rendu livré**,
+ * jamais du proxy. `null` sans livraison à jour ou sans fichier vidéo.
+ *
+ * **Fraîcheur sans point d'éviction** : refaite si elle manque ou si le rendu
+ * est plus récent, rien d'autre n'a besoin de l'invalider.
+ *
+ * Livraison relue après ffmpeg, avant le renommage synchrone (#274) : un
+ * réexport pendant l'extraction ne doit pas publier une affiche périmée.
+ */
 export async function renderPoster(clip: Clip, framing?: PublishedFraming): Promise<string | null> {
   const video = deliveredVideo(clip, framing)
   if (video === null) return null
@@ -203,7 +233,11 @@ export async function renderPoster(clip: Clip, framing?: PublishedFraming): Prom
   // un `null` que la route rattrape sur le proxy — pas une panne à remonter.
   if (videoMtime === null) return null
   const posterMtime = mtimeOrNull(destination)
-  if (posterMtime !== null && posterMtime >= videoMtime) return destination
+  // Tolérance d'1 ms : `Math.floor` plus bas ne met jamais l'estampille dans
+  // le futur, mais peut la faire retomber tout juste sous `videoMtime`
+  // (mesuré : jusqu'à ~0,99 ms). Sans cette marge, l'affiche qu'on vient de
+  // produire se dirait déjà périmée et se régénérerait à chaque appel.
+  if (posterMtime !== null && posterMtime + 1 >= videoMtime) return destination
 
   await fsp.mkdir(path.dirname(destination), { recursive: true })
   const temporary = pathTemporary(destination)
@@ -221,6 +255,13 @@ export async function renderPoster(clip: Clip, framing?: PublishedFraming): Prom
       await fsp.rm(temporary, { force: true }).catch(() => {})
       return null
     }
+    // Course #288 : le temporaire porte la mtime de la vidéo validée, pas
+    // l'instant du renommage. `utimesSync`, jamais `fsp.utimes` (#274).
+    // `Math.floor`, jamais `ceil` : une estampille dans le futur romprait la
+    // règle du dépôt sur les seuils inclusifs. La perte sous-milliseconde
+    // que ça laisse est absorbée par la tolérance de la garde ci-dessus.
+    const secondsVideo = Math.floor(videoMtime) / 1000
+    fs.utimesSync(temporary, secondsVideo, secondsVideo)
     fs.renameSync(temporary, destination)
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})

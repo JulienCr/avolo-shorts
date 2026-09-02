@@ -40,7 +40,7 @@ import {
 } from '@/server/steps/render'
 import { launch, lireStatus, progression } from '@/server/run'
 import { GeminiBlockedError } from '@/server/steps/candidates'
-import { filmstripPath, vignettePath } from '@/server/thumbs'
+import { filmstripLegacyPath, filmstripPath, vignettePath } from '@/server/thumbs'
 import { FILMSTRIP_COUNT_DEFAULT } from '@/lib/filmstrip'
 
 /**
@@ -1534,6 +1534,20 @@ describe('PATCH /api/clips/:id', () => {
 
       await patch({ segments: [{ start: 60, end: 95 }], seq: 40 })
       for (const strip of strips) expect(fs.existsSync(strip)).toBe(false)
+    })
+
+    /**
+     * #295 : avant la PR #292 la planche s'appelait `<clip>.strip.jpg`, sans
+     * le compte dans le nom. La purge ne balaie que `filmstripCounts()` et
+     * laisse cet héritage orphelin sur tout clip ouvert avant #292.
+     */
+    it('efface aussi la planche héritée d’avant #292, au compte fixe', async () => {
+      const legacy = filmstripLegacyPath(PROJECT, CLIP)
+      fs.mkdirSync(path.dirname(legacy), { recursive: true })
+      fs.writeFileSync(legacy, 'jpeg')
+
+      await patch({ segments: [{ start: 60, end: 95 }], seq: 40 })
+      expect(fs.existsSync(legacy)).toBe(false)
     })
 
     it('ne touche pas à la planche quand les bornes ne bougent pas', async () => {

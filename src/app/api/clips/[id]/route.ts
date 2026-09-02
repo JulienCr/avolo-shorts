@@ -25,7 +25,7 @@ import {
   discardRenderStale,
   publicationWriteText,
 } from '@/server/steps/render'
-import { filmstripCounts, filmstripPath, vignettePath } from '@/server/thumbs'
+import { filmstripCounts, filmstripLegacyPath, filmstripPath, vignettePath } from '@/server/thumbs'
 import { clipLinesAround, summaryProject, projectTranscript, urlProxy } from '@/server/views'
 
 /**
@@ -364,6 +364,13 @@ export const PATCH = route(
         } catch (cause) {
           console.warn(`Planche non effacée pour ${clip.id} (compte ${count}) :`, cause)
         }
+      }
+      // #295 : l'héritage d'avant #292 (`<clip>.strip.jpg`, sans compte) ne
+      // porte pas de compte à balayer via `filmstripCounts()`.
+      try {
+        fs.rmSync(filmstripLegacyPath(clip.projectId, clip.id), { force: true })
+      } catch (cause) {
+        console.warn(`Planche héritée non effacée pour ${clip.id} :`, cause)
       }
     }
 

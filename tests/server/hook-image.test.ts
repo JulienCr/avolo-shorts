@@ -253,4 +253,40 @@ describe('renderHookImage', () => {
     expect(spy).toHaveBeenCalledTimes(2)
     expect(removeSpy).toHaveBeenCalledExactlyOnceWith(firstKey)
   })
+
+  it('un fichier devenu illisible après un premier enregistrement évince la clé, au lieu de garder la police périmée — issue #261', () => {
+    // Un dossier dédié à ce test, comme ci-dessus.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-font-'))
+    const real = fs.readFileSync(path.join(FONTS_DIR, 'Anton-Regular.ttf'))
+    const file = path.join(dir, 'Anton-Regular.ttf')
+    fs.writeFileSync(file, real)
+
+    const spy = vi.spyOn(GlobalFonts, 'registerFromPath')
+    const removeSpy = vi.spyOn(GlobalFonts, 'remove')
+
+    renderHookImage(resolved(), { w: 1080, h: 1080 }, dir)
+    expect(spy).toHaveBeenCalledTimes(1)
+    const firstKey = spy.mock.results[0]?.value as unknown
+
+    // Le fichier disparaît après ce premier enregistrement réussi : la
+    // lecture suivante échoue. `chmodSync(file, 0)` ne suffirait pas ici
+    // (root du conteneur ignore les permissions) — la suppression est le
+    // seul moyen fiable de faire échouer la lecture.
+    fs.rmSync(file)
+
+    renderHookImage(resolved(), { w: 1080, h: 1080 }, dir)
+    // La clé périmée doit être retirée de `GlobalFonts` : sinon le rendu
+    // suivant continuerait de dessiner avec Anton alors que libass, lui, se
+    // serait replié sur une police système pour le même sous-titrage.
+    expect(removeSpy).toHaveBeenCalledExactlyOnceWith(firstKey)
+    // Et l'entrée de cache doit être évincée, pas seulement retirée de
+    // `GlobalFonts` : sinon un rappel sur un fichier de nouveau lisible avec
+    // le même contenu resterait bloqué par `cached.digest === digest`.
+    expect(spy).toHaveBeenCalledTimes(1)
+
+    // Le fichier revient : le troisième appel doit réenregistrer.
+    fs.writeFileSync(file, real)
+    renderHookImage(resolved(), { w: 1080, h: 1080 }, dir)
+    expect(spy).toHaveBeenCalledTimes(2)
+  })
 })

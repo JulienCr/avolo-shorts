@@ -85,6 +85,12 @@ export function ensureFontRegistered(fontsDir: string): void {
     console.warn(
       `Police Anton illisible (${file}) : ${error instanceof Error ? error.message : 'erreur inconnue'}.`,
     )
+    // On évince aussi la Map, pas seulement `GlobalFonts` : sinon un rappel
+    // sur un fichier redevenu lisible avec le même contenu resterait bloqué
+    // par `cached.digest === digest` sans jamais réenregistrer.
+    const cached = registeredFonts.get(fontsDir)
+    if (cached?.key !== null && cached?.key !== undefined) GlobalFonts.remove(cached.key)
+    registeredFonts.delete(fontsDir)
     return
   }
   const cached = registeredFonts.get(fontsDir)

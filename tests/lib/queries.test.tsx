@@ -354,9 +354,12 @@ describe('usePatchClip', () => {
     const firstCancelPending = new Promise<void>((resolve) => {
       resolveFirstCancel = resolve
     })
-    // Retarde les deux `cancelQueries` du premier geste : le second, qui n'a
-    // plus rien à annuler, les dépasse et écrit le cache avant que le premier
-    // ne reprenne.
+    // `mockImplementationOnce` n'intercepte que le tout premier appel de
+    // `cancelQueries`, tous gestes confondus : celui du premier geste sur les
+    // candidats. Son second appel, sur le clip, tourne avec l'implémentation
+    // réelle une fois repris (après `resolveFirstCancel()`) — un seul délai
+    // suffit à tenir le premier geste suspendu le temps que le second, qui
+    // n'a plus rien à annuler, le dépasse et écrive le cache.
     const cancelSpy = vi.spyOn(client, 'cancelQueries')
     cancelSpy.mockImplementationOnce(() => firstCancelPending)
 

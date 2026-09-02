@@ -413,6 +413,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   // fichiers doivent rester visibles dans le viseur, pas seulement dans
   // Exports.
   const rendered = hasRenderedVideo(outputs)
+  // La modale d'écrasement se déclenche sur `state === 'stale'`, qui recouvre
+  // deux vérités depuis #266 : un `exported` sans fichiers (« livrés »), ou
+  // un `discarded` qui en a (des fichiers, mais aucune livraison).
+  const staleIsDiscarded = clip.status === 'discarded'
   // Une édition après « Export » peut périmer la livraison sans que `mode`
   // ne bouge, sinon le viseur tente un `<video>` sans `src`. (relevé par
   // Codex et par Copilot)
@@ -884,7 +888,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         <DialogContent role="alertdialog">
           <DialogHeader>
             <DialogTitle>Refaire les rendus ?</DialogTitle>
-            <DialogDescription>Ces fichiers sont livrés et seront écrasés :</DialogDescription>
+            <DialogDescription>
+              {staleIsDiscarded
+                ? 'Ce clip est écarté. Ces fichiers existent encore et seront écrasés :'
+                : 'Ces fichiers sont livrés et seront écrasés :'}
+            </DialogDescription>
           </DialogHeader>
           <ul className="font-mono text-[0.75rem]">
             {[names.mp4, names.variant9x16, names.texts]

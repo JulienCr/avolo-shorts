@@ -1083,6 +1083,35 @@ describe('l’état périmé', () => {
     )
   })
 
+  it('dit « livrés » sur un `exported` sans fichiers', async () => {
+    const d = detail('c2')
+    d.clip.status = 'exported'
+    await mount('c2', d)
+
+    fireEvent.click(screen.getByRole('button', { name: /ré-exporter/i }))
+    expect(await screen.findByText(/ces fichiers sont livrés et seront écrasés/i)).toBeTruthy()
+  })
+
+  it('ne dit pas « livrés » sur un `discarded` qui a des fichiers (#266, revue du delta #299)', async () => {
+    // Le geste reste le même — confirmer avant d'écraser — mais le mot ne
+    // doit plus contredire ce que `deriveDeliveryState` établit : un clip
+    // écarté a des fichiers, il n'a pas de livraison.
+    const d = detail('c2')
+    d.clip.status = 'discarded'
+    d.outputs = {
+      mp4Url: null,
+      mp4Due: false,
+      variant9x16Url: '/api/clips/c2/renders/c2-9x16.mp4',
+      variant9x16Due: true,
+      textsUrl: '/api/clips/c2/renders/c2.txt',
+    }
+    await mount('c2', d)
+
+    fireEvent.click(screen.getByRole('button', { name: /ré-exporter/i }))
+    expect(await screen.findByText(/ces fichiers existent encore et seront écrasés/i)).toBeTruthy()
+    expect(screen.queryByText(/sont livrés/i)).toBeNull()
+  })
+
   it('ramène le viseur en Aperçu quand un nouveau `detail` périme le fichier affiché', async () => {
     // `outputs` vient du prop `detail`, que la page (`useClip`) renouvelle
     // après chaque écriture. Sans ce recours, un nouveau `detail` périmé

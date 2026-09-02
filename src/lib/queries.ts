@@ -236,11 +236,11 @@ function setFieldToken(clipId: string, field: string, token: number): void {
   byField.set(field, token)
 }
 
-/** `objet` réduit aux `champs` donnés — pour n'écrire que le survivant du patch. */
-function pick<T extends object, K extends keyof T>(objet: T, champs: readonly K[]): Pick<T, K> {
-  const copie = {} as Pick<T, K>
-  for (const champ of champs) copie[champ] = objet[champ]
-  return copie
+/** `source` réduit aux `fields` donnés — pour n’écrire que le survivant du patch. */
+function pick<T extends object, K extends keyof T>(source: T, fields: readonly K[]): Pick<T, K> {
+  const kept = {} as Pick<T, K>
+  for (const field of fields) kept[field] = source[field]
+  return kept
 }
 
 /**

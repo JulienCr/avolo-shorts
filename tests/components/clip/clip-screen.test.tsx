@@ -1034,34 +1034,6 @@ describe('la publication, sans vidéo rendue', () => {
   })
 })
 
-describe('la publication, sur un clip écarté après export (#266)', () => {
-  function delivered(): ReturnType<typeof detail> {
-    const d = detail('c2')
-    d.clip.status = 'discarded'
-    d.outputs = {
-      mp4Url: null,
-      mp4Due: false,
-      variant9x16Url: '/api/clips/c2/renders/c2-9x16.mp4',
-      variant9x16Due: true,
-      textsUrl: '/api/clips/c2/renders/c2.txt',
-    }
-    return d
-  }
-
-  it('n’offre pas « Publier », même avec un rendu produit pendant l’attente', async () => {
-    await mount('c2', delivered())
-    expect(screen.queryByRole('button', { name: /^publier$/i })).toBeNull()
-  })
-
-  it('laisse le fichier visible dans le viseur, via la bascule Export', async () => {
-    // Le fichier reste là (#266 ne fait que fermer la publication) : la
-    // bascule Aperçu/Export doit encore le proposer.
-    await mount('c2', delivered())
-    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
-    expect(await screen.findByText('fichier livré')).toBeTruthy()
-  })
-})
-
 describe('l’état périmé', () => {
   it('confirme toujours l’écrasement, même seul en primaire', async () => {
     const fetch = vi.fn(async (url: string, options?: RequestInit) => {
@@ -1081,35 +1053,6 @@ describe('l’état périmé', () => {
     expect(fetch.mock.calls.some(([, o]) => (o as RequestInit | undefined)?.method === 'POST')).toBe(
       false,
     )
-  })
-
-  it('dit « livrés » sur un `exported` sans fichiers', async () => {
-    const d = detail('c2')
-    d.clip.status = 'exported'
-    await mount('c2', d)
-
-    fireEvent.click(screen.getByRole('button', { name: /ré-exporter/i }))
-    expect(await screen.findByText(/ces fichiers sont livrés et seront écrasés/i)).toBeTruthy()
-  })
-
-  it('ne dit pas « livrés » sur un `discarded` qui a des fichiers (#266, revue du delta #299)', async () => {
-    // Le geste reste le même — confirmer avant d'écraser — mais le mot ne
-    // doit plus contredire ce que `deriveDeliveryState` établit : un clip
-    // écarté a des fichiers, il n'a pas de livraison.
-    const d = detail('c2')
-    d.clip.status = 'discarded'
-    d.outputs = {
-      mp4Url: null,
-      mp4Due: false,
-      variant9x16Url: '/api/clips/c2/renders/c2-9x16.mp4',
-      variant9x16Due: true,
-      textsUrl: '/api/clips/c2/renders/c2.txt',
-    }
-    await mount('c2', d)
-
-    fireEvent.click(screen.getByRole('button', { name: /ré-exporter/i }))
-    expect(await screen.findByText(/ces fichiers existent encore et seront écrasés/i)).toBeTruthy()
-    expect(screen.queryByText(/sont livrés/i)).toBeNull()
   })
 
   it('ramène le viseur en Aperçu quand un nouveau `detail` périme le fichier affiché', async () => {

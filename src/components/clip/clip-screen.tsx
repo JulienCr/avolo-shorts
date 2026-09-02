@@ -15,7 +15,7 @@ import { ClipPlayer, ClipTransport, togglePlayback, placePlayback } from '@/comp
 import { ClipStrip } from '@/components/clip/clip-strip'
 import { type ClipView, readClipView, writeClipView } from '@/components/clip/clip-view'
 import { CropOverlay, RatioPicker } from '@/components/clip/crop-picker'
-import { ClipPrimaryAction, deriveDeliveryState, hasRenderedVideo } from '@/components/clip/export-panel'
+import { ClipPrimaryAction, deriveDeliveryState } from '@/components/clip/export-panel'
 import { ExportsView } from '@/components/clip/exports-view'
 import { FramingFields } from '@/components/clip/framing-fields'
 import { usePlayback } from '@/components/clip/playback'
@@ -77,13 +77,11 @@ function seekExport(player: HTMLVideoElement | null, time: number): void {
  * (§3.4, 23 août) — même règle que « Publier ».
  */
 export function OutputSwitch({
-  rendered,
+  delivered,
   mode,
   onMode,
 }: {
-  /** `hasRenderedVideo(outputs)`, pas l'éligibilité à la publication — un clip
-   *  `discarded` garde son fichier visible ici (#266). */
-  rendered: boolean
+  delivered: boolean
   mode: 'preview' | 'export'
   onMode: (mode: 'preview' | 'export') => void
 }) {
@@ -102,7 +100,7 @@ export function OutputSwitch({
       aria-label="Ce que montre le viseur"
     >
       <ToggleGroupItem value="preview">Aperçu</ToggleGroupItem>
-      {rendered && <ToggleGroupItem value="export">Export</ToggleGroupItem>}
+      {delivered && <ToggleGroupItem value="export">Export</ToggleGroupItem>}
     </ToggleGroup>
   )
 }
@@ -408,19 +406,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   const [signatureRendered, setSignatureRendered] = useState<string | null>(null)
   const state = deriveDeliveryState(clip.status, outputs)
-  // `hasRenderedVideo`, pas `state` : depuis #266, un clip `discarded` n'est
-  // jamais `'delivered'` même avec des fichiers sur le disque, mais ces
-  // fichiers doivent rester visibles dans le viseur, pas seulement dans
-  // Exports.
-  const rendered = hasRenderedVideo(outputs)
-  // La modale d'écrasement se déclenche sur `state === 'stale'`, qui recouvre
-  // deux vérités depuis #266 : un `exported` sans fichiers (« livrés »), ou
-  // un `discarded` qui en a (des fichiers, mais aucune livraison).
-  const staleIsDiscarded = clip.status === 'discarded'
   // Une édition après « Export » peut périmer la livraison sans que `mode`
   // ne bouge, sinon le viseur tente un `<video>` sans `src`. (relevé par
   // Codex et par Copilot)
-  const effectiveMode = mode === 'export' && !rendered ? 'preview' : mode
+  const effectiveMode = mode === 'export' && state !== 'delivered' ? 'preview' : mode
   const native = framing.ratio
   const names = outputNames(clip.id, native)
   // **Trois empêchements, et chacun a sa raison.** Rendre un état non
@@ -868,7 +857,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                 />
               </figure>
             )}
-            <OutputSwitch rendered={rendered} mode={effectiveMode} onMode={setMode} />
+            <OutputSwitch delivered={state === 'delivered'} mode={effectiveMode} onMode={setMode} />
           </div>
         </main>
       ) : (
@@ -888,11 +877,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         <DialogContent role="alertdialog">
           <DialogHeader>
             <DialogTitle>Refaire les rendus ?</DialogTitle>
-            <DialogDescription>
-              {staleIsDiscarded
-                ? 'Ce clip est écarté. Ces fichiers existent encore et seront écrasés :'
-                : 'Ces fichiers sont livrés et seront écrasés :'}
-            </DialogDescription>
+            <DialogDescription>Ces fichiers sont livrés et seront écrasés :</DialogDescription>
           </DialogHeader>
           <ul className="font-mono text-[0.75rem]">
             {[names.mp4, names.variant9x16, names.texts]

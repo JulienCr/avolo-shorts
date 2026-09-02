@@ -2417,7 +2417,13 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
  *
  * `rendu` est le clip tel qu'il a été lu au début de l'export : son statut sert
  * à reconnaître une décision prise depuis, et ses cinq champs d'image à
- * reconnaître un montage qui a bougé — voir plus bas.
+ * reconnaître un montage qui a bougé — voir plus bas. Il sert aussi à
+ * reconnaître une décision prise **avant**, d'un clip déjà `discarded` à ce
+ * moment-là : l'écart de statut seul est aveugle à ce cas (#266). La couverture
+ * reste partielle pour `candidate` : rappuyer sur « Gardé » y ramène le clip
+ * aussi bien depuis `kept` que depuis `exported` (`toggleStatus`,
+ * `src/lib/clip-status.ts`), et rien ici ne date cette décision-là pour la
+ * distinguer d'un export direct.
  *
  * `better-sqlite3` est synchrone : rien de ce processus ne s'intercale entre la
  * relecture et l'écriture. Et un clip supprimé pendant le rendu n'est pas
@@ -2439,6 +2445,15 @@ export function markExported(
   if (toDay.status !== render.status) {
     console.warn(
       `Clip ${clipId} : passé de « ${render.status} » à « ${toDay.status} » pendant l'export. Les fichiers sont produits, la décision est conservée.`,
+    )
+    return
+  }
+  // #266 : `render.status` est lu au démarrage du rendu, pas au clic qui fige
+  // la file du vivier — il peut donc déjà valoir `discarded`, d'où l'écart nul
+  // ci-dessus. `candidate` reste promu : export direct, geste délibéré.
+  if (render.status === 'discarded') {
+    console.warn(
+      `Clip ${clipId} : déjà « discarded » au démarrage de l'export. Les fichiers sont produits, la décision est conservée.`,
     )
     return
   }

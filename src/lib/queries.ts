@@ -214,6 +214,36 @@ const lastWrite = new Map<string, number>()
 const clipsOverlapping = new Set<string>()
 
 /**
+ * Le dernier jeton par clip **et par champ** — le serveur (`putClipOrdered`,
+ * `src/server/db.ts`) départage lui aussi à cette granularité, jamais sur la
+ * ligne entière : un `{ status }` et un `{ segments }` qui se croisent ne se
+ * contredisent sur rien. `lastWrite` reste par clip pour `onError`/`onSuccess`,
+ * qui écrivent l'objet entier renvoyé par le serveur — un patch partiel n'y a
+ * pas cours ; cette carte-ci ne sert qu'à `onMutate`, qui écrit un patch.
+ */
+const lastWriteField = new Map<string, Map<string, number>>()
+
+function fieldToken(clipId: string, field: string): number | undefined {
+  return lastWriteField.get(clipId)?.get(field)
+}
+
+function setFieldToken(clipId: string, field: string, token: number): void {
+  let byField = lastWriteField.get(clipId)
+  if (!byField) {
+    byField = new Map()
+    lastWriteField.set(clipId, byField)
+  }
+  byField.set(field, token)
+}
+
+/** `objet` réduit aux `champs` donnés — pour n'écrire que le survivant du patch. */
+function pick<T extends object, K extends keyof T>(objet: T, champs: readonly K[]): Pick<T, K> {
+  const copie = {} as Pick<T, K>
+  for (const champ of champs) copie[champ] = objet[champ]
+  return copie
+}
+
+/**
  * Le numéro d'ordre du **geste**, à envoyer au serveur.
  *
  * Il part de l'horloge et non de zéro, et c'est ce qui le distingue du compteur
@@ -382,6 +412,8 @@ export function usePatchClip() {
       const token = gestureToken()
       variables.seq = token
       lastWrite.set(clipId, token)
+      const fields = Object.keys(patch) as (keyof ClipPatch)[]
+      for (const field of fields) setFieldToken(clipId, field, token)
       // Deux, parce que celle-ci y est déjà.
       if (inFlight(clipId) > 1) clipsOverlapping.add(clipId)
 
@@ -390,12 +422,15 @@ export function usePatchClip() {
       await client.cancelQueries({ queryKey: keys.candidats(projectId) })
       await client.cancelQueries({ queryKey: keys.clip(clipId) })
 
-      // Même garde qu'`onError` et `onSuccess`, et pour la même raison : ce
-      // geste peut reprendre après un autre parti depuis, et écrire alors
-      // serait le seul des trois chemins à ne pas se relire (issue #252).
-      if (lastWrite.get(clipId) !== token) {
+      // Écarte seulement les champs qu'un geste plus récent a déjà pris,
+      // comme `putClipOrdered` côté serveur — jamais le clip entier : deux
+      // gestes sur des champs disjoints doivent tous les deux survivre
+      // (issue #252, revue Copilot/Codex sur la PR #301).
+      const kept = fields.filter((field) => fieldToken(clipId, field) === token)
+      if (kept.length === 0) {
         return { previousCandidate: undefined, previousClip: undefined, jeton: token }
       }
+      const survivingPatch = pick(patch, kept)
 
       // **L'instantané ne porte que le clip touché, pas la liste entière.**
       // Sur vingt-cinq cartes on en trie plusieurs par seconde, donc plusieurs
@@ -409,10 +444,10 @@ export function usePatchClip() {
       const previousClip = client.getQueryData<ClipDetail>(keys.clip(clipId))?.clip
 
       client.setQueryData<CandidateClip[]>(keys.candidats(projectId), (list) =>
-        list?.map((c) => (c.id === clipId ? { ...c, ...patch } : c)),
+        list?.map((c) => (c.id === clipId ? { ...c, ...survivingPatch } : c)),
       )
       client.setQueryData<ClipDetail>(keys.clip(clipId), (detail) =>
-        detail ? { ...detail, clip: { ...detail.clip, ...patch } } : detail,
+        detail ? { ...detail, clip: { ...detail.clip, ...survivingPatch } } : detail,
       )
 
       return { previousCandidate, previousClip, jeton: variables.seq }

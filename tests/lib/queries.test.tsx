@@ -333,19 +333,18 @@ describe('usePatchClip', () => {
   })
 
   /**
-   * **`onMutate` doit se relire, comme `onError` et `onSuccess`.** Deux gestes
-   * sur deux champs différents ; `cancelQueries` du premier reste en vol
-   * pendant que le second — qui n'a plus rien à annuler — va jusqu'au bout et
-   * gagne la course (c'est lui le plus récent dans `lastWrite`). Le premier
-   * reprend ensuite et, sans garde, écrirait quand même son `framingStyle` en
-   * optimiste — puis, sa propre réponse écartée par le serveur (`applied:
-   * false`), personne ne le corrige : `onSuccess` porte le même garde que le
-   * garde manquant ici, donc lui aussi l'ignore, puisqu'il n'est plus le
-   * dernier geste sur ce clip. Le cache reste alors sur une valeur que le
-   * serveur vient de rejeter (issue #252).
+   * **Le vrai mécanisme de l'issue #252 : deux écritures sur le *même* champ,
+   * pas deux champs différents.** `useStyleWrites` (`src/components/clip/
+   * style-writes.ts`) construit chaque patch de style en fusionnant sur
+   * `base.current`, mis à jour de façon synchrone à chaque geste — donc le
+   * second geste envoie toujours la fusion cumulative, `splitMinShotMs`
+   * compris, sans jamais redemander l'ancien. Si le premier reprend après et
+   * écrit sans relire l'état, son `...patch` ne porte que sa propre valeur et
+   * remplace `framingStyle` en bloc, effaçant ce que le second venait
+   * d'ajouter.
    */
-  it('ne laisse pas une écriture périmée dont le rejet ne sera jamais lu', async () => {
-    const id = 'c-252-race'
+  it('garde la fusion cumulative du second geste sur le même champ', async () => {
+    const id = 'c-252-same-field'
     const { client, envelope } = harness()
     const before = framing({ ratio: '16:9', shots: [shot(0, 20, '16:9', 0.5)] })
     client.setQueryData<ClipDetail>(keys.clip(id), detail(before))
@@ -363,18 +362,85 @@ describe('usePatchClip', () => {
     const cancelSpy = vi.spyOn(client, 'cancelQueries')
     cancelSpy.mockImplementationOnce(() => firstCancelPending)
 
-    const hookResult: PatchClipResult = {
+    // La valeur gagnante, telle que `useStyleWrites` l'aurait construite pour
+    // le second geste : `base.current` portait déjà `splitMinShotMs` au
+    // moment de ce commit-ci.
+    const cumulative = { splitMinShotMs: 400, sizeFloorPermille: 120 }
+    const winner: PatchClipResult = {
       applied: true,
-      clip: { ...clip!, hookStyle: { textColor: 'red' } },
+      clip: { ...clip!, framingStyle: cumulative },
       outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
       framing: before,
       seq: 2,
     }
-    // Le serveur a déjà appliqué le second geste quand celui-ci arrive : il
-    // l'écarte et rend le clip gagnant, sur le modèle du test « adopte aussi
-    // le cadrage d'une écriture écartée » ci-dessus.
-    const framingRejected: PatchClipResult = {
-      applied: false,
+    // Le serveur a déjà appliqué le second geste sur ce même champ quand le
+    // premier arrive : il l'écarte et rend le clip gagnant, sur le modèle du
+    // test « adopte aussi le cadrage d'une écriture écartée » ci-dessus.
+    const discarded: PatchClipResult = { ...winner, applied: false }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(init?.body as string)
+        const isSecondGesture = 'sizeFloorPermille' in (body.framingStyle ?? {})
+        return response(isSecondGesture ? winner : discarded)
+      }),
+    )
+
+    const { result } = renderHook(() => usePatchClip(), { wrapper: envelope })
+
+    let firstPromise!: Promise<PatchClipResult>
+    act(() => {
+      firstPromise = result.current.mutateAsync({
+        clipId: id,
+        projectId: 'p1',
+        patch: { framingStyle: { splitMinShotMs: 400 } },
+      })
+    })
+    await act(async () => {
+      await result.current.mutateAsync({
+        clipId: id,
+        projectId: 'p1',
+        patch: { framingStyle: cumulative },
+      })
+    })
+
+    resolveFirstCancel()
+    await act(async () => {
+      await firstPromise
+    })
+
+    expect(client.getQueryData<ClipDetail>(keys.clip(id))?.clip.framingStyle).toEqual(cumulative)
+  })
+
+  /**
+   * **Le contrôle négatif que l'écart de granularité rend nécessaire.** Le
+   * serveur (`putClipOrdered`, `src/server/db.ts`) départage champ par champ,
+   * jamais sur la ligne entière — un garde qui écarterait le clip *entier*
+   * dès qu'un geste plus récent l'a touché perdrait ici l'écriture optimiste
+   * d'un champ que ce geste plus récent n'a même pas approché.
+   */
+  it('garde l’écriture optimiste du plus ancien sur un champ disjoint', async () => {
+    const id = 'c-252-disjoint'
+    const { client, envelope } = harness()
+    const before = framing({ ratio: '16:9', shots: [shot(0, 20, '16:9', 0.5)] })
+    client.setQueryData<ClipDetail>(keys.clip(id), detail(before))
+
+    let resolveFirstCancel!: () => void
+    const firstCancelPending = new Promise<void>((resolve) => {
+      resolveFirstCancel = resolve
+    })
+    const cancelSpy = vi.spyOn(client, 'cancelQueries')
+    cancelSpy.mockImplementationOnce(() => firstCancelPending)
+
+    const framingResult: PatchClipResult = {
+      applied: true,
+      clip: { ...clip!, framingStyle: { splitMinShotMs: 400 } },
+      outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+      framing: before,
+      seq: 1,
+    }
+    const hookResult: PatchClipResult = {
+      applied: true,
       clip: { ...clip!, hookStyle: { textColor: 'red' } },
       outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
       framing: before,
@@ -384,7 +450,7 @@ describe('usePatchClip', () => {
       'fetch',
       vi.fn(async (_url: string, init?: RequestInit) => {
         const body = JSON.parse(init?.body as string)
-        return response('framingStyle' in body ? framingRejected : hookResult)
+        return response('framingStyle' in body ? framingResult : hookResult)
       }),
     )
 
@@ -392,7 +458,11 @@ describe('usePatchClip', () => {
 
     let firstPromise!: Promise<PatchClipResult>
     act(() => {
-      firstPromise = result.current.mutateAsync({ clipId: id, projectId: 'p1', patch: { framingStyle: { splitScreen: true } } })
+      firstPromise = result.current.mutateAsync({
+        clipId: id,
+        projectId: 'p1',
+        patch: { framingStyle: { splitMinShotMs: 400 } },
+      })
     })
     await act(async () => {
       await result.current.mutateAsync({ clipId: id, projectId: 'p1', patch: { hookStyle: { textColor: 'red' } } })
@@ -405,7 +475,7 @@ describe('usePatchClip', () => {
 
     const cache = client.getQueryData<ClipDetail>(keys.clip(id))
     expect(cache?.clip.hookStyle).toEqual({ textColor: 'red' })
-    expect(cache?.clip.framingStyle).toEqual({})
+    expect(cache?.clip.framingStyle).toEqual({ splitMinShotMs: 400 })
   })
 })
 

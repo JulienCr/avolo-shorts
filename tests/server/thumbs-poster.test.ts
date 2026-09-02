@@ -205,10 +205,13 @@ describe('renderPoster', () => {
    * vraie granularité fs n'est pas fiable à reproduire ici (mesuré : ns).
    * L'affiche doit porter la mtime de la vidéo, pas l'instant du renommage :
    * un vrai délai avant l'appel sépare nettement les deux sur l'ancien code.
-   * Tolérance de 2 ms : la conversion ms→s pour `utimesSync` perd la fraction
-   * sous-milliseconde (mesuré), sans se confondre avec l'écart de l'ancien code.
+   *
+   * **Jamais dans le futur** (relecture externe, #288 bis) : `Math.floor`
+   * tronque vers le bas, donc `posterMtime` ne dépasse jamais `videoMtime`.
+   * L'écart reste sous 1 ms — mesuré, jamais au-delà — ce que la garde de
+   * fraîcheur absorbe par sa tolérance d'1 ms.
    */
-  it('l’affiche publiée porte la mtime de la vidéo validée, pas celle du renommage', async () => {
+  it('l’affiche publiée porte la mtime de la vidéo validée, jamais dans le futur', async () => {
     putClip(getDb(), baseClip())
     writeRender()
     writeFingerprint(baseClip())
@@ -224,6 +227,7 @@ describe('renderPoster', () => {
     const destination = await renderPoster(baseClip())
     expect(destination).not.toBeNull()
     const posterMtime = fs.statSync(destination as string).mtimeMs
-    expect(Math.abs(posterMtime - videoMtime)).toBeLessThan(2)
+    expect(posterMtime).toBeLessThanOrEqual(videoMtime)
+    expect(videoMtime - posterMtime).toBeLessThan(1)
   })
 })

@@ -136,6 +136,27 @@ export async function vignette(clip: Clip): Promise<string | null> {
  * de ses segments n'a pas de durée à tuiler. `count` vient du client
  * (largeur de bande) et doit déjà être validé : voir `parseFilmstripCount`.
  */
+/**
+ * Efface l'héritage d'avant #292 (`<clip>.strip.jpg`, sans compte) s'il
+ * traîne encore. Appelé sur les deux chemins de `filmstrip` : un clip qui
+ * n'est plus jamais `PATCH`é et dont la planche du jour est déjà en cache
+ * ne passerait sinon plus jamais par un nettoyage (#295 corrigé une
+ * première fois trop tôt : seul le chemin froid était couvert).
+ *
+ * `existsSync` d'abord : sur le chemin chaud (`GET` en boucle), ça évite un
+ * `unlink` — donc un syscall d'écriture — à chaque appel une fois l'héritage
+ * déjà effacé.
+ */
+function purgeFilmstripLegacy(projectId: string, clipId: string): void {
+  const legacy = filmstripLegacyPath(projectId, clipId)
+  if (!fs.existsSync(legacy)) return
+  try {
+    fs.rmSync(legacy, { force: true })
+  } catch (cause) {
+    console.warn(`Planche héritée non effacée pour ${clipId} :`, cause)
+  }
+}
+
 export async function filmstrip(clip: Clip, count: number = FILMSTRIP_COUNT_DEFAULT): Promise<string | null> {
   const proxy = proxyPath(clip.projectId)
   if (!fs.existsSync(proxy)) return null
@@ -144,7 +165,10 @@ export async function filmstrip(clip: Clip, count: number = FILMSTRIP_COUNT_DEFA
   if (bounds === null) return null
 
   const destination = filmstripPath(clip.projectId, clip.id, count)
-  if (fs.existsSync(destination)) return destination
+  if (fs.existsSync(destination)) {
+    purgeFilmstripLegacy(clip.projectId, clip.id)
+    return destination
+  }
 
   await fsp.mkdir(path.dirname(destination), { recursive: true })
   const temporary = pathTemporary(destination)
@@ -166,16 +190,7 @@ export async function filmstrip(clip: Clip, count: number = FILMSTRIP_COUNT_DEFA
       return null
     }
     fs.renameSync(temporary, destination)
-    // #295 : sur le chemin froid seulement, ce clip vient de produire une
-    // planche pour de vrai — l'occasion d'effacer l'héritage d'avant #292
-    // sans un `unlink` de plus quand elle est déjà servie du cache.
-    try {
-      fs.rmSync(filmstripLegacyPath(clip.projectId, clip.id), { force: true })
-    } catch (cause) {
-      // `force: true` avale déjà l'absence : ce qui atterrit ici est un
-      // échec inattendu (droits, E/S), qu'on veut voir dans les logs.
-      console.warn(`Planche héritée non effacée pour ${clip.id} :`, cause)
-    }
+    purgeFilmstripLegacy(clip.projectId, clip.id)
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause
@@ -219,7 +234,11 @@ export async function renderPoster(clip: Clip, framing?: PublishedFraming): Prom
   // un `null` que la route rattrape sur le proxy — pas une panne à remonter.
   if (videoMtime === null) return null
   const posterMtime = mtimeOrNull(destination)
-  if (posterMtime !== null && posterMtime >= videoMtime) return destination
+  // Tolérance d'1 ms : `Math.floor` plus bas ne met jamais l'estampille dans
+  // le futur, mais peut la faire retomber tout juste sous `videoMtime`
+  // (mesuré : jusqu'à ~0,99 ms). Sans cette marge, l'affiche qu'on vient de
+  // produire se dirait déjà périmée et se régénérerait à chaque appel.
+  if (posterMtime !== null && posterMtime + 1 >= videoMtime) return destination
 
   await fsp.mkdir(path.dirname(destination), { recursive: true })
   const temporary = pathTemporary(destination)
@@ -239,9 +258,10 @@ export async function renderPoster(clip: Clip, framing?: PublishedFraming): Prom
     }
     // Course #288 : le temporaire porte la mtime de la vidéo validée, pas
     // l'instant du renommage. `utimesSync`, jamais `fsp.utimes` (#274).
-    // `Math.ceil` : l'arrondi porte sur l'étiquette qu'on pose, jamais sur
-    // la mtime relue — un `floor` casserait `>=` à chaque appel.
-    const secondsVideo = Math.ceil(videoMtime) / 1000
+    // `Math.floor`, jamais `ceil` : une estampille dans le futur romprait la
+    // règle du dépôt sur les seuils inclusifs. La perte sous-milliseconde
+    // que ça laisse est absorbée par la tolérance de la garde ci-dessus.
+    const secondsVideo = Math.floor(videoMtime) / 1000
     fs.utimesSync(temporary, secondsVideo, secondsVideo)
     fs.renameSync(temporary, destination)
   } catch (cause) {

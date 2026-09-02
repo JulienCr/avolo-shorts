@@ -177,7 +177,13 @@ describe('filmstrip', () => {
     expect(fs.existsSync(legacy)).toBe(false)
   })
 
-  it('ne touche pas à la planche héritée quand la planche du jour est déjà en cache', async () => {
+  /**
+   * #295, deuxième relecture : le premier correctif ne couvrait que le
+   * chemin froid, et loupait donc tout clip dont la planche au nouveau nom
+   * a déjà été produite avant l'ouverture de ce correctif — la population
+   * même que #295 vise. Le retour de cache doit purger l'héritage aussi.
+   */
+  it('efface aussi la planche héritée quand la planche du jour est déjà en cache', async () => {
     putClip(getDb(), baseClip())
     writeProxy()
     await filmstrip(baseClip())
@@ -189,7 +195,7 @@ describe('filmstrip', () => {
     vi.mocked(runFfmpeg).mockClear()
     await filmstrip(baseClip())
     expect(runFfmpeg).not.toHaveBeenCalled()
-    expect(fs.existsSync(legacy)).toBe(true)
+    expect(fs.existsSync(legacy)).toBe(false)
   })
 
   it('un compte différent régénère, sur un fichier différent', async () => {

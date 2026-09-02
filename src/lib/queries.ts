@@ -422,10 +422,8 @@ export function usePatchClip() {
       await client.cancelQueries({ queryKey: keys.candidats(projectId) })
       await client.cancelQueries({ queryKey: keys.clip(clipId) })
 
-      // Écarte seulement les champs qu'un geste plus récent a déjà pris,
-      // comme `putClipOrdered` côté serveur — jamais le clip entier : deux
-      // gestes sur des champs disjoints doivent tous les deux survivre
-      // (issue #252, revue Copilot/Codex sur la PR #301).
+      // Champ par champ, comme `putClipOrdered` : deux gestes disjoints
+      // survivent tous les deux (#252).
       const kept = fields.filter((field) => fieldToken(clipId, field) === token)
       if (kept.length === 0) {
         return { previousCandidate: undefined, previousClip: undefined, jeton: token }

@@ -35,6 +35,17 @@ export async function register(): Promise<void> {
   const { hookShutdown } = await import('@/server/shutdown')
   hookShutdown()
 
+  // **Pid, never `rm -f`.** A concurrent `dev-run` legitimately holds slots;
+  // only a dead pid says a slot was abandoned rather than merely busy.
+  // Non-critical, like `cleanWorkCache` below: must not block startup.
+  const { sweepSchedulerSlots } = await import('@/server/scheduler')
+  const { projectsDir } = await import('@/server/paths')
+  try {
+    sweepSchedulerSlots(projectsDir())
+  } catch (cause) {
+    console.warn('Balayage des créneaux de ressources au démarrage :', cause)
+  }
+
   // **Le cache de travail, borné au démarrage** (retour d'usage §5). `stage/`
   // porte plusieurs gigaoctets par émission ; sans passage régulier, il grossit
   // jusqu'au disque. Huit heures de TTL, et une copie effacée ne coûte qu'une

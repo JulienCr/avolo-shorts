@@ -1,4 +1,5 @@
 import { closeDb } from '@/server/db'
+import { scheduler } from '@/server/scheduler'
 
 /**
  * L'arrêt du serveur : **refermer SQLite.**
@@ -25,6 +26,7 @@ export function hookShutdown(): void {
     } catch (cause) {
       console.error('Fermeture de la base :', cause)
     }
+    scheduler().releaseAll()
   }
 
   // Les sorties ordinaires. `exit` n'accepte que du synchrone, et `closeDb` l'est.

@@ -23,6 +23,18 @@ function reclaimFilename(name: string, slot: number, slots: number): string {
   return slots === 1 ? `.${name}.reclaim` : `.${name}.${slot}.reclaim`
 }
 
+/**
+ * @throws if `o.slots` is not a positive safe integer — a caller-controlled
+ * value with no compile-time guard, since `SlotOptions` is exported for
+ * reuse.
+ */
+function validSlotCount(o: SlotOptions): number {
+  if (!Number.isSafeInteger(o.slots) || o.slots < 1) {
+    throw new RangeError(`slots must be a positive integer, got ${o.slots}`)
+  }
+  return o.slots
+}
+
 function lockPath(o: SlotOptions, slot: number): string {
   return path.join(o.lockDir, lockFilename(o.name, slot, o.slots))
 }
@@ -39,16 +51,21 @@ function tryCreateLock(file: string, payload: LockPayload): boolean {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
     throw error
   }
-  // Deleting on a write failure is safe: `wx` already proved nobody else
-  // could have created this file in the meantime.
+  // Deleting on a write or close failure is safe: `wx` already proved
+  // nobody else could have created this file in the meantime.
   try {
     fs.writeSync(fd, JSON.stringify(payload))
-  } catch (error) {
     fs.closeSync(fd)
+  } catch (error) {
+    try {
+      fs.closeSync(fd)
+    } catch {
+      // Already closed by the successful call above, or genuinely
+      // unclosable: nothing left to release, don't mask the original error.
+    }
     fs.rmSync(file, { force: true })
     throw error
   }
-  fs.closeSync(fd)
   return true
 }
 
@@ -164,7 +181,8 @@ function acquireOneSlot(
 
 /** Tries every slot in order; `null` when all are held. Never waits. */
 export function acquireSlot(o: SlotOptions, now: number, isAlive: (pid: number) => boolean): SlotHandle | null {
-  for (let slot = 0; slot < o.slots; slot++) {
+  const slots = validSlotCount(o)
+  for (let slot = 0; slot < slots; slot++) {
     const result = acquireOneSlot(o, slot, now, isAlive)
     if (result.acquired) return { slot, owner: result.owner }
   }
@@ -193,11 +211,13 @@ export function releaseSlot(o: SlotOptions, handle: SlotHandle): void {
  * Deletes slot files whose pid is dead, coordinated through the same
  * per-slot reclaim guard `acquireOneSlot` uses so a concurrent reclaim
  * cannot have its fresh lock swept away.
- * @returns how many slots were freed.
+ * @returns how many slots were freed. A slot behind an abandoned guard is
+ * skipped rather than freed on this pass — see issue #308.
  */
 export function sweepDeadSlots(o: SlotOptions, isAlive: (pid: number) => boolean): number {
+  const slots = validSlotCount(o)
   let freed = 0
-  for (let slot = 0; slot < o.slots; slot++) {
+  for (let slot = 0; slot < slots; slot++) {
     const file = lockPath(o, slot)
     const holder = readLock(file)
     if (holder === null || isAlive(holder.pid)) continue

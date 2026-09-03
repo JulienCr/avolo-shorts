@@ -85,6 +85,15 @@ describe('acquireSlot / releaseSlot', () => {
   })
 })
 
+describe('validation de slots', () => {
+  it('rejette un nombre de slots nul, fractionnaire ou infini', () => {
+    expect(() => acquireSlot(deps({ slots: 0 }), Date.now(), () => true)).toThrow(RangeError)
+    expect(() => acquireSlot(deps({ slots: 1.5 }), Date.now(), () => true)).toThrow(RangeError)
+    expect(() => acquireSlot(deps({ slots: Infinity }), Date.now(), () => true)).toThrow(RangeError)
+    expect(() => sweepDeadSlots(deps({ slots: 0 }), () => true)).toThrow(RangeError)
+  })
+})
+
 describe('sweepDeadSlots', () => {
   it('libere les emplacements a pid mort et laisse les vivants intacts', () => {
     const o = deps({ slots: 2 })

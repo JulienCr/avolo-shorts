@@ -1,7 +1,3 @@
-import { randomUUID } from 'node:crypto'
-import fs from 'node:fs'
-import path from 'node:path'
-
 import type Database from 'better-sqlite3'
 
 import {
@@ -16,6 +12,7 @@ import {
 import { formatErrorDetail } from '@/core/publication-errors'
 import { effectiveSettings, getClip, getPublications, nextDueSchedule, upsertPublication } from '@/server/db'
 import { messageSafe } from '@/server/errors'
+import { acquireSlot, lockSince, pidAlive, releaseSlot, type SlotOptions } from '@/server/lockfile'
 import { adapterFor } from '@/server/publication'
 import { launchPublish } from '@/server/publication/service'
 import type { Mailer } from '@/server/publication/mailer'
@@ -35,7 +32,7 @@ export type SchedulerDeps = {
   lockDir: string
   /**
    * Sonde si le pid d'un verrou périmé tient toujours — injectable pour les
-   * tests, `process.kill(pid, 0)` par défaut (`pidAlive` ci-dessous).
+   * tests, `process.kill(pid, 0)` par défaut (`pidAlive` de `@/server/lockfile`).
    */
   pidAlive?: (pid: number) => boolean
 }
@@ -52,186 +49,10 @@ export type SchedulerOutcome =
 
 const ATTEMPTS = 3
 const STALE_LOCK_MS = 30 * 60 * 1000
-const RECLAIM_GUARD_STALE_MS = 60 * 1000
-const LOCK_FILENAME = '.publish-scheduled.lock'
-const RECLAIM_GUARD_FILENAME = '.publish-scheduled.reclaim'
 
-type LockPayload = { pid: number; since: number; owner: string }
-
-function lockPath(lockDir: string): string {
-  return path.join(lockDir, LOCK_FILENAME)
-}
-
-function reclaimGuardPath(lockDir: string): string {
-  return path.join(lockDir, RECLAIM_GUARD_FILENAME)
-}
-
-function tryCreateLock(file: string, payload: LockPayload): boolean {
-  let fd: number
-  try {
-    fd = fs.openSync(file, 'wx')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
-    throw error
-  }
-  // `wx` a réussi : le fichier est à nous, sans conteste. Si l'écriture ou
-  // la fermeture lève ensuite (disque plein, E/S), le laisser en place
-  // ferait paraître le verrou pris pendant trente minutes sans qu'aucune
-  // passe ne publie — le supprimer avant de relever est sûr, puisque
-  // personne d'autre n'a pu le créer entretemps (relevé en revue).
-  try {
-    fs.writeSync(fd, JSON.stringify(payload))
-    fs.closeSync(fd)
-    return true
-  } catch (error) {
-    fs.rmSync(file, { force: true })
-    throw error
-  }
-}
-
-function readLock(file: string): LockPayload | null {
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8')) as LockPayload
-  } catch {
-    return null
-  }
-}
-
-/**
- * L'instant posé par le titulaire, ou l'horodatage du fichier si le JSON est
- * incomplet — un processus tué entre `openSync` et l'écriture ne doit pas
- * laisser un verrou qui paraît frais à chaque lecture : `now` changerait à
- * chaque appel, l'horodatage du fichier non (relevé en revue).
- */
-function lockSince(file: string, now: number): number {
-  const existing = readLock(file)
-  if (existing !== null) return existing.since
-  try {
-    return fs.statSync(file).mtimeMs
-  } catch {
-    return now
-  }
-}
-
-/**
- * `process.kill(pid, 0)` n'envoie aucun signal, il sonde seulement
- * l'existence du processus. `EPERM` dit qu'il existe mais appartient à un
- * autre utilisateur — l'information est ambiguë, et le défaut prudent face à
- * une ambiguïté est de le croire vivant plutôt que de risquer une reprise
- * sur un faux mort (décision de l'orchestrateur, pas une déduction locale).
- */
-function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
-  }
-}
-
-/**
- * Reprend le verrou principal : le renomme vers un nom à soi puis en
- * recrée un frais par `wx`. Appelé **seulement** sous le verrou de reprise
- * (`acquireLock`), donc jamais par deux processus à la fois — c'est ce
- * qui rend ce couple non-atomique sûr, l'exclusivité vient d'ailleurs.
- */
-function reclaimStaleLock(file: string, owner: string, payload: LockPayload, holderPid: number | undefined): boolean {
-  const evicted = `${file}.${owner}.evicted`
-  try {
-    fs.renameSync(file, evicted)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    // Le titulaire a relâché entretemps : rien à reprendre, on recrée direct.
-    return tryCreateLock(file, payload)
-  }
-  console.warn(`Verrou de publication périmé (posé il y a plus de 30 min, pid ${holderPid ?? '?'} mort) : repris.`)
-  fs.rmSync(evicted, { force: true })
-  return tryCreateLock(file, payload)
-}
-
-/**
- * Prise atomique (`wx`) ; reprise d'un verrou périmé seulement si son pid
- * n'est plus vivant, sous un second verrou `wx` dédié à la reprise
- * (décision de l'orchestrateur, après deux tentatives insuffisantes).
- *
- * **Ni une paire suppression-puis-création, ni un simple `renameSync`, ne
- * suffisent** (relevé en revue, à trois reprises) : dans les deux cas, un
- * second processus qui a lui aussi observé le même verrou périmé peut
- * encore agir entre l'éviction du premier et sa recréation — y compris en
- * renommant le verrou **neuf** que le premier vient de reposer, puisque
- * `renameSync` ne vérifie pas ce qu'il déplace. Le verrou de reprise ferme
- * cette fenêtre : `wx` garantit qu'un seul processus l'obtient, donc un
- * seul est jamais à l'intérieur de la séquence qui évince puis recrée —
- * qui revérifie l'âge et la vivacité du pid **sous** ce verrou plutôt que
- * de faire confiance à ce qu'il a observé avant de l'obtenir.
- *
- * **L'âge seul ne suffit pas non plus** pour le verrou principal (relevé en
- * revue) : une passe qui dépasse trente minutes de bonne foi — quatre
- * fichiers de plusieurs centaines de Mio en série — verrait sinon son
- * verrou volé par le réveil suivant pendant qu'elle publie encore. Le pid
- * vivant l'emporte sur l'âge, quel qu'il soit.
- *
- * **Le verrou de reprise, lui, se contente de l'âge** — une minute suffit,
- * et rien de plus n'est nécessaire : il n'est jamais tenu à travers un
- * envoi, seulement le temps d'une poignée d'appels système, donc son seul
- * risque est un processus tué en plein milieu, pas une lenteur légitime.
- */
-function acquireLock(
-  lockDir: string,
-  now: number,
-  isAlive: (pid: number) => boolean,
-): { acquired: true; owner: string } | { acquired: false; since: number } {
-  const file = lockPath(lockDir)
-  const owner = `${process.pid}-${randomUUID()}`
-  const payload: LockPayload = { pid: process.pid, since: now, owner }
-
-  if (tryCreateLock(file, payload)) return { acquired: true, owner }
-
-  const since = lockSince(file, now)
-  if (now - since < STALE_LOCK_MS) return { acquired: false, since }
-
-  const guard = reclaimGuardPath(lockDir)
-  const guardPayload: LockPayload = { pid: process.pid, since: now, owner }
-  if (!tryCreateLock(guard, guardPayload)) {
-    // Un autre processus reprend déjà ce même verrou périmé, ou tient encore
-    // son propre verrou de reprise récent : on se retire plutôt que de
-    // risquer la même course en parallèle du sien.
-    const guardSince = lockSince(guard, now)
-    if (now - guardSince < RECLAIM_GUARD_STALE_MS) return { acquired: false, since: lockSince(file, now) }
-    // Le verrou de reprise lui-même est périmé — son titulaire est mort en
-    // plein milieu d'une reprise, qui ne dure qu'une poignée d'appels
-    // système : l'âge seul suffit à le reprendre, aucun pid à vérifier.
-    fs.rmSync(guard, { force: true })
-    if (!tryCreateLock(guard, guardPayload)) return { acquired: false, since: lockSince(file, now) }
-  }
-  try {
-    // Revérifié **sous** le verrou de reprise, pas seulement avant : l'état
-    // observé en dehors peut avoir changé pendant qu'on attendait `wx`.
-    const stillSince = lockSince(file, now)
-    if (now - stillSince < STALE_LOCK_MS) return { acquired: false, since: stillSince }
-    const holder = readLock(file)
-    if (holder !== null && isAlive(holder.pid)) {
-      console.warn(`Verrou de publication vieux de plus de 30 min mais pid ${holder.pid} toujours vivant : pas repris.`)
-      return { acquired: false, since: stillSince }
-    }
-    if (reclaimStaleLock(file, owner, payload, holder?.pid)) return { acquired: true, owner }
-    // Impossible en principe sous le verrou de reprise — personne d'autre ne
-    // devrait pouvoir reposer un verrou frais pendant qu'on le tient — mais
-    // on se retire plutôt que de l'écraser si ça arrivait quand même.
-    return { acquired: false, since: lockSince(file, now) }
-  } finally {
-    fs.rmSync(guard, { force: true })
-  }
-}
-
-/**
- * Ne supprime que le verrou qu'on a posé soi-même : un titulaire périmé qui
- * se réveille après avoir été repris ne doit pas effacer le verrou frais du
- * processus qui a repris sa place (relevé en revue).
- */
-function releaseLock(lockDir: string, owner: string): void {
-  const file = lockPath(lockDir)
-  if (readLock(file)?.owner === owner) fs.rmSync(file, { force: true })
+/** Options du verrou d'ordonnancement : un seul emplacement, sur `lockDir` (spec §5.4). */
+function lockOptions(lockDir: string): SlotOptions {
+  return { lockDir, name: 'publish-scheduled', slots: 1, staleMs: STALE_LOCK_MS }
 }
 
 /**
@@ -508,14 +329,16 @@ export async function runOnePass(deps: SchedulerDeps, options?: { dryRun?: boole
   // La présentation de `locked` appartient au script (comme `dry-run`,
   // spec §6, correction) : imprimer ici doublerait la ligne que `describe`
   // écrit déjà, dans un autre libellé.
-  const lock = acquireLock(lockDir, now(), isAlive)
-  if (!lock.acquired) return { kind: 'locked', since: lock.since }
+  const lockOpts = lockOptions(lockDir)
+  const currentNow = now()
+  const handle = acquireSlot(lockOpts, currentNow, isAlive)
+  if (handle === null) return { kind: 'locked', since: lockSince(lockOpts, 0, currentNow) }
 
   try {
     const due = nextDueSchedule(db, now())
     if (due === undefined) return { kind: 'idle' }
     return await processDueClip(deps, due.clipId, due.scheduledAt)
   } finally {
-    releaseLock(lockDir, lock.owner)
+    releaseSlot(lockOpts, handle)
   }
 }

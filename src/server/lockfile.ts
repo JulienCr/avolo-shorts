@@ -172,8 +172,9 @@ export function acquireSlot(o: SlotOptions, now: number, isAlive: (pid: number) 
 }
 
 /**
- * @returns how long a slot has been held, for a caller reporting why
- * `acquireSlot` failed.
+ * @returns the timestamp a slot has been held since, for a caller reporting
+ * why `acquireSlot` failed: the holder's recorded `since`, the file's mtime
+ * when the payload is missing or incomplete, or `now` when the file is gone.
  */
 export function lockSince(o: SlotOptions, slot: number, now: number): number {
   return lockFileSince(lockPath(o, slot), now)
@@ -189,7 +190,9 @@ export function releaseSlot(o: SlotOptions, handle: SlotHandle): void {
 }
 
 /**
- * Deletes slot files whose pid is dead.
+ * Deletes slot files whose pid is dead, coordinated through the same
+ * per-slot reclaim guard `acquireOneSlot` uses so a concurrent reclaim
+ * cannot have its fresh lock swept away.
  * @returns how many slots were freed.
  */
 export function sweepDeadSlots(o: SlotOptions, isAlive: (pid: number) => boolean): number {
@@ -198,12 +201,16 @@ export function sweepDeadSlots(o: SlotOptions, isAlive: (pid: number) => boolean
     const file = lockPath(o, slot)
     const holder = readLock(file)
     if (holder === null || isAlive(holder.pid)) continue
-    // Revalidate right before unlinking, same idiom as `releaseSlot`: a
-    // reclaimer may have replaced this dead lock with a fresh one between
-    // the read above and this line.
-    if (readLock(file)?.owner === holder.owner) {
-      fs.rmSync(file, { force: true })
-      freed++
+
+    const guard = reclaimGuardPath(o, slot)
+    if (!tryCreateLock(guard, { pid: process.pid, since: Date.now(), owner: holder.owner })) continue
+    try {
+      if (readLock(file)?.owner === holder.owner) {
+        fs.rmSync(file, { force: true })
+        freed++
+      }
+    } finally {
+      fs.rmSync(guard, { force: true })
     }
   }
   return freed

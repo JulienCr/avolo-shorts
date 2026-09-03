@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { acquireSlot, releaseSlot, sweepDeadSlots, type SlotOptions } from '@/server/lockfile'
+import { acquireSlot, lockSince, releaseSlot, sweepDeadSlots, type SlotOptions } from '@/server/lockfile'
 
 /**
  * Verifie la generalisation N-emplacements de la primitive de verrou de
@@ -96,6 +96,33 @@ describe('sweepDeadSlots', () => {
     expect(freed).toBe(1)
     expect(fs.existsSync(path.join(lockDir, '.test-lock.0.lock'))).toBe(true)
     expect(fs.existsSync(path.join(lockDir, '.test-lock.1.lock'))).toBe(false)
+  })
+})
+
+describe('lockSince', () => {
+  it('renvoie le since du titulaire quand la charge utile est complete', () => {
+    const o = deps({ slots: 1 })
+    const since = Date.now() - 1000
+    fs.writeFileSync(path.join(lockDir, '.test-lock.lock'), JSON.stringify({ pid: 1, since, owner: 'x' }))
+
+    expect(lockSince(o, 0, Date.now())).toBe(since)
+  })
+
+  it('retombe sur le mtime du fichier quand la charge utile est incomplete', () => {
+    const o = deps({ slots: 1 })
+    const file = path.join(lockDir, '.test-lock.lock')
+    fs.writeFileSync(file, '')
+    const old = new Date(Date.now() - 60 * 1000)
+    fs.utimesSync(file, old, old)
+
+    expect(lockSince(o, 0, Date.now())).toBe(fs.statSync(file).mtimeMs)
+  })
+
+  it('renvoie now quand le fichier n’existe pas', () => {
+    const o = deps({ slots: 1 })
+    const now = Date.now()
+
+    expect(lockSince(o, 0, now)).toBe(now)
   })
 })
 

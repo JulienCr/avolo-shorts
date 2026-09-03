@@ -1,15 +1,23 @@
 import { describe, expect, it } from 'vitest'
 
 import type { StepName as GraphStep } from '@/core/graph'
+import type { LibraryProject } from '@/core/library'
 import { DEFAULT_SELECTION_DIMENSIONS, type SelectionDimensions } from '@/core/transcript'
 import {
   RESUME_TARGETS,
+  type ProjectListItem,
+  type ProjectStatus,
   type SelectionSettings,
   type RunTarget,
   type StepName,
 } from '@/lib/api'
 import { SETTING_FIELDS } from '@/server/db'
-import { TARGETS_INITIAL, TARGETS_LAUNCHABLE, type TargetLaunchable } from '@/server/run'
+import {
+  TARGETS_INITIAL,
+  TARGETS_LAUNCHABLE,
+  type Progression,
+  type TargetLaunchable,
+} from '@/server/run'
 
 /**
  * Les endroits où le client et le serveur disent la même chose deux fois.
@@ -101,5 +109,20 @@ describe('les champs de repérage', () => {
     expect(SETTING_FIELDS.filter((f) => f.family === 'selection').length).toBe(
       Object.keys(DEFAULT_SELECTION_DIMENSIONS).length,
     )
+  })
+})
+
+describe("l'avancement publié", () => {
+  /**
+   * `Progression` (`src/server/run.ts`) est structurellement dupliqué à trois
+   * endroits — issue #39, comme `StepName` ci-dessus. `waiting` a manqué à
+   * l'un d'eux, ce test aurait cassé le `type-check` avant que quiconque ne
+   * le remarque à l'écran.
+   */
+  it('est identique à ses trois miroirs côté client', () => {
+    const towardStatus: Identical<Progression, NonNullable<ProjectStatus['running']>> = true
+    const towardListItem: Identical<Progression, NonNullable<ProjectListItem['running']>> = true
+    const towardLibrary: Identical<Progression, NonNullable<LibraryProject['running']>> = true
+    expect(towardStatus && towardListItem && towardLibrary).toBe(true)
   })
 })

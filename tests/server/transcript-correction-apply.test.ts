@@ -101,7 +101,7 @@ describe('applyTranscriptCorrections', () => {
     const words = ['bonjour', 'a', 'tous']
     writeTranscript(words)
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(ollamaResponse([{ i: 1, w: 'à' }])))
-    vi.spyOn(run, 'progression').mockReturnValue({ step: 'correction', progress: 0 })
+    vi.spyOn(run, 'progression').mockReturnValue({ step: 'correction', progress: 0, waiting: null })
 
     const outcome = await applyTranscriptCorrections(project, getDb())
     expect(outcome.applied).toBe(1)

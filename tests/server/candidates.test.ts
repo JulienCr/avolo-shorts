@@ -4,9 +4,11 @@ import os from 'node:os'
 import path from 'node:path'
 import type BetterSqlite3 from 'better-sqlite3'
 import type { GenerateContentResponse } from '@google/genai'
+import { CAPACITIES } from '@/core/resources'
 import { openDb, upsertProject, getClips, putClip, setSetting } from '@/server/db'
-import { wait, launch, lireStatus } from '@/server/run'
+import { wait, launch as launchRun, lireStatus } from '@/server/run'
 import { candidatesPath, sidecarDir } from '@/server/paths'
+import { createScheduler, type Scheduler } from '@/server/scheduler'
 import { snapshotEnv } from '../helpers/env'
 import {
   callGemini,
@@ -448,10 +450,20 @@ describe("l'étape de repérage", () => {
     })),
   }
 
+  /** En mémoire seule : voir la même garde dans `tests/server/run.test.ts`. */
+  let testScheduler: Scheduler
+
+  /** `launch`, avec le programmateur de test en place par défaut. */
+  function launch(...args: Parameters<typeof launchRun>): ReturnType<typeof launchRun> {
+    const [projectId, targets, options = {}] = args
+    return launchRun(projectId, targets, { scheduler: testScheduler, ...options })
+  }
+
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-candidats-'))
     replay = path.join(root, 'Replay')
     projects = path.join(root, 'projects')
+    testScheduler = createScheduler({ capacities: CAPACITIES, lockDir: null })
     for (const d of [replay, projects]) fs.mkdirSync(d, { recursive: true })
     fs.writeFileSync(path.join(replay, SOURCE), 'pas vraiment une vidéo')
     process.env.REPLAY_DIR = replay

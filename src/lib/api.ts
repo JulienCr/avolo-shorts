@@ -60,6 +60,7 @@
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import type { ClipFraming, FramingSettings, ShotFraming } from '@/core/framing'
 import type { StepName } from '@/core/graph'
+import type { Wait } from '@/core/resources'
 import type { HookSettings } from '@/core/hook'
 import type {
   Platform,
@@ -294,7 +295,7 @@ export type SelectionReport = {
 export type ProjectStatus = {
   project: ProjectSummary
   steps: Record<StepName, boolean>
-  running: { step: StepName; progress: number } | null
+  running: { step: StepName; progress: number; waiting: Wait | null } | null
   /**
    * L'échec de la **dernière exécution terminée**, ou `null` si elle s'est bien
    * passée — et `null` aussi tant que rien n'a jamais tourné.
@@ -462,7 +463,7 @@ export type SourcesListing = {
  */
 export type ProjectListItem = ProjectSummary & {
   /** Ce qui tourne **dans ce processus**, ou `null`. Une lecture de `Map`. */
-  running: { step: StepName; progress: number } | null
+  running: { step: StepName; progress: number; waiting: Wait | null } | null
   /** L'échec de la dernière exécution terminée. Un petit fichier local. */
   error: string | null
   /**

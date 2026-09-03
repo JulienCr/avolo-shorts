@@ -6,6 +6,7 @@ import type Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { StepName } from '@/core/graph'
+import { CAPACITIES } from '@/core/resources'
 import type { SummaryNotation } from '@/server/steps/candidates'
 import {
   applySettings,
@@ -22,18 +23,20 @@ import {
   detectionSummary,
   pathTranscript,
   ProjectErrorCollision,
-  createProject,
+  createProject as createProjectRun,
   ExecutionInCurrentError,
-  launch,
+  launch as launchRun,
   lireStatus,
   planForTargets,
   forgetSidecar,
   UnknownProjectError,
   progression,
   readingPresence,
+  type OptionsLaunch,
   type Steps,
 } from '@/server/run'
 import { StopRequestedError } from '@/server/ffmpeg'
+import { createScheduler, type Scheduler } from '@/server/scheduler'
 import { CorrectionProposalError } from '@/server/steps/transcript-correction'
 
 /**
@@ -169,6 +172,34 @@ function poserCorrection(): void {
   fs.writeFileSync(path.join(folder, 'correction.json'), '{"entries":[]}')
 }
 
+/**
+ * Le programmateur de ce fichier, en mémoire seule.
+ *
+ * Sans lui, chaque appel retomberait sur le singleton de `@/server/scheduler`,
+ * qui capture `PROJECTS_DIR` à sa première construction dans ce worker de
+ * test et le garde au-delà du `mkdtempSync` suivant — un verrou de fichier
+ * cherché sous un dossier déjà effacé. Une instance neuve par test isole
+ * aussi les jetons `gpu`/`cpu`/`net` d'un test à l'autre.
+ */
+let testScheduler: Scheduler
+
+/** `launch`, avec le programmateur de test en place par défaut. */
+function launch(
+  projectId: string,
+  targets: readonly StepName[],
+  options: OptionsLaunch = {},
+): ReturnType<typeof launchRun> {
+  return launchRun(projectId, targets, { scheduler: testScheduler, ...options })
+}
+
+/** `createProject`, avec le même défaut que `launch` ci-dessus. */
+function createProject(
+  source: string,
+  options: OptionsLaunch & { launchNow?: boolean } = {},
+): ReturnType<typeof createProjectRun> {
+  return createProjectRun(source, { scheduler: testScheduler, ...options })
+}
+
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-run-'))
   process.env.REPLAY_DIR = path.join(root, 'replays')
@@ -179,6 +210,7 @@ beforeEach(() => {
   calls = []
   sourcesAnalysis = []
   inputsSteps = []
+  testScheduler = createScheduler({ capacities: CAPACITIES, lockDir: null })
 })
 
 afterEach(async () => {
@@ -827,7 +859,7 @@ describe('lancer', () => {
     await expect(launch(PROJECT, ['candidates'], { db })).rejects.toBeInstanceOf(
       ExecutionInCurrentError,
     )
-    expect(progression(PROJECT)).toEqual({ step: 'candidates', progress: 0 })
+    expect(progression(PROJECT)).toEqual({ step: 'candidates', progress: 0, waiting: null })
 
     unblock()
     await waitFin()

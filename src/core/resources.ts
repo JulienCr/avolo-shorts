@@ -8,6 +8,9 @@ import type { StepName } from '@/core/graph'
 
 export type Resource = 'gpu' | 'cpu' | 'net'
 
+/** What a step is queued on, and for how long. `waitedMs` is derived at read time. */
+export type Wait = { resource: Resource; waitedMs: number }
+
 /** Whether each LLM usage is served locally. Resolved by the caller. */
 export type LocalModels = Record<LlmUsage, boolean>
 

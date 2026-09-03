@@ -101,7 +101,7 @@ describe('POST /api/projects/:id/transcript/correction/remove', () => {
   it('409 quand une exécution est en cours pour ce projet', async () => {
     writeTranscript(['à'])
     writeLog()
-    const spy = vi.spyOn(run, 'progression').mockReturnValue({ step: 'transcript', progress: 0.4 })
+    const spy = vi.spyOn(run, 'progression').mockReturnValue({ step: 'transcript', progress: 0.4, waiting: null })
     try {
       const response = await postRemove(request({ id: '1' }), context(ID))
       expect(response.status).toBe(409)

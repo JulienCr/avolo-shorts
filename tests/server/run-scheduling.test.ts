@@ -1,0 +1,339 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import type Database from 'better-sqlite3'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+
+import { CAPACITIES } from '@/core/resources'
+import { applySettings, openDb, upsertProject } from '@/server/db'
+import { launch, lireStatus, progression, stopRun, wait, type Steps } from '@/server/run'
+import { createScheduler, type Scheduler } from '@/server/scheduler'
+
+/**
+ * Le programmateur de ressources, wiré dans le lanceur (PR D) : deux projets
+ * qui contendent sur `gpu` ne tournent plus en même temps.
+ *
+ * **Aucune vidéo, aucun GPU réel.** Les étapes sont des témoins gouvernés par
+ * des promesses ouvertes à la main — la même discipline que
+ * `tests/server/run.test.ts` — et le programmateur tourne en mémoire seule
+ * (`lockDir: null`), jamais contre un vrai fichier de verrou.
+ */
+
+const A = 'show-a'
+const B = 'show-b'
+const C = 'show-c'
+
+let root: string
+let db: Database.Database
+let calls: string[]
+let testScheduler: Scheduler
+
+/** Une promesse ouverte de l'extérieur, pour gouverner une étape à la main. */
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
+
+/** Un projet minimal : source, durée connue, et son audio déjà là par défaut. */
+function poserProject(id: string, o: { audio?: boolean; transcript?: boolean } = {}): void {
+  const source = path.join(root, 'replays', `${id}.mp4`)
+  fs.mkdirSync(path.dirname(source), { recursive: true })
+  fs.writeFileSync(source, '')
+  if (o.audio !== false) {
+    const audio = path.join(root, 'projects', id, 'audio.wav')
+    fs.mkdirSync(path.dirname(audio), { recursive: true })
+    fs.writeFileSync(audio, '')
+  }
+  if (o.transcript === true) {
+    const folder = path.join(root, 'projects', id, `${id}.avolo`)
+    fs.mkdirSync(folder, { recursive: true })
+    fs.writeFileSync(path.join(folder, 'transcript.json'), '{"segments":[]}')
+  }
+  upsertProject(db, {
+    id,
+    sourcePath: source,
+    stagedPath: null,
+    durationSec: 60,
+    sizeBytes: 0,
+    mtimeMs: 0,
+    createdAt: 0,
+  })
+}
+
+/** `transcribe`, gouverné par `gate` : pousse `id:transcript:start`, attend, écrit, pousse `:done`. */
+function stepsTranscript(id: string, gate: Promise<void>): Partial<Steps> {
+  return {
+    transcribe: async () => {
+      calls.push(`${id}:transcript:start`)
+      await gate
+      const file = path.join(root, 'projects', id, `${id}.avolo`, 'transcript.json')
+      fs.mkdirSync(path.dirname(file), { recursive: true })
+      fs.writeFileSync(file, '{"segments":[]}')
+      calls.push(`${id}:transcript:done`)
+      return { path: file, skipped: false, fallback: true }
+    },
+  }
+}
+
+/** Poll jusqu'à ce que `predicate` soit vrai — jamais un délai fixe. */
+async function pollUntil(predicate: () => boolean, tries = 200): Promise<void> {
+  for (let i = 0; i < tries && !predicate(); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  expect(predicate()).toBe(true)
+}
+
+beforeEach(() => {
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-scheduling-'))
+  process.env.REPLAY_DIR = path.join(root, 'replays')
+  process.env.STAGE_DIR = path.join(root, 'stage')
+  process.env.PROJECTS_DIR = path.join(root, 'projects')
+  fs.mkdirSync(process.env.REPLAY_DIR, { recursive: true })
+  db = openDb(':memory:')
+  // Non pertinent ici : seul l'ordonnancement des étapes est sous test, pas
+  // l'ingestion.
+  applySettings(db, { ingestion: { copySourceLocally: false } })
+  calls = []
+  testScheduler = createScheduler({ capacities: CAPACITIES, lockDir: null })
+})
+
+afterEach(async () => {
+  for (const id of [A, B, C]) stopRun(id)
+  await Promise.all([A, B, C].map((id) => wait(id)))
+  db.close()
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+describe('deux projets, un programmateur commun', () => {
+  it('B n’avance pas tant que A tient le gpu, et démarre à sa libération', async () => {
+    poserProject(A)
+    poserProject(B)
+    const gateA = deferred()
+
+    await launch(A, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(A, gateA.promise) })
+    await pollUntil(() => calls.includes(`${A}:transcript:start`))
+
+    await launch(B, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(B, Promise.resolve()) })
+    await pollUntil(() => progression(B)?.waiting?.resource === 'gpu')
+    expect(calls).not.toContain(`${B}:transcript:start`)
+
+    gateA.resolve()
+    await wait(A)
+    await wait(B)
+
+    expect(calls).toEqual([
+      `${A}:transcript:start`,
+      `${A}:transcript:done`,
+      `${B}:transcript:start`,
+      `${B}:transcript:done`,
+    ])
+  })
+
+  it('progression(B) porte l’attente, puis son extinction à l’octroi', async () => {
+    poserProject(A)
+    poserProject(B)
+    const gateA = deferred()
+    const gateB = deferred()
+
+    await launch(A, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(A, gateA.promise) })
+    await pollUntil(() => calls.includes(`${A}:transcript:start`))
+
+    await launch(B, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(B, gateB.promise) })
+    await pollUntil(() => progression(B)?.waiting !== null)
+    expect(progression(B)?.waiting?.resource).toBe('gpu')
+    expect(progression(B)?.waiting?.waitedMs).toBeGreaterThanOrEqual(0)
+
+    gateA.resolve()
+    await pollUntil(() => calls.includes(`${B}:transcript:start`))
+    expect(progression(B)?.waiting).toBeNull()
+
+    gateB.resolve()
+    await wait(A)
+    await wait(B)
+  })
+
+  it('status.json porte l’attente au repérage, sans attendre la temporisation d’écriture', async () => {
+    poserProject(A)
+    poserProject(B)
+    const gateA = deferred()
+    const gateB = deferred()
+
+    await launch(A, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(A, gateA.promise) })
+    await pollUntil(() => calls.includes(`${A}:transcript:start`))
+
+    await launch(B, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(B, gateB.promise) })
+    await pollUntil(() => lireStatus(B)?.running?.waiting !== null)
+    expect(lireStatus(B)?.running?.waiting?.resource).toBe('gpu')
+
+    gateA.resolve()
+    await pollUntil(() => lireStatus(B)?.running?.waiting === null)
+    expect(lireStatus(B)?.running?.step).toBe('transcript')
+
+    gateB.resolve()
+    await wait(A)
+    await wait(B)
+  })
+
+  it('stopRun sur une exécution en file l’arrête sans jamais acquérir, et le jeton passe au suivant', async () => {
+    poserProject(A)
+    poserProject(B)
+    poserProject(C)
+    const gateA = deferred()
+    const gateC = deferred()
+
+    await launch(A, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(A, gateA.promise) })
+    await pollUntil(() => calls.includes(`${A}:transcript:start`))
+
+    await launch(B, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(B, Promise.resolve()) })
+    await pollUntil(() => progression(B)?.waiting !== null)
+
+    await launch(C, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(C, gateC.promise) })
+    await pollUntil(() => progression(C)?.waiting !== null)
+
+    expect(stopRun(B)).toBe(true)
+    await wait(B)
+    expect(progression(B)).toBeNull()
+    expect(calls).not.toContain(`${B}:transcript:start`)
+    expect(lireStatus(B)?.stopped).toBe(true)
+
+    // A tient toujours seul le jeton : B ne l'a jamais pris.
+    expect(testScheduler.snapshot().find((s) => s.resource === 'gpu')).toMatchObject({ held: 1 })
+
+    gateA.resolve()
+    await pollUntil(() => calls.includes(`${C}:transcript:start`))
+    gateC.resolve()
+    await wait(A)
+    await wait(C)
+  })
+
+  it('une étape qui échoue avec le jeton en main le relâche : le suivant est servi', async () => {
+    poserProject(A)
+    poserProject(B)
+    const gateA = deferred()
+    const stepsThrowing: Partial<Steps> = {
+      transcribe: async () => {
+        calls.push(`${A}:transcript:start`)
+        await gateA.promise
+        throw new Error('échec simulé de la transcription')
+      },
+    }
+
+    await launch(A, ['transcript'], { db, scheduler: testScheduler, steps: stepsThrowing })
+    await pollUntil(() => calls.includes(`${A}:transcript:start`))
+
+    await launch(B, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(B, Promise.resolve()) })
+    await pollUntil(() => progression(B)?.waiting !== null)
+
+    gateA.resolve()
+    await wait(A).catch(() => {})
+    expect(lireStatus(A)?.error).toContain('échec simulé')
+
+    await pollUntil(() => calls.includes(`${B}:transcript:start`))
+    await wait(B)
+    expect(calls).toContain(`${B}:transcript:done`)
+  })
+})
+
+describe('`audio` ne réserve rien', () => {
+  it('un jeton cpu tenu par un autre projet ne bloque pas `audio`', async () => {
+    poserProject(A)
+    poserProject(B, { audio: false })
+    const gateA = deferred()
+
+    await launch(A, ['proxy'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          await gateA.promise
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+      },
+    })
+    await pollUntil(() => calls.includes(`${A}:proxy:start`))
+    expect(testScheduler.snapshot().find((s) => s.resource === 'cpu')).toMatchObject({ held: 1 })
+
+    await launch(B, ['audio'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        extractAudio: async () => {
+          calls.push(`${B}:audio:start`)
+          const file = path.join(root, 'projects', B, 'audio.wav')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          calls.push(`${B}:audio:done`)
+          return { path: file, skipped: false }
+        },
+      },
+    })
+    await wait(B)
+    expect(calls).toEqual([`${A}:proxy:start`, `${B}:audio:start`, `${B}:audio:done`])
+
+    gateA.resolve()
+    await wait(A)
+  })
+})
+
+describe('la correction sur Ollama contend avec le transcript', () => {
+  it('sur Ollama, elle attend le gpu que `transcript` occupe', async () => {
+    poserProject(A)
+    poserProject(B, { transcript: true })
+    applySettings(db, { ai: { correctionProvider: 'ollama' } })
+    const gateA = deferred()
+
+    await launch(A, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(A, gateA.promise) })
+    await pollUntil(() => calls.includes(`${A}:transcript:start`))
+
+    await launch(B, ['correction'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        applyTranscriptCorrections: async () => {
+          calls.push(`${B}:correction:start`)
+          return { entries: [], applied: 0, failed: 0, rejected: {} }
+        },
+      },
+    })
+    await pollUntil(() => progression(B)?.waiting?.resource === 'gpu')
+    expect(calls).not.toContain(`${B}:correction:start`)
+
+    gateA.resolve()
+    await wait(A)
+    await wait(B)
+    expect(calls).toContain(`${B}:correction:start`)
+  })
+
+  it('sur le réseau, elle ne contend pas avec `transcript` sur le gpu', async () => {
+    poserProject(A)
+    poserProject(C, { transcript: true })
+    // Fournisseur par défaut, non-Ollama : `correction` réserve `net`, pas `gpu`.
+    const gateA = deferred()
+
+    await launch(A, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(A, gateA.promise) })
+    await pollUntil(() => calls.includes(`${A}:transcript:start`))
+
+    await launch(C, ['correction'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        applyTranscriptCorrections: async () => {
+          calls.push(`${C}:correction:start`)
+          return { entries: [], applied: 0, failed: 0, rejected: {} }
+        },
+      },
+    })
+    await wait(C)
+    expect(calls).toContain(`${C}:correction:start`)
+
+    gateA.resolve()
+    await wait(A)
+  })
+})

@@ -57,7 +57,7 @@ function state(fields: Partial<ProjectStatus> = {}): ProjectStatus {
       analysis: false,
       renders: false,
     },
-    running: { step: 'candidates', progress: 0.5 },
+    running: { step: 'candidates', progress: 0.5, waiting: null },
     error: null,
     warning: null,
     selectionReport: null,
@@ -169,7 +169,7 @@ describe('l’écran de projet', () => {
   it('rend la page à la grille dès qu’il y a quelque chose à trier', async () => {
     // Régime 2 : les propositions arrivent avant les images, et le panneau se
     // replie dans la barre d'application au lieu de manger la grille.
-    serve(state({ steps: { ...state().steps, candidates: true }, running: { step: 'proxy', progress: 0.3 } }), [
+    serve(state({ steps: { ...state().steps, candidates: true }, running: { step: 'proxy', progress: 0.3, waiting: null } }), [
       candidate(1),
     ])
     mount()

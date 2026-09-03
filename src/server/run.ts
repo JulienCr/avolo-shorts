@@ -6,9 +6,11 @@ import type Database from 'better-sqlite3'
 import { planSteps, type StepName } from '@/core/graph'
 import type { SelectionReport } from '@/lib/api'
 import { progressWorker } from '@/core/pipeline'
+import { priorityFor, resourceFor, type LocalModels, type Resource, type Wait } from '@/core/resources'
 import { isAAbsence } from '@/server/bytes'
 import {
   copiesSourceLocally,
+  effectiveSettings,
   getDb,
   getProject,
   getProjectBySourcePath,
@@ -17,6 +19,8 @@ import {
 } from '@/server/db'
 import { messageSafe } from '@/server/errors'
 import { pathTemporary } from '@/server/ffmpeg'
+import { localModels } from '@/server/resources'
+import { scheduler as defaultScheduler, type Scheduler } from '@/server/scheduler'
 import {
   analysisPath,
   audioPath,
@@ -80,14 +84,27 @@ import { transcribe } from '@/server/steps/transcript'
  */
 
 /** Ce que l'interface lit dans `ProjectStatus.running`. */
-export type Progression = { step: StepName; progress: number }
+export type Progression = { step: StepName; progress: number; waiting: Wait | null }
+
+/** L'étape et sa progression, sans l'attente — voir `progressionFor`. */
+type CurrentStep = { step: StepName; progress: number }
+
+/**
+ * L'instant où une étape a commencé à attendre une ressource.
+ *
+ * @remarks Seul l'instant est gardé, jamais une durée : une étape en attente
+ * n'émet aucun rappel de progression, donc une durée stockée resterait figée à
+ * sa valeur de départ. `progressionFor` calcule `waitedMs` à la lecture.
+ */
+type Waiting = { resource: Resource; startedAt: number }
 
 /** Une exécution vivante, dans **ce** processus. */
 type Execution = {
   projectId: string
   targets: StepName[]
   plan: StepName[]
-  current: Progression
+  current: CurrentStep
+  waiting: Waiting | null
   /** Où en est l'étape `candidates` **dans cette exécution**. Voir `detectionSummary`. */
   detection: StateDetection
   /** Pour ne pas réécrire `status.json` à chaque marque de temps de ffmpeg. */
@@ -153,10 +170,24 @@ export class ProjectErrorCollision extends Error {
   }
 }
 
+/**
+ * L'avancement publiable d'une exécution : l'étape, sa progression, et son
+ * attente convertie en durée.
+ */
+function progressionFor(execution: Execution): Progression {
+  return {
+    ...execution.current,
+    waiting:
+      execution.waiting === null
+        ? null
+        : { resource: execution.waiting.resource, waitedMs: Date.now() - execution.waiting.startedAt },
+  }
+}
+
 /** L'avancement en cours, ou `null` si rien ne tourne. */
 export function progression(projectId: string): Progression | null {
   const execution = inCurrent.get(projectId)
-  return execution === undefined ? null : { ...execution.current }
+  return execution === undefined ? null : progressionFor(execution)
 }
 
 /**
@@ -660,7 +691,7 @@ function publish(execution: Execution, changeDStep: boolean): void {
       updatedAt: now,
       targets: execution.targets,
       plan: execution.plan,
-      running: { ...execution.current },
+      running: progressionFor(execution),
       error: null,
       warning: null,
       finishedAt: null,
@@ -700,6 +731,8 @@ export type OptionsLaunch = {
   force?: readonly StepName[] | boolean
   db?: Database.Database
   steps?: Partial<Steps>
+  /** Le programmateur de ressources physiques. C'est par là que les tests entrent. */
+  scheduler?: Scheduler
 }
 
 /**
@@ -772,6 +805,7 @@ export async function launch(
     targets: [...targets],
     plan: [],
     current: { step: targets[0] ?? 'candidates', progress: 0 },
+    waiting: null,
     detection: 'absent',
     lastWrite: 0,
     finished: Promise.resolve(),
@@ -818,6 +852,9 @@ export async function launch(
     // qu'aucune relance ne pouvait plus débloquer. La valeur lue ici vaut pour
     // tout le reste du lancement (relevé par la review de la PR #113).
     const copyLocally = copiesSourceLocally(db)
+    // Une seule lecture pour toute l'exécution, comme `copyLocally` ci-dessus :
+    // sur-réserver le GPU si le réglage change en route, jamais sous-réserver.
+    const models = localModels(effectiveSettings(db).ai)
     const doitIngest = ingestionNecessary(project, execution.plan, copyLocally)
 
     // Un plan vide n'est pas une exécution : tout est déjà là, il n'y a rien à
@@ -843,7 +880,7 @@ export async function launch(
     }
 
     publish(execution, true)
-    execution.finished = execute(execution, project, db, options, doitIngest, copyLocally).finally(() => {
+    execution.finished = execute(execution, project, db, options, doitIngest, copyLocally, models).finally(() => {
       inCurrent.delete(projectId)
       // **Le nettoyage du cache de travail, après traitement** (retour d'usage
       // §5). Best effort et sans attente : il ne fait pas partie de
@@ -963,8 +1000,10 @@ async function execute(
   options: OptionsLaunch,
   doitIngest: boolean,
   copyLocally: boolean,
+  models: LocalModels,
 ): Promise<void> {
   const steps = { ...STEPS, ...options.steps }
+  const resourceScheduler = options.scheduler ?? defaultScheduler()
   const { projectId } = execution
   let project = projectInitial
   // **Portée par l'exécution, jamais par un throw.** L'étape `correction`
@@ -1060,6 +1099,20 @@ async function execute(
       if (step === 'candidates') execution.detection = 'running'
       publish(execution, true)
       console.log(`[${projectId}] ${step}…`)
+
+      const resource = resourceFor(step, models)
+      const hold =
+        resource === null
+          ? null
+          : await resourceScheduler.acquire(resource, priorityFor(step), signal, () => {
+              execution.waiting = { resource, startedAt: Date.now() }
+              publish(execution, true)
+            })
+      if (resource !== null) {
+        execution.waiting = null
+        publish(execution, true)
+      }
+
       try {
         const warning = await executeStep(
           step,
@@ -1083,6 +1136,8 @@ async function execute(
         // l'autre une décision, et le code se relit.
         if (step === 'candidates') execution.detection = signal.aborted ? 'running' : 'failed'
         throw cause
+      } finally {
+        hold?.()
       }
       if (step === 'candidates') execution.detection = 'done'
     }

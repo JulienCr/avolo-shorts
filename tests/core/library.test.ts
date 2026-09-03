@@ -14,7 +14,7 @@ import {
 } from '@/core/library'
 import type { StepName } from '@/core/graph'
 
-const RUNNING = { step: 'transcript' as StepName, progress: 0.4 }
+const RUNNING = { step: 'transcript' as StepName, progress: 0.4, waiting: null }
 
 function source(name: string, projectId: string | null = null): LibrarySource {
   return { name, projectId }

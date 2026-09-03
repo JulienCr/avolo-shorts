@@ -175,7 +175,7 @@ describe('useCorrectTranscript', () => {
 const runningStatus: ProjectStatus = {
   project: { id: 'p1', title: 'Un projet', durationSec: 100, createdAt: '2026-01-01' },
   steps: { proxy: false, audio: false, transcript: false, correction: false, analysis: false, candidates: false, renders: false },
-  running: { step: 'transcript', progress: 0.4 },
+  running: { step: 'transcript', progress: 0.4, waiting: null },
   error: null,
   warning: null,
   stopped: false,

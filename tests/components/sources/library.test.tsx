@@ -70,7 +70,7 @@ const SOURCES = [
   source('e-analysee.mp4', 'e'),
 ]
 const PROJECTS = [
-  project('b', { running: { step: 'proxy', progress: 0.3 } }),
+  project('b', { running: { step: 'proxy', progress: 0.3, waiting: null } }),
   project('c', { stopped: true }),
   project('d', { error: 'ffmpeg est tombé.' }),
   project('e'),
@@ -223,17 +223,17 @@ describe('ce qui se dit à voix haute', () => {
     // où la carte affichait « Analyse interrompue ». Deux surfaces qui décrivent
     // le même projet ne peuvent pas se contredire, et c'est celle qu'on n'entend
     // qu'une fois qui aurait menti. (relevé par Copilot)
-    const inCurrent = project('a', { running: { step: 'proxy', progress: 0.3 } })
+    const inCurrent = project('a', { running: { step: 'proxy', progress: 0.3, waiting: null } })
     expect(announce([inCurrent], [project('a', { stopped: true })])).toContain('arrêtée')
   })
 
   it('dit « terminée » sur une fin ordinaire', () => {
-    const inCurrent = project('a', { running: { step: 'proxy', progress: 0.3 } })
+    const inCurrent = project('a', { running: { step: 'proxy', progress: 0.3, waiting: null } })
     expect(announce([inCurrent], [project('a')])).toContain('terminée')
   })
 
   it('dit « en échec » sur un échec', () => {
-    const inCurrent = project('a', { running: { step: 'proxy', progress: 0.3 } })
+    const inCurrent = project('a', { running: { step: 'proxy', progress: 0.3, waiting: null } })
     expect(announce([inCurrent], [project('a', { error: 'tombé' })])).toContain('échec')
   })
 })

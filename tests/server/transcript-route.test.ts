@@ -171,7 +171,7 @@ describe('POST /api/projects/:id/transcript', () => {
 
   it('409 quand une retranscription est en cours pour ce projet', async () => {
     writeTranscriptFixture()
-    const spy = vi.spyOn(run, 'progression').mockReturnValue({ step: 'transcript', progress: 0.4 })
+    const spy = vi.spyOn(run, 'progression').mockReturnValue({ step: 'transcript', progress: 0.4, waiting: null })
     try {
       const response = await postCorrection(
         postRequest({ lineId: 'l0', from: 0, to: 0, expected: ['Bonjour'], replacement: ['Salut'] }),
@@ -197,7 +197,7 @@ describe('POST /api/projects/:id/transcript', () => {
     const spy = vi
       .spyOn(run, 'progression')
       .mockReturnValueOnce(null)
-      .mockReturnValue({ step: 'transcript', progress: 0.1 })
+      .mockReturnValue({ step: 'transcript', progress: 0.1, waiting: null })
     try {
       const response = await postCorrection(
         postRequest({ lineId: 'l0', from: 0, to: 0, expected: ['Bonjour'], replacement: ['Salut'] }),

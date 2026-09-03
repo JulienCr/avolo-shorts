@@ -11,7 +11,7 @@ export type Resource = 'gpu' | 'cpu' | 'net'
 /** Whether each LLM usage is served locally. Resolved by the caller. */
 export type LocalModels = Record<LlmUsage, boolean>
 
-const PRIORITIES: Record<StepName, number> = {
+export const PRIORITIES: Record<StepName, number> = {
   renders: 5,
   audio: 10,
   transcript: 20,

@@ -36,10 +36,6 @@ export function isDiscarded(status: ClipStatus): boolean {
 
 /**
  * Ce que la machine a produit. Des artefacts, jamais une activité.
- *
- * `'new'` est en anglais, ses voisines ne le sont pas : dette existante
- * (issue #73), et le code neuf s'écrit en anglais même à côté d'elle
- * (`CLAUDE.md`) — ne pas franciser cette valeur pour « s'accorder ».
  */
 export type Analysis =
   | 'new' // aucun artefact, jamais d'exécution : créé sans avoir été lancé

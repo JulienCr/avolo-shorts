@@ -2,10 +2,21 @@ import path from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
-import { CAPACITIES, isLocal, priorityFor, resourceFor, type LocalModels } from '@/core/resources'
+import {
+  CAPACITIES,
+  isLocal,
+  PRIORITIES,
+  priorityFor,
+  resourceFor,
+  type LocalModels,
+} from '@/core/resources'
 
 const ALL_LOCAL: LocalModels = { selection: true, correction: true, hook: true }
 const ALL_REMOTE: LocalModels = { selection: false, correction: false, hook: false }
+// Mixed on purpose: catches a swap between `local.selection` and
+// `local.correction` that ALL_LOCAL/ALL_REMOTE cannot, since both usages
+// agree there.
+const MIXED: LocalModels = { selection: true, correction: false, hook: true }
 
 describe('resourceFor', () => {
   it('switches to gpu when the configured provider is Ollama, not net', () => {
@@ -17,16 +28,34 @@ describe('resourceFor', () => {
     expect(resourceFor('candidates', ALL_REMOTE)).toBe('net')
   })
 
-  it('reserves nothing for audio', () => {
+  it('ties each step to its own LLM usage, not the other one', () => {
+    expect(resourceFor('candidates', MIXED)).toBe('gpu')
+    expect(resourceFor('correction', MIXED)).toBe('net')
+  })
+
+  it('reserves gpu for renders, transcript and analysis; cpu for proxy; nothing for audio', () => {
+    expect(resourceFor('renders', ALL_LOCAL)).toBe('gpu')
+    expect(resourceFor('transcript', ALL_LOCAL)).toBe('gpu')
+    expect(resourceFor('analysis', ALL_LOCAL)).toBe('gpu')
+    expect(resourceFor('proxy', ALL_LOCAL)).toBe('cpu')
     expect(resourceFor('audio', ALL_LOCAL)).toBeNull()
     expect(resourceFor('audio', ALL_REMOTE)).toBeNull()
   })
 })
 
 describe('priorityFor', () => {
-  it('runs renders before transcript, and transcript before proxy', () => {
-    expect(priorityFor('renders')).toBeLessThan(priorityFor('transcript'))
-    expect(priorityFor('transcript')).toBeLessThan(priorityFor('proxy'))
+  it('orders every step, renders first and proxy last', () => {
+    const order: readonly (keyof typeof PRIORITIES)[] = [
+      'renders',
+      'audio',
+      'transcript',
+      'correction',
+      'candidates',
+      'analysis',
+      'proxy',
+    ]
+    const priorities = order.map((step) => priorityFor(step))
+    expect(priorities).toEqual([...priorities].sort((a, b) => a - b))
   })
 })
 
@@ -84,16 +113,17 @@ function errors(code: string): string[] {
     .map((d) => ts.flattenDiagnosticMessageText(d.messageText, ' '))
 }
 
-describe('exhaustiveness of priorityFor over StepName', () => {
-  it('rejects a step union wider than what priorityFor knows', () => {
+describe('exhaustiveness of PRIORITIES over StepName', () => {
+  it('rejects a step union wider than the table', () => {
+    // Assigns the table itself, not a call through priorityFor's narrow
+    // parameter — a call-site mismatch would fire regardless of whether
+    // PRIORITIES actually covers every step.
     const messages = errors(
       [
         "import type { StepName } from '@/core/graph'",
-        "import { priorityFor } from '@/core/resources'",
+        "import { PRIORITIES } from '@/core/resources'",
         "type Extended = StepName | 'subtitles'",
-        'export function probe(step: Extended): number {',
-        '  return priorityFor(step)',
-        '}',
+        'export const probe: Record<Extended, number> = PRIORITIES',
       ].join('\n'),
     )
     expect(messages.join('\n')).toContain('subtitles')
@@ -103,10 +133,8 @@ describe('exhaustiveness of priorityFor over StepName', () => {
     const messages = errors(
       [
         "import type { StepName } from '@/core/graph'",
-        "import { priorityFor } from '@/core/resources'",
-        'export function probe(step: StepName): number {',
-        '  return priorityFor(step)',
-        '}',
+        "import { PRIORITIES } from '@/core/resources'",
+        'export const probe: Record<StepName, number> = PRIORITIES',
       ].join('\n'),
     )
     expect(messages).toEqual([])

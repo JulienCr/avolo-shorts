@@ -164,7 +164,7 @@ describe('phaseProject, l’axe du travail humain', () => {
     expect(phaseProject(complete, null, null, clips('exported', 'kept')).work).toBe('sorted')
   })
 
-  it('atteint { attente, trie } pendant un repérage forcé', () => {
+  it('atteint { running, trie } pendant un repérage forcé', () => {
     // `eraseArtifact` retire `candidates.json` **avant** de toucher à la
     // base : pendant un repérage forcé, les clips gardés sont toujours là et
     // toujours montables. La phase choisit ce que l'écran met en avant, elle ne

@@ -481,6 +481,11 @@ qui évince puis recrée. Sous ce verrou, l'âge et la vivacité du pid sont
 **revérifiés**, pas simplement supposés depuis l'état observé avant de
 l'obtenir — l'état a pu changer pendant l'attente du `wx`.
 
+**Exception non close : la garde elle-même, quand elle est périmée.** Sa
+reprise retombe sur la paire suppression-création rejetée plus haut pour le
+verrou principal — issue #308, préexistante et non introduite par
+l'extraction en N emplacements.
+
 **Un pid vivant l'emporte sur l'âge, quelle que soit cette dernière.** Un
 appelant dont le travail légitime dépasse `staleMs` (une passe de publication
 de plusieurs gros fichiers en série, par exemple) ne doit pas se faire voler

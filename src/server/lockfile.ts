@@ -35,12 +35,23 @@ function validSlotCount(o: SlotOptions): number {
   return o.slots
 }
 
+/**
+ * @throws if `o.name` is not a single path component — it is interpolated
+ * into a filename under `o.lockDir`, and a value like `../x` would escape it.
+ */
+function validName(o: SlotOptions): string {
+  if (o.name.length === 0 || o.name !== path.basename(o.name)) {
+    throw new RangeError(`name must be a single path component, got ${JSON.stringify(o.name)}`)
+  }
+  return o.name
+}
+
 function lockPath(o: SlotOptions, slot: number): string {
-  return path.join(o.lockDir, lockFilename(o.name, slot, o.slots))
+  return path.join(o.lockDir, lockFilename(validName(o), slot, o.slots))
 }
 
 function reclaimGuardPath(o: SlotOptions, slot: number): string {
-  return path.join(o.lockDir, reclaimFilename(o.name, slot, o.slots))
+  return path.join(o.lockDir, reclaimFilename(validName(o), slot, o.slots))
 }
 
 function tryCreateLock(file: string, payload: LockPayload): boolean {

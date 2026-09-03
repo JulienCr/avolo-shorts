@@ -92,6 +92,11 @@ describe('validation de slots', () => {
     expect(() => acquireSlot(deps({ slots: Infinity }), Date.now(), () => true)).toThrow(RangeError)
     expect(() => sweepDeadSlots(deps({ slots: 0 }), () => true)).toThrow(RangeError)
   })
+
+  it('rejette un name qui traverse les repertoires', () => {
+    expect(() => acquireSlot(deps({ name: '../../../outside' }), Date.now(), () => true)).toThrow(RangeError)
+    expect(() => acquireSlot(deps({ name: '' }), Date.now(), () => true)).toThrow(RangeError)
+  })
 })
 
 describe('sweepDeadSlots', () => {

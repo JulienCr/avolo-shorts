@@ -27,13 +27,14 @@ corrige la spec dans le même mouvement. Deux cas mesurés dans
 ## La langue
 
 **Le code est en anglais, sans exception** : identifiants, fonctions, variables,
-types, constantes, noms de fichiers, champs de base, clés JSON, branches git.
-**Aucun accent dans un identifiant** — ça casse la complétion, rend un `grep`
-dépendant de la normalisation Unicode, et traverse mal les outils qui supposent
-l'ASCII.
+types, constantes, noms de fichiers, champs de base, clés JSON, branches git —
+**et les commentaires**. **Aucun accent dans un identifiant** — ça casse la
+complétion, rend un `grep` dépendant de la normalisation Unicode, et traverse
+mal les outils qui supposent l'ASCII.
 
-**Tout le reste est en français** : libellés d'interface, commentaires,
-documentation, specs, corps de PR et réponses aux relecteurs.
+**Le reste est en français** : libellés d'interface, documentation, specs, corps
+de PR et réponses aux relecteurs. Un commentaire n'en fait plus partie : il vit
+dans le code, il suit le code.
 
 Trois exceptions qui suivent le code plutôt que la prose. Les **messages de
 commit**, titre et corps, parce qu'ils vivent dans le dépôt aux côtés du code.
@@ -52,10 +53,19 @@ neuf. Pourquoi le glissement se produit : [`docs/lessons.md`](docs/lessons.md).
 
 ## Les commentaires
 
+**Du TSDoc, pas de la prose.** Une phrase de résumé, puis les `@param`,
+`@returns`, `@throws` qui disent ce que la signature ne dit pas : une unité, une
+sentinelle, une condition d'échec. Trois lignes par commentaire, dix par
+docstring, mesurables par `~/.claude/scripts/comment-budget.sh`.
+
+Le bloc qui raconte l'implémentation, son historique ou le raisonnement qui y a
+mené n'est pas à sa place dans un fichier : il vieillit sans prévenir et n'est lu
+que par qui a déjà ouvert le fichier. Il va dans le corps de PR, ou dans `docs/`
+s'il servira à une décision future.
+
 Le dépôt porte **790 blocs de prose libre d'au moins quatre lignes, dans 179
-fichiers** (mesuré le 23 août 2026) ; ses 2283 blocs JSDoc sont, eux, à leur
-place. Comme pour l'issue #73, la dette se réduit dans les fonctions qu'on
-modifie — sans passe dédiée, sans issue, sans TODO.
+fichiers** (mesuré le 23 août 2026). Comme pour l'issue #73, la dette se réduit
+dans les fonctions qu'on modifie — sans passe dédiée, sans issue, sans TODO.
 
 ## Les décisions à ne pas défaire par réflexe
 

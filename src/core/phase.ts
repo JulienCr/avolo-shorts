@@ -63,45 +63,14 @@ export type Work =
 export type Phase = { analysis: Analysis; work: Work }
 
 /**
- * La phase d'un projet : deux axes, pas un.
+ * La phase d'un projet : deux axes, pas un — ce que la machine fabrique et ce
+ * que l'humain décide avancent séparément.
  *
- * L'erreur qui vient d'abord est d'aligner tous les états sur une seule échelle.
- * Elle ne tient pas : un projet peut être entièrement trié alors que son proxy
- * n'est pas fini, et un projet complet peut n'avoir aucune décision prise. Ce
- * que la machine fabrique et ce que l'humain décide avancent séparément.
- *
- * **L'invariant, et il vaut mieux que les préconditions qui suivent : la phase
- * choisit ce que l'écran met en avant, elle ne retire jamais ce qui existe.**
- * Trois relectures ont trouvé trois façons différentes de le violer, ce qui veut
- * dire que le défaut n'est pas dans une valeur mais dans la manière de s'en
- * servir. Le panneau d'avancement remplace la grille **seulement quand la grille
- * serait vide** ; le reste du temps il se replie en bande, et un échec s'affiche
- * en bandeau.
- *
- * Quatre propriétés, chacune payée par une relecture :
- *
- * - **`new` existe depuis le 23 août 2026** (spec §12) : `everRan` — tiré de
- *   `status.json` — distingue un projet jamais lancé d'une exécution morte ;
- * - **`interrupted` et `failed` ne s'appliquent que tant que `candidates` est
- *   absent.** Sans cette précondition ils recouvrent `sortable` : une exécution
- *   interrompue pendant l'encodage du proxy cacherait la grille de tri au moment
- *   précis où elle doit remplacer le panneau. Passé ce point, un échec ne décrit
- *   plus ce que l'écran peut faire, il décrit un incident : il s'affiche à côté ;
- * - **`sortable` teste la présence de l'artefact, pas son contenu.** C'est le
- *   graphe de l'itération 0, où « à jour » veut dire « le fichier est là ». Un
- *   `candidates.json` vide donne `{ sortable, none }`, et c'est l'axe `Work`
- *   qui porte le vide. Cette séparation est la raison d'être des deux axes ;
- * - **`{ running, sorted }` est atteignable.** `eraseArtifact`
- *   (`src/server/steps/candidates.ts`) retire `candidates.json` **avant** de
- *   toucher à la base : pendant un repérage forcé, les clips gardés sont
- *   toujours là et toujours montables.
- *
- * Enfin, **elle ne cite que les deux étapes qui changent ce que l'utilisateur
- * peut faire** : `candidates` ouvre le tri, `proxy` ouvre le montage. Les autres
- * ne sont que du temps qui passe. Ce n'est pas le transcript qui ouvre le tri,
- * même s'il le précède : la liste reste vide jusqu'à la fin du repérage. Nommer
- * l'étape qui produit l'artefact qu'on affiche est la seule formulation qui
- * survive à l'ajout d'étapes.
+ * **L'invariant : la phase choisit ce que l'écran met en avant, elle ne
+ * retire jamais ce qui existe.** Le panneau d'avancement remplace la grille
+ * seulement quand elle serait vide ; sinon il se replie en bande, et un échec
+ * s'affiche à côté. Les quatre propriétés qui en découlent sont en §5.3 de
+ * `docs/superpowers/specs/2026-08-18-parcours-utilisateur-design.md`.
  */
 export function phaseProject(
   steps: Record<StepName, boolean>,

@@ -1750,6 +1750,25 @@ Retirer une étape suit le même chemin. Le test qui protège : donner à
 `phaseProjet` un relevé de présence portant une étape inconnue et vérifier qu'elle
 ne change pas la phase.
 
+**Quatre propriétés de `phaseProjet`, chacune payée par une relecture :**
+
+- **`new` existe depuis le 23 août 2026** (spec §12) : `everRan` — tiré de
+  `status.json` — distingue un projet jamais lancé d'une exécution morte ;
+- **`interrupted` et `failed` ne s'appliquent que tant que `candidates` est
+  absent.** Sans cette précondition ils recouvrent `sortable` : une exécution
+  interrompue pendant l'encodage du proxy cacherait la grille de tri au moment
+  précis où elle doit remplacer le panneau. Passé ce point, un échec ne décrit
+  plus ce que l'écran peut faire, il décrit un incident : il s'affiche à côté ;
+- **`sortable` teste la présence de l'artefact, pas son contenu.** C'est le
+  graphe de l'itération 0, où « à jour » veut dire « le fichier est là ». Un
+  `candidates.json` vide donne `{ sortable, none }`, et c'est l'axe `Work` qui
+  porte le vide. Cette séparation est la raison d'être des deux axes ;
+- **`{ running, sorted }` est atteignable.** `eraseArtifact`
+  (`src/server/steps/candidates.ts`) retire `candidates.json` **avant** de
+  toucher à la base : pendant un repérage forcé, les clips gardés sont toujours
+  là et toujours montables. `tests/lib/navigation.test.ts` vérifie que ce
+  couple résout bien vers une action.
+
 ### 5.4 Sortir la logique métier des composants
 
 Ce qui doit déménager, dans l'ordre du gain :

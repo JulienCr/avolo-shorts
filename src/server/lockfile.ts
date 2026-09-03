@@ -43,12 +43,13 @@ function tryCreateLock(file: string, payload: LockPayload): boolean {
   // could have created this file in the meantime.
   try {
     fs.writeSync(fd, JSON.stringify(payload))
-    fs.closeSync(fd)
-    return true
   } catch (error) {
+    fs.closeSync(fd)
     fs.rmSync(file, { force: true })
     throw error
   }
+  fs.closeSync(fd)
+  return true
 }
 
 function readLock(file: string): LockPayload | null {
@@ -187,13 +188,20 @@ export function releaseSlot(o: SlotOptions, handle: SlotHandle): void {
   if (readLock(file)?.owner === handle.owner) fs.rmSync(file, { force: true })
 }
 
-/** Deletes slot files whose pid is dead. Returns how many were freed. */
+/**
+ * Deletes slot files whose pid is dead.
+ * @returns how many slots were freed.
+ */
 export function sweepDeadSlots(o: SlotOptions, isAlive: (pid: number) => boolean): number {
   let freed = 0
   for (let slot = 0; slot < o.slots; slot++) {
     const file = lockPath(o, slot)
     const holder = readLock(file)
-    if (holder !== null && !isAlive(holder.pid)) {
+    if (holder === null || isAlive(holder.pid)) continue
+    // Revalidate right before unlinking, same idiom as `releaseSlot`: a
+    // reclaimer may have replaced this dead lock with a fresh one between
+    // the read above and this line.
+    if (readLock(file)?.owner === holder.owner) {
       fs.rmSync(file, { force: true })
       freed++
     }

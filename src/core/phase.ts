@@ -91,7 +91,7 @@ export type Phase = { analysis: Analysis; work: Work }
  *   graphe de l'itération 0, où « à jour » veut dire « le fichier est là ». Un
  *   `candidates.json` vide donne `{ sortable, none }`, et c'est l'axe `Work`
  *   qui porte le vide. Cette séparation est la raison d'être des deux axes ;
- * - **`{ running, sorted }` est atteignable.** `eraseArtifact`
+ * - **`{ waiting, sorted }` est atteignable.** `eraseArtifact`
  *   (`src/server/steps/candidates.ts`) retire `candidates.json` **avant** de
  *   toucher à la base : pendant un repérage forcé, les clips gardés sont
  *   toujours là et toujours montables.

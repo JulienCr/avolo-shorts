@@ -34,7 +34,7 @@ function clips(...statuses: ClipStatus[]): { status: ClipStatus }[] {
 
 describe('phaseProject, l’axe des artefacts', () => {
   it('attend tant que les candidats manquent et qu’une exécution tourne', () => {
-    expect(phaseProject(reading('audio'), inCurrent, null, []).analysis).toBe('waiting')
+    expect(phaseProject(reading('audio'), inCurrent, null, []).analysis).toBe('running')
   })
 
   it('dit « interrompu » quand il manque une étape et que rien ne tourne', () => {
@@ -68,7 +68,7 @@ describe('phaseProject, l’axe des artefacts', () => {
   it('préfère l’exécution en cours à l’échec de la précédente', () => {
     // `error` décrit la dernière exécution **terminée**. Une exécution en cours
     // la périme : l'écran doit dire ce qui se passe, l'incident s'affiche à côté.
-    expect(phaseProject(reading('audio'), inCurrent, 'un échec d’avant', []).analysis).toBe('waiting')
+    expect(phaseProject(reading('audio'), inCurrent, 'un échec d’avant', []).analysis).toBe('running')
   })
 
   it('devient « triable » dès que les candidats sont là, même sans proxy', () => {
@@ -170,7 +170,7 @@ describe('phaseProject, l’axe du travail humain', () => {
     // toujours montables. La phase choisit ce que l'écran met en avant, elle ne
     // retire jamais ce qui existe.
     expect(phaseProject(reading('proxy'), inCurrent, null, clips('kept', 'discarded'))).toEqual({
-      analysis: 'waiting',
+      analysis: 'running',
       work: 'sorted',
     })
   })

@@ -43,7 +43,7 @@ export function isDiscarded(status: ClipStatus): boolean {
  */
 export type Analysis =
   | 'new' // aucun artefact, jamais d'exécution : créé sans avoir été lancé
-  | 'waiting' // les candidats manquent, une exécution tourne
+  | 'running' // les candidats manquent, une exécution tourne
   | 'interrupted' // il manque une étape et rien ne tourne, mais une exécution a déjà eu lieu
   | 'failed' // la dernière exécution a échoué
   | 'sortable' // candidats présents, proxy absent : on trie, on ne monte pas
@@ -91,7 +91,7 @@ export type Phase = { analysis: Analysis; work: Work }
  *   graphe de l'itération 0, où « à jour » veut dire « le fichier est là ». Un
  *   `candidates.json` vide donne `{ sortable, none }`, et c'est l'axe `Work`
  *   qui porte le vide. Cette séparation est la raison d'être des deux axes ;
- * - **`{ waiting, sorted }` est atteignable.** `eraseArtifact`
+ * - **`{ running, sorted }` est atteignable.** `eraseArtifact`
  *   (`src/server/steps/candidates.ts`) retire `candidates.json` **avant** de
  *   toucher à la base : pendant un repérage forcé, les clips gardés sont
  *   toujours là et toujours montables.
@@ -127,7 +127,7 @@ function analysisProject(
   // **Une exécution en cours l'emporte sur l'échec de la précédente.** `error`
   // décrit la dernière exécution *terminée* ; tant qu'une autre tourne, ce que
   // l'écran doit dire est ce qui se passe, pas ce qui s'est passé.
-  if (running !== null) return 'waiting'
+  if (running !== null) return 'running'
   if (error !== null) return 'failed'
   return everRan ? 'interrupted' : 'new'
 }

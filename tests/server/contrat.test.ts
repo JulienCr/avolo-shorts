@@ -114,10 +114,10 @@ describe('les champs de repérage', () => {
 
 describe("l'avancement publié", () => {
   /**
-   * `Progression` (`src/server/run.ts`) est structurellement dupliqué à trois
-   * endroits — issue #39, comme `StepName` ci-dessus. `waiting` a manqué à
-   * l'un d'eux, ce test aurait cassé le `type-check` avant que quiconque ne
-   * le remarque à l'écran.
+   * `Progression` (`src/server/run.ts`) is structurally duplicated in three
+   * places — issue #39, like `StepName` above. Had `waiting` missed one of
+   * them, this test would have broken `type-check` before anyone noticed it
+   * on screen.
    */
   it('est identique à ses trois miroirs côté client', () => {
     const towardStatus: Identical<Progression, NonNullable<ProjectStatus['running']>> = true

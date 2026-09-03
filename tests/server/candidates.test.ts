@@ -450,10 +450,10 @@ describe("l'étape de repérage", () => {
     })),
   }
 
-  /** En mémoire seule : voir la même garde dans `tests/server/run.test.ts`. */
+  /** In memory only: see the same guard in `tests/server/run.test.ts`. */
   let testScheduler: Scheduler
 
-  /** `launch`, avec le programmateur de test en place par défaut. */
+  /** `launch`, with the test scheduler in place by default. */
   function launch(...args: Parameters<typeof launchRun>): ReturnType<typeof launchRun> {
     const [projectId, targets, options = {}] = args
     return launchRun(projectId, targets, { scheduler: testScheduler, ...options })

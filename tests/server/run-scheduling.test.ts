@@ -10,13 +10,13 @@ import { launch, lireStatus, progression, stopRun, wait, type Steps } from '@/se
 import { createScheduler, type Scheduler } from '@/server/scheduler'
 
 /**
- * Le programmateur de ressources, wiré dans le lanceur (PR D) : deux projets
- * qui contendent sur `gpu` ne tournent plus en même temps.
+ * The resource scheduler, wired into the runner (PR D): two projects
+ * contending on `gpu` no longer run at the same time.
  *
- * **Aucune vidéo, aucun GPU réel.** Les étapes sont des témoins gouvernés par
- * des promesses ouvertes à la main — la même discipline que
- * `tests/server/run.test.ts` — et le programmateur tourne en mémoire seule
- * (`lockDir: null`), jamais contre un vrai fichier de verrou.
+ * **No video, no real GPU.** Steps are witnesses driven by promises opened
+ * by hand — the same discipline as `tests/server/run.test.ts` — and the
+ * scheduler runs in memory only (`lockDir: null`), never against a real
+ * lock file.
  */
 
 const A = 'show-a'
@@ -28,7 +28,7 @@ let db: Database.Database
 let calls: string[]
 let testScheduler: Scheduler
 
-/** Une promesse ouverte de l'extérieur, pour gouverner une étape à la main. */
+/** A promise opened from the outside, to drive a step by hand. */
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void
   const promise = new Promise<void>((res) => {
@@ -37,7 +37,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve }
 }
 
-/** Un projet minimal : source, durée connue, et son audio déjà là par défaut. */
+/** A minimal project: source, known duration, and its audio already there by default. */
 function poserProject(id: string, o: { audio?: boolean; transcript?: boolean } = {}): void {
   const source = path.join(root, 'replays', `${id}.mp4`)
   fs.mkdirSync(path.dirname(source), { recursive: true })
@@ -63,7 +63,7 @@ function poserProject(id: string, o: { audio?: boolean; transcript?: boolean } =
   })
 }
 
-/** `transcribe`, gouverné par `gate` : pousse `id:transcript:start`, attend, écrit, pousse `:done`. */
+/** `transcribe`, driven by `gate`: pushes `id:transcript:start`, waits, writes, pushes `:done`. */
 function stepsTranscript(id: string, gate: Promise<void>): Partial<Steps> {
   return {
     transcribe: async () => {
@@ -78,7 +78,7 @@ function stepsTranscript(id: string, gate: Promise<void>): Partial<Steps> {
   }
 }
 
-/** Poll jusqu'à ce que `predicate` soit vrai — jamais un délai fixe. */
+/** Polls until `predicate` is true — never a fixed delay. */
 async function pollUntil(predicate: () => boolean, tries = 200): Promise<void> {
   for (let i = 0; i < tries && !predicate(); i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5))
@@ -93,8 +93,7 @@ beforeEach(() => {
   process.env.PROJECTS_DIR = path.join(root, 'projects')
   fs.mkdirSync(process.env.REPLAY_DIR, { recursive: true })
   db = openDb(':memory:')
-  // Non pertinent ici : seul l'ordonnancement des étapes est sous test, pas
-  // l'ingestion.
+  // Not relevant here: only step scheduling is under test, not ingestion.
   applySettings(db, { ingestion: { copySourceLocally: false } })
   calls = []
   testScheduler = createScheduler({ capacities: CAPACITIES, lockDir: null })
@@ -199,7 +198,7 @@ describe('deux projets, un programmateur commun', () => {
     expect(calls).not.toContain(`${B}:transcript:start`)
     expect(lireStatus(B)?.stopped).toBe(true)
 
-    // A tient toujours seul le jeton : B ne l'a jamais pris.
+    // A alone still holds the token: B never took it.
     expect(testScheduler.snapshot().find((s) => s.resource === 'gpu')).toMatchObject({ held: 1 })
 
     gateA.resolve()
@@ -314,7 +313,7 @@ describe('la correction sur Ollama contend avec le transcript', () => {
   it('sur le réseau, elle ne contend pas avec `transcript` sur le gpu', async () => {
     poserProject(A)
     poserProject(C, { transcript: true })
-    // Fournisseur par défaut, non-Ollama : `correction` réserve `net`, pas `gpu`.
+    // Default provider, not Ollama: `correction` reserves `net`, not `gpu`.
     const gateA = deferred()
 
     await launch(A, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(A, gateA.promise) })

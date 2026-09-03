@@ -86,15 +86,15 @@ import { transcribe } from '@/server/steps/transcript'
 /** Ce que l'interface lit dans `ProjectStatus.running`. */
 export type Progression = { step: StepName; progress: number; waiting: Wait | null }
 
-/** L'étape et sa progression, sans l'attente — voir `progressionFor`. */
+/** The step and its progress, without the wait — see `progressionFor`. */
 type CurrentStep = { step: StepName; progress: number }
 
 /**
- * L'instant où une étape a commencé à attendre une ressource.
+ * The instant a step started waiting on a resource.
  *
- * @remarks Seul l'instant est gardé, jamais une durée : une étape en attente
- * n'émet aucun rappel de progression, donc une durée stockée resterait figée à
- * sa valeur de départ. `progressionFor` calcule `waitedMs` à la lecture.
+ * @remarks Only the instant is kept, never a duration: a queued step emits
+ * no progress callback, so a stored duration would freeze at its starting
+ * value. `progressionFor` derives `waitedMs` at read time.
  */
 type Waiting = { resource: Resource; startedAt: number }
 
@@ -171,8 +171,8 @@ export class ProjectErrorCollision extends Error {
 }
 
 /**
- * L'avancement publiable d'une exécution : l'étape, sa progression, et son
- * attente convertie en durée.
+ * The publishable progress of an execution: its step, its progress, and its
+ * wait converted to a duration.
  */
 function progressionFor(execution: Execution): Progression {
   return {
@@ -731,7 +731,7 @@ export type OptionsLaunch = {
   force?: readonly StepName[] | boolean
   db?: Database.Database
   steps?: Partial<Steps>
-  /** Le programmateur de ressources physiques. C'est par là que les tests entrent. */
+  /** The physical-resource scheduler. This is the tests' entry point. */
   scheduler?: Scheduler
 }
 
@@ -852,8 +852,8 @@ export async function launch(
     // qu'aucune relance ne pouvait plus débloquer. La valeur lue ici vaut pour
     // tout le reste du lancement (relevé par la review de la PR #113).
     const copyLocally = copiesSourceLocally(db)
-    // Une seule lecture pour toute l'exécution, comme `copyLocally` ci-dessus :
-    // sur-réserver le GPU si le réglage change en route, jamais sous-réserver.
+    // One read for the whole execution, like `copyLocally` above: over-reserve
+    // the GPU if the setting changes mid-run, never under-reserve.
     const models = localModels(effectiveSettings(db).ai)
     const doitIngest = ingestionNecessary(project, execution.plan, copyLocally)
 

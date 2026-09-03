@@ -173,17 +173,17 @@ function poserCorrection(): void {
 }
 
 /**
- * Le programmateur de ce fichier, en mémoire seule.
+ * This file's scheduler, in memory only.
  *
- * Sans lui, chaque appel retomberait sur le singleton de `@/server/scheduler`,
- * qui capture `PROJECTS_DIR` à sa première construction dans ce worker de
- * test et le garde au-delà du `mkdtempSync` suivant — un verrou de fichier
- * cherché sous un dossier déjà effacé. Une instance neuve par test isole
- * aussi les jetons `gpu`/`cpu`/`net` d'un test à l'autre.
+ * Without it, every call would fall back on the `@/server/scheduler`
+ * singleton, which captures `PROJECTS_DIR` at its first construction in this
+ * test worker and keeps it past the next `mkdtempSync` — a lock file sought
+ * under a directory already wiped. A fresh instance per test also isolates
+ * the `gpu`/`cpu`/`net` tokens from one test to the next.
  */
 let testScheduler: Scheduler
 
-/** `launch`, avec le programmateur de test en place par défaut. */
+/** `launch`, with the test scheduler in place by default. */
 function launch(
   projectId: string,
   targets: readonly StepName[],
@@ -192,7 +192,7 @@ function launch(
   return launchRun(projectId, targets, { scheduler: testScheduler, ...options })
 }
 
-/** `createProject`, avec le même défaut que `launch` ci-dessus. */
+/** `createProject`, with the same default as `launch` above. */
 function createProject(
   source: string,
   options: OptionsLaunch & { launchNow?: boolean } = {},

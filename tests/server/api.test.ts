@@ -44,11 +44,11 @@ import { filmstripLegacyPath, filmstripPath, vignettePath } from '@/server/thumb
 import { FILMSTRIP_COUNT_DEFAULT } from '@/lib/filmstrip'
 
 /**
- * En mémoire seule pour tout le fichier, jamais le singleton réel.
+ * In-memory only for the whole file, never the real singleton.
  *
- * Le singleton de `@/server/scheduler` capture `PROJECTS_DIR` à sa première
- * construction et le garde au-delà du `mkdtempSync` du test suivant — un
- * verrou de fichier cherché sous un dossier déjà effacé.
+ * The `@/server/scheduler` singleton captures `PROJECTS_DIR` at its first
+ * construction and keeps it past the next test's `mkdtempSync` — a lock file
+ * sought under a directory already wiped.
  */
 vi.mock('@/server/scheduler', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/server/scheduler')>()

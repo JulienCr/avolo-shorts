@@ -35,6 +35,12 @@ export async function register(): Promise<void> {
   const { hookShutdown } = await import('@/server/shutdown')
   hookShutdown()
 
+  // **Le pid, jamais `rm -f`.** Un `dev-run` concurrent tient légitimement des
+  // créneaux ; seul un pid mort dit qu'un créneau est abandonné plutôt qu'occupé.
+  const { sweepSchedulerSlots } = await import('@/server/scheduler')
+  const { projectsDir } = await import('@/server/paths')
+  sweepSchedulerSlots(projectsDir())
+
   // **Le cache de travail, borné au démarrage** (retour d'usage §5). `stage/`
   // porte plusieurs gigaoctets par émission ; sans passage régulier, il grossit
   // jusqu'au disque. Huit heures de TTL, et une copie effacée ne coûte qu'une

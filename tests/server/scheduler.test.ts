@@ -7,14 +7,17 @@ import { StopRequestedError } from '@/server/ffmpeg'
 import { createScheduler, sweepSchedulerSlots, type Scheduler } from '@/server/scheduler'
 
 /**
- * Verifie le semaphore a priorite en-processus (ordre de la file, annulation,
- * idempotence de `Hold`) et sa composition avec les creneaux fichier
- * inter-processus (`src/server/lockfile.ts`) : jeton local d'abord, creneau
- * fichier ensuite, jamais l'inverse.
+ * Verifies the in-process priority semaphore (queue order, cancellation,
+ * `Hold` idempotency) and its composition with the cross-process slot files
+ * (`src/server/lockfile.ts`): local token first, file slot second, never the
+ * reverse.
  */
 
+// A macrotask (`setImmediate`), not a bare `Promise.resolve()`: an unbounded
+// poll loop driven by a pure microtask can starve Node's timer queue, which
+// is what would let a genuinely hanging test survive vitest's own timeout.
 function immediateSleep(): Promise<void> {
-  return Promise.resolve()
+  return new Promise((resolve) => setImmediate(resolve))
 }
 
 function hangingSleep(_ms: number, signal?: AbortSignal): Promise<void> {
@@ -186,8 +189,8 @@ describe('acquire — annulation', () => {
     controller.abort()
     await expect(aborted).rejects.toThrow(StopRequestedError)
 
-    // Retire immediatement, pas seulement au prochain `release` : sinon la
-    // file resterait gonflee d'un fantome jusqu'a la prochaine liberation.
+    // Removed immediately, not only at the next `release`: otherwise the
+    // queue would stay inflated with a ghost until the next release.
     expect(sched.snapshot()).toContainEqual({ resource: 'gpu', held: 1, waiting: 1 })
 
     hold1()
@@ -257,8 +260,8 @@ describe('acquire — annulation', () => {
   it('annuler entre le jeton local et le creneau fichier relache le jeton local : le suivant est accorde', async () => {
     const lockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-scheduler-'))
     try {
-      // Poll rapide (microtache) des deux cotes : rien ici ne depend d'un
-      // vrai delai, seulement de l'ordre d'annulation vs de liberation.
+      // Fast (microtask) polling on both sides: nothing here depends on a
+      // real delay, only on the order of cancellation vs. release.
       const sched = createScheduler({ capacities: { gpu: 1, cpu: 0, net: 0 }, lockDir, sleep: immediateSleep })
       const lockFile = path.join(lockDir, '.resource-gpu.lock')
       fs.writeFileSync(lockFile, JSON.stringify({ pid: process.pid, since: Date.now(), owner: 'outsider' }))
@@ -280,8 +283,8 @@ describe('acquire — annulation', () => {
       controller.abort()
       await expect(first).rejects.toThrow(StopRequestedError)
 
-      // Le tiers relache le fichier : `second`, qui a recupere le jeton
-      // local a l'annulation de `first`, peut desormais completer.
+      // The outsider releases the file: `second`, which got the local
+      // token when `first` was aborted, can now complete.
       fs.rmSync(lockFile, { force: true })
       const hold2 = await second
       expect(secondGranted).toBe(true)
@@ -337,8 +340,8 @@ describe('acquire — onQueued', () => {
       controller.abort()
       await expect(first).rejects.toThrow(StopRequestedError)
 
-      // `second` recupere le jeton local et trouve le fichier encore
-      // occupe : announce() ne doit pas se redeclencher pour ce second blocage.
+      // `second` gets the local token and finds the file still busy:
+      // announce() must not fire again for this second block.
       await Promise.resolve()
       await Promise.resolve()
       expect(onQueued).toHaveBeenCalledTimes(1)
@@ -409,6 +412,26 @@ describe('acquire — composition avec le creneau fichier', () => {
     controller.abort()
 
     await expect(waiting).rejects.toThrow(StopRequestedError)
+  })
+})
+
+describe('releaseAll', () => {
+  it('libere ce que ce processus tient sur le fichier : un autre ordonnanceur peut aussitot l’acquerir', async () => {
+    const lockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-scheduler-release-all-'))
+    try {
+      const pidAlive = (pid: number): boolean => pid === process.pid
+      const a = createScheduler({ capacities: { gpu: 1, cpu: 0, net: 0 }, lockDir, sleep: immediateSleep, pidAlive })
+      const b = createScheduler({ capacities: { gpu: 1, cpu: 0, net: 0 }, lockDir, sleep: immediateSleep, pidAlive })
+
+      await a.acquire('gpu', 10)
+      a.releaseAll()
+
+      const holdB = await b.acquire('gpu', 10)
+      expect(b.snapshot()).toContainEqual({ resource: 'gpu', held: 1, waiting: 0 })
+      holdB()
+    } finally {
+      fs.rmSync(lockDir, { recursive: true, force: true })
+    }
   })
 })
 

@@ -35,8 +35,8 @@ export async function register(): Promise<void> {
   const { hookShutdown } = await import('@/server/shutdown')
   hookShutdown()
 
-  // **Le pid, jamais `rm -f`.** Un `dev-run` concurrent tient légitimement des
-  // créneaux ; seul un pid mort dit qu'un créneau est abandonné plutôt qu'occupé.
+  // **Pid, never `rm -f`.** A concurrent `dev-run` legitimately holds slots;
+  // only a dead pid says a slot was abandoned rather than merely busy.
   const { sweepSchedulerSlots } = await import('@/server/scheduler')
   const { projectsDir } = await import('@/server/paths')
   sweepSchedulerSlots(projectsDir())

@@ -1,6 +1,6 @@
 /**
- * Le seul point qui lit `AiSettings` pour résoudre `LocalModels` : `AiSettings`
- * vit dans `src/lib/api.ts`, hors de portée de `src/core`.
+ * The only reader of `AiSettings` for `LocalModels`: `AiSettings` lives in
+ * `src/lib/api.ts`, out of `src/core`'s reach.
  */
 
 import type { LocalModels } from '@/core/resources'

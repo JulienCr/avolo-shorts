@@ -63,13 +63,11 @@ export type Work =
 export type Phase = { analysis: Analysis; work: Work }
 
 /**
- * La phase d'un projet : deux axes, pas un — ce que la machine fabrique et ce
- * que l'humain décide avancent séparément.
+ * A project's phase: two independent axes, what the machine has produced and
+ * what the human has decided.
  *
- * **L'invariant : la phase choisit ce que l'écran met en avant, elle ne
- * retire jamais ce qui existe.** Le panneau d'avancement remplace la grille
- * seulement quand elle serait vide ; sinon il se replie en bande, et un échec
- * s'affiche à côté. Les quatre propriétés qui en découlent sont en §5.3 de
+ * Invariant: the phase chooses what the screen leads with; it never removes
+ * what exists. See §5.3 of
  * `docs/superpowers/specs/2026-08-18-parcours-utilisateur-design.md`.
  */
 export function phaseProject(

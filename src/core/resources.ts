@@ -1,7 +1,6 @@
 /**
- * Le vocabulaire des ressources physiques qu'un ordonnanceur ultérieur
- * partagera entre projets. Pas de sémaphore ici, juste ce qu'une étape
- * consomme et dans quel ordre elle doit passer.
+ * The physical-resource vocabulary a later scheduler will share across
+ * projects. No semaphore here, only what a step consumes and its order.
  */
 
 import type { LlmUsage } from '@/core/llm'
@@ -9,7 +8,7 @@ import type { StepName } from '@/core/graph'
 
 export type Resource = 'gpu' | 'cpu' | 'net'
 
-/** Si chaque usage LLM est servi localement. Résolu par l'appelant. */
+/** Whether each LLM usage is served locally. Resolved by the caller. */
 export type LocalModels = Record<LlmUsage, boolean>
 
 const PRIORITIES: Record<StepName, number> = {
@@ -22,7 +21,12 @@ const PRIORITIES: Record<StepName, number> = {
   proxy: 80,
 }
 
-/** `null` quand l'étape ne réserve rien. */
+/**
+ * A step served by a local model takes the GPU, never the network.
+ *
+ * @param local - Which LLM usages are resolved to a local model.
+ * @returns The resource the step reserves, or `null` if it reserves nothing.
+ */
 export function resourceFor(step: StepName, local: LocalModels): Resource | null {
   switch (step) {
     case 'renders':
@@ -40,12 +44,12 @@ export function resourceFor(step: StepName, local: LocalModels): Resource | null
   }
 }
 
-/** Le plus petit nombre passe en premier. */
+/** @returns The step's priority; lower goes first. */
 export function priorityFor(step: StepName): number {
   return PRIORITIES[step]
 }
 
-/** Une étape est locale sauf si sa ressource est `net`. */
+/** @returns Whether a resource is local; `net` is the only non-local one. */
 export function isLocal(resource: Resource | null): boolean {
   return resource !== 'net'
 }

@@ -257,6 +257,27 @@ describe('acquire — annulation', () => {
     holdNext()
   })
 
+  it('abort dans le meme tick qu’une liberation deja transmise n’engloutit pas le jeton', async () => {
+    const sched = inProcessScheduler({ gpu: 1 })
+    const hold1 = await sched.acquire('gpu', 10)
+    const controller = new AbortController()
+
+    const granted = sched.acquire('gpu', 10, controller.signal)
+    await Promise.resolve()
+
+    // Reversed order vs. the previous test: the release reaches this waiter
+    // before the abort does, in the same tick.
+    hold1()
+    controller.abort()
+
+    const hold2 = await granted
+    hold2()
+
+    // If the token had leaked, this would never resolve.
+    const hold3 = await sched.acquire('gpu', 20)
+    hold3()
+  })
+
   it('annuler entre le jeton local et le creneau fichier relache le jeton local : le suivant est accorde', async () => {
     const lockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-scheduler-'))
     try {
@@ -289,6 +310,28 @@ describe('acquire — annulation', () => {
       const hold2 = await second
       expect(secondGranted).toBe(true)
       hold2()
+    } finally {
+      fs.rmSync(lockDir, { recursive: true, force: true })
+    }
+  })
+
+  it('un abort synchrone pendant l’attente du creneau fichier n’attend pas le prochain sondage', async () => {
+    const lockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-scheduler-'))
+    try {
+      // No injected `sleep`: exercises the real polling delay, to catch a
+      // signal that fires after the loop's own check but before `sleep`'s
+      // listener is attached.
+      const sched = createScheduler({ capacities: { gpu: 1, cpu: 0, net: 0 }, lockDir })
+      const lockFile = path.join(lockDir, '.resource-gpu.lock')
+      fs.writeFileSync(lockFile, JSON.stringify({ pid: process.pid, since: Date.now(), owner: 'outsider' }))
+
+      const controller = new AbortController()
+      const onQueued = (): void => controller.abort()
+      const waiting = sched.acquire('gpu', 10, controller.signal, onQueued)
+
+      const start = Date.now()
+      await expect(waiting).rejects.toThrow(StopRequestedError)
+      expect(Date.now() - start).toBeLessThan(400)
     } finally {
       fs.rmSync(lockDir, { recursive: true, force: true })
     }
@@ -428,6 +471,35 @@ describe('releaseAll', () => {
 
       const holdB = await b.acquire('gpu', 10)
       expect(b.snapshot()).toContainEqual({ resource: 'gpu', held: 1, waiting: 0 })
+      holdB()
+    } finally {
+      fs.rmSync(lockDir, { recursive: true, force: true })
+    }
+  })
+
+  it('une liberation de creneau qui echoue n’empeche pas les autres d’etre liberes', async () => {
+    const lockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-scheduler-release-all-fail-'))
+    const realRmSync = fs.rmSync.bind(fs)
+    try {
+      const pidAlive = (pid: number): boolean => pid === process.pid
+      const a = createScheduler({ capacities: { gpu: 1, cpu: 1, net: 0 }, lockDir, sleep: immediateSleep, pidAlive })
+      await a.acquire('gpu', 10)
+      await a.acquire('cpu', 10)
+
+      const rmSyncSpy = vi.spyOn(fs, 'rmSync').mockImplementation((target, options) => {
+        if (String(target).includes('resource-gpu')) throw new Error('boom')
+        return realRmSync(target, options)
+      })
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      expect(() => a.releaseAll()).not.toThrow()
+      expect(errorSpy).toHaveBeenCalled()
+      rmSyncSpy.mockRestore()
+      errorSpy.mockRestore()
+
+      // The cpu release must have gone through despite the gpu one failing.
+      const b = createScheduler({ capacities: { gpu: 0, cpu: 1, net: 0 }, lockDir, sleep: immediateSleep, pidAlive })
+      const holdB = await b.acquire('cpu', 10)
       holdB()
     } finally {
       fs.rmSync(lockDir, { recursive: true, force: true })

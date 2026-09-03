@@ -52,9 +52,11 @@ function insertSorted(queue: Waiter[], waiter: Waiter): void {
   queue.splice(i, 0, waiter)
 }
 
-function removeWaiter(queue: Waiter[], waiter: Waiter): void {
+function removeWaiter(queue: Waiter[], waiter: Waiter): boolean {
   const i = queue.indexOf(waiter)
-  if (i !== -1) queue.splice(i, 1)
+  if (i === -1) return false
+  queue.splice(i, 1)
+  return true
 }
 
 function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -70,6 +72,10 @@ function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
         resolve()
       }
       signal.addEventListener('abort', onAbort, { once: true })
+      // Closes the same window as `waitForTurn`: a signal aborted between
+      // the caller's own check and this listener would otherwise wait out
+      // the full `ms` instead of returning immediately.
+      if (signal.aborted) onAbort()
     }
   })
 }
@@ -130,8 +136,11 @@ export function createScheduler(deps: {
       announce()
       if (signal !== undefined) {
         onAbort = () => {
+          // `releaseLocalToken` may have granted this waiter its token in
+          // the same tick, before `await gate` resumed: too late to cancel,
+          // and marking it aborted now would leak the token to no one.
+          if (!removeWaiter(state.queue, waiter)) return
           waiter.aborted = true
-          removeWaiter(state.queue, waiter)
           waiter.resolve()
         }
         signal.addEventListener('abort', onAbort, { once: true })
@@ -207,7 +216,16 @@ export function createScheduler(deps: {
   function releaseAll(): void {
     for (const state of states.values()) {
       if (state.fileOptions === null) continue
-      for (const handle of state.heldFiles) releaseSlot(state.fileOptions, handle)
+      for (const handle of state.heldFiles) {
+        try {
+          releaseSlot(state.fileOptions, handle)
+        } catch (cause) {
+          // A slot release failing here must not stop the others, and must
+          // not escape into a `process.on('exit' | 'SIGINT' | 'SIGTERM')`
+          // handler, where it would cut a sibling listener's cleanup short.
+          console.error(`Libération du créneau « ${handle.slot} » :`, cause)
+        }
+      }
       state.heldFiles.clear()
     }
   }

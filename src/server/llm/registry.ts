@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3'
 
+import type { LlmUsage } from '@/core/llm'
 import type { AiSettings, LlmProvider, LlmProviderAvailability } from '@/lib/api'
 import { effectiveSettings } from '@/server/db'
 import { createGeminiCall } from '@/server/llm/gemini'
@@ -11,15 +12,8 @@ import { requireSecret } from '@/server/secrets'
 /**
  * Choisit l'implémentation d'un `LlmCall` d'après les réglages, au lieu de la
  * construire en dur — c'est tout le sens de cette PR (retour d'usage §6.1).
- *
- * **Les trois usages, mais un seul branché.** `LlmUsage` porte les trois noms
- * pour que `providerModelFor` reste exhaustif sur `AiSettings` — en retirer
- * un casserait le type-check si `correction` ou `hook` cessait d'exister —,
- * mais `src/server/steps/candidates.ts` n'appelle cette couche que pour
- * `'selection'`. La correction du transcript et la génération du hook sont
- * des livraisons ultérieures qui liront ce même registre pour le leur.
  */
-export type LlmUsage = 'selection' | 'correction' | 'hook'
+export type { LlmUsage } from '@/core/llm'
 
 /** Le fournisseur et le modèle réglés pour un usage donné. */
 export function providerModelFor(

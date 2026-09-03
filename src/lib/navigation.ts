@@ -166,7 +166,7 @@ export function next(phase: Phase, project: { id: string }): Next {
     // On nomme la cause, jamais une durée restante. Le repérage produit
     // l'artefact qui ouvre le tri — ce n'est pas le transcript, même s'il le
     // précède.
-    if (phase.analysis === 'waiting') {
+    if (phase.analysis === 'running') {
       return {
         kind: 'waiting',
         reason: 'Le repérage n’a pas encore rendu ses propositions.',

@@ -36,14 +36,10 @@ export function isDiscarded(status: ClipStatus): boolean {
 
 /**
  * Ce que la machine a produit. Des artefacts, jamais une activité.
- *
- * `'new'` est en anglais, ses voisines ne le sont pas : dette existante
- * (issue #73), et le code neuf s'écrit en anglais même à côté d'elle
- * (`CLAUDE.md`) — ne pas franciser cette valeur pour « s'accorder ».
  */
 export type Analysis =
   | 'new' // aucun artefact, jamais d'exécution : créé sans avoir été lancé
-  | 'waiting' // les candidats manquent, une exécution tourne
+  | 'running' // les candidats manquent, une exécution tourne
   | 'interrupted' // il manque une étape et rien ne tourne, mais une exécution a déjà eu lieu
   | 'failed' // la dernière exécution a échoué
   | 'sortable' // candidats présents, proxy absent : on trie, on ne monte pas
@@ -63,45 +59,12 @@ export type Work =
 export type Phase = { analysis: Analysis; work: Work }
 
 /**
- * La phase d'un projet : deux axes, pas un.
+ * A project's phase: two independent axes, what the machine has produced and
+ * what the human has decided.
  *
- * L'erreur qui vient d'abord est d'aligner tous les états sur une seule échelle.
- * Elle ne tient pas : un projet peut être entièrement trié alors que son proxy
- * n'est pas fini, et un projet complet peut n'avoir aucune décision prise. Ce
- * que la machine fabrique et ce que l'humain décide avancent séparément.
- *
- * **L'invariant, et il vaut mieux que les préconditions qui suivent : la phase
- * choisit ce que l'écran met en avant, elle ne retire jamais ce qui existe.**
- * Trois relectures ont trouvé trois façons différentes de le violer, ce qui veut
- * dire que le défaut n'est pas dans une valeur mais dans la manière de s'en
- * servir. Le panneau d'avancement remplace la grille **seulement quand la grille
- * serait vide** ; le reste du temps il se replie en bande, et un échec s'affiche
- * en bandeau.
- *
- * Quatre propriétés, chacune payée par une relecture :
- *
- * - **`new` existe depuis le 23 août 2026** (spec §12) : `everRan` — tiré de
- *   `status.json` — distingue un projet jamais lancé d'une exécution morte ;
- * - **`interrupted` et `failed` ne s'appliquent que tant que `candidates` est
- *   absent.** Sans cette précondition ils recouvrent `sortable` : une exécution
- *   interrompue pendant l'encodage du proxy cacherait la grille de tri au moment
- *   précis où elle doit remplacer le panneau. Passé ce point, un échec ne décrit
- *   plus ce que l'écran peut faire, il décrit un incident : il s'affiche à côté ;
- * - **`sortable` teste la présence de l'artefact, pas son contenu.** C'est le
- *   graphe de l'itération 0, où « à jour » veut dire « le fichier est là ». Un
- *   `candidates.json` vide donne `{ sortable, none }`, et c'est l'axe `Work`
- *   qui porte le vide. Cette séparation est la raison d'être des deux axes ;
- * - **`{ waiting, sorted }` est atteignable.** `eraseArtifact`
- *   (`src/server/steps/candidates.ts`) retire `candidates.json` **avant** de
- *   toucher à la base : pendant un repérage forcé, les clips gardés sont
- *   toujours là et toujours montables.
- *
- * Enfin, **elle ne cite que les deux étapes qui changent ce que l'utilisateur
- * peut faire** : `candidates` ouvre le tri, `proxy` ouvre le montage. Les autres
- * ne sont que du temps qui passe. Ce n'est pas le transcript qui ouvre le tri,
- * même s'il le précède : la liste reste vide jusqu'à la fin du repérage. Nommer
- * l'étape qui produit l'artefact qu'on affiche est la seule formulation qui
- * survive à l'ajout d'étapes.
+ * Invariant: the phase chooses what the screen leads with; it never removes
+ * what exists. See §5.3 of
+ * `docs/superpowers/specs/2026-08-18-parcours-utilisateur-design.md`.
  */
 export function phaseProject(
   steps: Record<StepName, boolean>,
@@ -127,7 +90,7 @@ function analysisProject(
   // **Une exécution en cours l'emporte sur l'échec de la précédente.** `error`
   // décrit la dernière exécution *terminée* ; tant qu'une autre tourne, ce que
   // l'écran doit dire est ce qui se passe, pas ce qui s'est passé.
-  if (running !== null) return 'waiting'
+  if (running !== null) return 'running'
   if (error !== null) return 'failed'
   return everRan ? 'interrupted' : 'new'
 }

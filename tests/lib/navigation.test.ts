@@ -119,6 +119,9 @@ describe('suite', () => {
     const phases = phasesReachable()
     expect(new Set(phases.map((p) => p.analysis)).size).toBe(5)
     expect(new Set(phases.map((p) => p.work)).size).toBe(4)
+    // Le renommage `waiting` -> `running` ne doit ajouter aucun couple : c'est
+    // la preuve qu'il ne déplace rien d'autre que le nom.
+    expect(phases.length).toBe(20)
   })
 
   it('rend un résultat pour chaque couple atteignable', () => {
@@ -161,7 +164,7 @@ describe('suite', () => {
     // qui tourne encore, ou qu'un redémarrage du serveur a perdu.
     // (relevé par Codex et Copilot)
     for (const work of ['toSort', 'sorted', 'delivered'] as const) {
-      for (const analysis of ['waiting', 'interrupted', 'failed'] as const) {
+      for (const analysis of ['running', 'interrupted', 'failed'] as const) {
         expect(next({ analysis, work }, project), `${analysis}/${work}`).toEqual(
           next({ analysis: 'complete', work }, project),
         )
@@ -170,7 +173,7 @@ describe('suite', () => {
   })
 
   it('attend les propositions tant que le repérage n’a pas rendu', () => {
-    expect(next({ analysis: 'waiting', work: 'none' }, project)).toEqual({
+    expect(next({ analysis: 'running', work: 'none' }, project)).toEqual({
       kind: 'waiting',
       reason: expect.any(String),
       unblockedBy: 'candidates',
@@ -182,7 +185,7 @@ describe('suite', () => {
     // pendant un repérage forcé, les clips de la passe précédente sont toujours
     // là. Faire attendre ici cacherait à Julien le travail qu'il vient de
     // faire — c'est l'invariant, la phase ne retire jamais ce qui existe.
-    expect(next({ analysis: 'waiting', work: 'toSort' }, project)).toEqual({
+    expect(next({ analysis: 'running', work: 'toSort' }, project)).toEqual({
       kind: 'action',
       label: expect.any(String),
       target: '/projects/p1',
@@ -192,11 +195,11 @@ describe('suite', () => {
   it('ne cache pas le montage déjà possible pendant un repérage forcé', () => {
     // La conception le dit mot pour mot : pendant un repérage forcé, « les clips
     // gardés sont toujours là et toujours montables ».
-    expect(next({ analysis: 'waiting', work: 'sorted' }, project).kind).toBe('action')
+    expect(next({ analysis: 'running', work: 'sorted' }, project).kind).toBe('action')
   })
 
   it('ne cache pas un projet déjà livré pendant un repérage forcé', () => {
-    expect(next({ analysis: 'waiting', work: 'delivered' }, project)).toEqual({
+    expect(next({ analysis: 'running', work: 'delivered' }, project)).toEqual({
       kind: 'action',
       label: expect.any(String),
       target: '/',

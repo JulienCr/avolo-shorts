@@ -3,11 +3,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 /**
- * Primitive de verrou de fichier extraite de l'ordonnanceur de publication
- * (`src/server/publication/scheduler.ts`), généralisée à N emplacements pour
- * servir de sémaphore inter-processus (jetons GPU / CPU / réseau, PR
- * suivante). Le comportement à un seul emplacement (`slots: 1`) reste
- * identique bit à bit à l'ancien verrou de publication.
+ * File-based lock generalised to N slots, extracted from the publication
+ * scheduler (`src/server/publication/scheduler.ts`) for reuse as a
+ * cross-process semaphore (GPU/CPU/network tokens, next PR). `slots: 1`
+ * behaves identically to the original single-slot publication lock.
  */
 export type SlotOptions = { lockDir: string; name: string; slots: number; staleMs: number }
 export type SlotHandle = { slot: number; owner: string }
@@ -40,9 +39,8 @@ function tryCreateLock(file: string, payload: LockPayload): boolean {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
     throw error
   }
-  // `wx` a réussi : le fichier est à nous, sans conteste. Le supprimer si
-  // l'écriture échoue ensuite est sûr, puisque personne d'autre n'a pu le
-  // créer entretemps (relu en revue).
+  // Deleting on a write failure is safe: `wx` already proved nobody else
+  // could have created this file in the meantime.
   try {
     fs.writeSync(fd, JSON.stringify(payload))
     fs.closeSync(fd)
@@ -62,10 +60,10 @@ function readLock(file: string): LockPayload | null {
 }
 
 /**
- * L'instant posé par le titulaire, ou l'horodatage du fichier si le JSON est
- * incomplet — un processus tué entre `openSync` et l'écriture ne doit pas
- * laisser un verrou qui paraît frais à chaque lecture : `now` changerait à
- * chaque appel, l'horodatage du fichier non (relu en revue).
+ * Reads a lock's age from its own payload, falling back to the file's mtime.
+ * @returns the timestamp the holder recorded, or the file's mtime if the
+ * payload is missing/incomplete (a process killed between `openSync` and the
+ * write must not look freshly-held on every read).
  */
 function lockFileSince(file: string, now: number): number {
   const existing = readLock(file)
@@ -78,11 +76,10 @@ function lockFileSince(file: string, now: number): number {
 }
 
 /**
- * `process.kill(pid, 0)` n'envoie aucun signal, il sonde seulement
- * l'existence du processus. `EPERM` dit qu'il existe mais appartient à un
- * autre utilisateur — l'information est ambiguë, et le défaut prudent face à
- * une ambiguïté est de le croire vivant plutôt que de risquer une reprise
- * sur un faux mort (décision de l'orchestrateur, pas une déduction locale).
+ * Probes whether a pid is still alive.
+ * @returns `true` on `EPERM` (process exists, owned by someone else) as
+ * well as on success — an ambiguous signal defaults to "alive" rather than
+ * risking a reclaim on a false negative.
  */
 export function pidAlive(pid: number): boolean {
   try {
@@ -94,10 +91,9 @@ export function pidAlive(pid: number): boolean {
 }
 
 /**
- * Reprend le verrou d'un emplacement : le renomme vers un nom à soi puis en
- * recrée un frais par `wx`. Appelé **seulement** sous le verrou de reprise
- * de cet emplacement, donc jamais par deux processus à la fois — c'est ce
- * qui rend ce couple non-atomique sûr, l'exclusivité vient d'ailleurs.
+ * Evicts a stale lock and recreates it fresh. Must only be called under the
+ * per-slot reclaim guard (see `acquireOneSlot`), so this rename-then-create
+ * pair is never racing another caller.
  */
 function reclaimStaleLock(o: SlotOptions, file: string, owner: string, payload: LockPayload, holderPid: number | undefined): boolean {
   const evicted = `${file}.${owner}.evicted`
@@ -105,7 +101,7 @@ function reclaimStaleLock(o: SlotOptions, file: string, owner: string, payload: 
     fs.renameSync(file, evicted)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    // Le titulaire a relâché entretemps : rien à reprendre, on recrée direct.
+    // Holder released in the meantime: nothing to evict, create directly.
     return tryCreateLock(file, payload)
   }
   console.warn(`Verrou « ${o.name} » périmé (posé il y a plus de ${o.staleMs}ms, pid ${holderPid ?? '?'} mort) : repris.`)
@@ -114,13 +110,10 @@ function reclaimStaleLock(o: SlotOptions, file: string, owner: string, payload: 
 }
 
 /**
- * Prise atomique (`wx`) ; reprise d'un verrou périmé seulement sous un
- * second verrou `wx` dédié à la reprise, jamais par suppression-création ni
- * `renameSync` seul — les deux laissent une fenêtre où un second processus
- * agit entre l'éviction et la recréation. Un pid vivant l'emporte toujours
- * sur l'âge (`staleMs`) ; le verrou de reprise, lui, ne se fie qu'à son
- * propre âge. Démonstration complète et raisons de chaque rejet :
- * « Reprendre un verrou périmé » dans `docs/lessons.md`.
+ * Tries to acquire one slot, reclaiming it if stale. The eviction sequence
+ * is not interchangeable with a simpler delete-then-create or a bare
+ * `renameSync`, and a live pid always outranks age. Full demonstration:
+ * "Reprendre un verrou périmé" in `docs/lessons.md`.
  */
 function acquireOneSlot(
   o: SlotOptions,
@@ -140,20 +133,18 @@ function acquireOneSlot(
   const guard = reclaimGuardPath(o, slot)
   const guardPayload: LockPayload = { pid: process.pid, since: now, owner }
   if (!tryCreateLock(guard, guardPayload)) {
-    // Un autre processus reprend déjà ce même verrou périmé, ou tient encore
-    // son propre verrou de reprise récent : on se retire plutôt que de
-    // risquer la même course en parallèle du sien.
+    // Another process is already reclaiming this same stale lock, or holds
+    // its own recent reclaim guard: back off rather than race it.
     const guardSince = lockFileSince(guard, now)
     if (now - guardSince < RECLAIM_GUARD_STALE_MS) return { acquired: false, since: lockFileSince(file, now) }
-    // Le verrou de reprise lui-même est périmé — son titulaire est mort en
-    // plein milieu d'une reprise, qui ne dure qu'une poignée d'appels
-    // système : l'âge seul suffit à le reprendre, aucun pid à vérifier.
+    // The reclaim guard itself is stale: its holder died mid-reclaim, which
+    // only spans a handful of syscalls, so age alone suffices here.
     fs.rmSync(guard, { force: true })
     if (!tryCreateLock(guard, guardPayload)) return { acquired: false, since: lockFileSince(file, now) }
   }
   try {
-    // Revérifié **sous** le verrou de reprise, pas seulement avant : l'état
-    // observé en dehors peut avoir changé pendant qu'on attendait `wx`.
+    // Re-checked under the reclaim guard, not just before: state observed
+    // outside may have changed while waiting for `wx`.
     const stillSince = lockFileSince(file, now)
     if (now - stillSince < o.staleMs) return { acquired: false, since: stillSince }
     const holder = readLock(file)
@@ -162,9 +153,8 @@ function acquireOneSlot(
       return { acquired: false, since: stillSince }
     }
     if (reclaimStaleLock(o, file, owner, payload, holder?.pid)) return { acquired: true, owner }
-    // Impossible en principe sous le verrou de reprise — personne d'autre ne
-    // devrait pouvoir reposer un verrou frais pendant qu'on le tient — mais
-    // on se retire plutôt que de l'écraser si ça arrivait quand même.
+    // Unreachable in principle under the reclaim guard; back off rather
+    // than overwrite if it happens anyway.
     return { acquired: false, since: lockFileSince(file, now) }
   } finally {
     fs.rmSync(guard, { force: true })
@@ -181,18 +171,16 @@ export function acquireSlot(o: SlotOptions, now: number, isAlive: (pid: number) 
 }
 
 /**
- * Depuis quand un emplacement est tenu (ou son horodatage disque à défaut de
- * JSON valide) — ce qu'un appelant reporte à l'utilisateur quand `acquireSlot`
- * échoue faute d'emplacement libre.
+ * @returns how long a slot has been held, for a caller reporting why
+ * `acquireSlot` failed.
  */
 export function lockSince(o: SlotOptions, slot: number, now: number): number {
   return lockFileSince(lockPath(o, slot), now)
 }
 
 /**
- * Ne supprime que le verrou qu'on a posé soi-même : un titulaire périmé qui
- * se réveille après avoir été repris ne doit pas effacer le verrou frais du
- * processus qui a repris sa place (relu en revue).
+ * Removes only a lock this caller placed: a stale holder waking up after
+ * being reclaimed must not delete the fresh lock that replaced it.
  */
 export function releaseSlot(o: SlotOptions, handle: SlotHandle): void {
   const file = lockPath(o, handle.slot)

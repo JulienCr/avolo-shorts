@@ -456,6 +456,26 @@ describe('acquire — composition avec le creneau fichier', () => {
 
     await expect(waiting).rejects.toThrow(StopRequestedError)
   })
+
+  it('un echec de releaseSlot pendant Hold() ne perd pas le jeton local', async () => {
+    const pidAlive = (pid: number): boolean => pid === process.pid
+    const sched = createScheduler({ capacities: { gpu: 1, cpu: 0, net: 0 }, lockDir, sleep: immediateSleep, pidAlive })
+    const hold1 = await sched.acquire('gpu', 10)
+
+    const rmSyncSpy = vi.spyOn(fs, 'rmSync').mockImplementation(() => {
+      throw new Error('boom')
+    })
+    expect(() => hold1()).toThrow('boom')
+    rmSyncSpy.mockRestore()
+
+    // Clean up what the mocked failure left on disk: this test is about the
+    // local token, not whether the leftover file also blocks reacquisition.
+    fs.rmSync(path.join(lockDir, '.resource-gpu.lock'), { force: true })
+
+    // If the local token had leaked, this would never resolve.
+    const hold2 = await sched.acquire('gpu', 20)
+    hold2()
+  })
 })
 
 describe('releaseAll', () => {
@@ -529,5 +549,18 @@ describe('sweepSchedulerSlots', () => {
     expect(freed).toBe(1)
     expect(fs.existsSync(deadFile)).toBe(false)
     expect(fs.existsSync(aliveFile)).toBe(true)
+  })
+
+  it('balaye chaque creneau d’une ressource a plusieurs slots independamment', () => {
+    const deadSlot = path.join(lockDir, '.resource-net.0.lock')
+    const aliveSlot = path.join(lockDir, '.resource-net.1.lock')
+    fs.writeFileSync(deadSlot, JSON.stringify({ pid: 999_999, since: Date.now(), owner: 'dead' }))
+    fs.writeFileSync(aliveSlot, JSON.stringify({ pid: process.pid, since: Date.now(), owner: 'alive' }))
+
+    const freed = sweepSchedulerSlots(lockDir, (pid) => pid === process.pid)
+
+    expect(freed).toBe(1)
+    expect(fs.existsSync(deadSlot)).toBe(false)
+    expect(fs.existsSync(aliveSlot)).toBe(true)
   })
 })

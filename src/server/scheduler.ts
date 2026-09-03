@@ -72,10 +72,12 @@ function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
         resolve()
       }
       signal.addEventListener('abort', onAbort, { once: true })
-      // Closes the same window as `waitForTurn`: a signal aborted between
-      // the caller's own check and this listener would otherwise wait out
-      // the full `ms` instead of returning immediately.
-      if (signal.aborted) onAbort()
+      // Closes the same window as `waitForTurn` (see below). Calling `onAbort`
+      // directly skips `{ once: true }`'s auto-removal, so remove it here.
+      if (signal.aborted) {
+        signal.removeEventListener('abort', onAbort)
+        onAbort()
+      }
     }
   })
 }
@@ -171,11 +173,16 @@ export function createScheduler(deps: {
     return () => {
       if (released) return
       released = true
-      if (handle !== null) {
-        releaseSlot(state.fileOptions as SlotOptions, handle)
-        state.heldFiles.delete(handle)
+      try {
+        // Left in `heldFiles` on failure, on purpose: `releaseAll` gets a
+        // second chance at it. The local token below is unconditional.
+        if (handle !== null) {
+          releaseSlot(state.fileOptions as SlotOptions, handle)
+          state.heldFiles.delete(handle)
+        }
+      } finally {
+        releaseLocalToken(state)
       }
-      releaseLocalToken(state)
     }
   }
 

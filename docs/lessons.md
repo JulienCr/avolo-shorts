@@ -452,3 +452,46 @@ ne peut basculer sur ce corpus. Chrome mesure Anton avec les métriques
 **typo** (zone de contenu à 151 px pour un corps de 100 px, contre 173 avec
 `usWin`), ce qui confirme `CSS_HALF_LEADING_OVER_EM`
 (`src/core/captions/font-metrics.ts`) plutôt que de l'introduire à côté.
+
+## Reprendre un verrou périmé : ni suppression-création, ni `renameSync` seul
+
+`acquireSlot` (`src/server/lockfile.ts`, extrait de l'ancien `acquireLock` de
+l'ordonnanceur de publication) reprend un emplacement périmé par une séquence
+en deux temps — renommer le verrou existant vers un nom à soi, puis en
+recréer un frais par `wx` — sous un second verrou `wx` dédié à cette reprise.
+Trois relectures ont écarté les deux séquences plus simples qui viennent
+spontanément à l'esprit, et la raison de chaque rejet est ce qui manque à un
+commentaire de quelques lignes.
+
+**Une paire suppression-puis-création ne suffit pas.** Entre le `rm` et le
+`open('wx')`, le fichier n'existe pas : un second processus qui a lui aussi
+vu le verrou périmé peut créer le sien dans cette fenêtre, et les deux
+processus se croient alors seuls à l'intérieur.
+
+**Un `renameSync` seul ne suffit pas non plus**, pour une raison moins
+intuitive : `renameSync` ne vérifie pas ce qu'il déplace. Un second processus
+qui observe le même verrou périmé peut agir entre l'éviction du premier et sa
+recréation — y compris en renommant le verrou **neuf** que le premier vient
+de reposer, puisque rien ne l'empêche de renommer n'importe quel fichier à
+cet emplacement, frais ou périmé.
+
+**Le verrou de reprise ferme cette fenêtre.** `wx` garantit qu'un seul
+processus l'obtient ; un seul est donc jamais à l'intérieur de la séquence
+qui évince puis recrée. Sous ce verrou, l'âge et la vivacité du pid sont
+**revérifiés**, pas simplement supposés depuis l'état observé avant de
+l'obtenir — l'état a pu changer pendant l'attente du `wx`.
+
+**Un pid vivant l'emporte sur l'âge, quelle que soit cette dernière.** Un
+appelant dont le travail légitime dépasse `staleMs` (une passe de publication
+de plusieurs gros fichiers en série, par exemple) ne doit pas se faire voler
+son verrou par le réveil suivant pendant qu'il travaille encore.
+
+**Le verrou de reprise, lui, se contente de l'âge.** Il n'est jamais tenu à
+travers le travail de l'appelant, seulement le temps d'une poignée d'appels
+système — son seul risque est un processus tué en plein milieu, pas une
+lenteur légitime, donc l'âge seul suffit à le reprendre.
+
+Une paire suppression-puis-création ne compile pas moins bien que la version
+retenue, ne fait échouer aucun lint : c'est un test qui simule deux reprises
+concurrentes (`tests/server/publication-scheduler.test.ts`) qui distingue les
+deux, pas une lecture du code.

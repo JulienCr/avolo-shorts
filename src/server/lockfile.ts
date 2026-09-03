@@ -40,11 +40,9 @@ function tryCreateLock(file: string, payload: LockPayload): boolean {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
     throw error
   }
-  // `wx` a réussi : le fichier est à nous, sans conteste. Si l'écriture ou
-  // la fermeture lève ensuite (disque plein, E/S), le laisser en place
-  // ferait paraître le verrou pris pendant toute sa durée de péremption
-  // sans qu'aucun appelant n'agisse — le supprimer avant de relever est
-  // sûr, puisque personne d'autre n'a pu le créer entretemps (relu en revue).
+  // `wx` a réussi : le fichier est à nous, sans conteste. Le supprimer si
+  // l'écriture échoue ensuite est sûr, puisque personne d'autre n'a pu le
+  // créer entretemps (relu en revue).
   try {
     fs.writeSync(fd, JSON.stringify(payload))
     fs.closeSync(fd)
@@ -101,7 +99,7 @@ export function pidAlive(pid: number): boolean {
  * de cet emplacement, donc jamais par deux processus à la fois — c'est ce
  * qui rend ce couple non-atomique sûr, l'exclusivité vient d'ailleurs.
  */
-function reclaimStaleLock(file: string, owner: string, payload: LockPayload, holderPid: number | undefined): boolean {
+function reclaimStaleLock(o: SlotOptions, file: string, owner: string, payload: LockPayload, holderPid: number | undefined): boolean {
   const evicted = `${file}.${owner}.evicted`
   try {
     fs.renameSync(file, evicted)
@@ -110,38 +108,19 @@ function reclaimStaleLock(file: string, owner: string, payload: LockPayload, hol
     // Le titulaire a relâché entretemps : rien à reprendre, on recrée direct.
     return tryCreateLock(file, payload)
   }
-  console.warn(`Verrou de publication périmé (posé il y a plus de 30 min, pid ${holderPid ?? '?'} mort) : repris.`)
+  console.warn(`Verrou « ${o.name} » périmé (posé il y a plus de ${o.staleMs}ms, pid ${holderPid ?? '?'} mort) : repris.`)
   fs.rmSync(evicted, { force: true })
   return tryCreateLock(file, payload)
 }
 
 /**
- * Prise atomique (`wx`) sur un emplacement donné ; reprise d'un verrou
- * périmé seulement si son pid n'est plus vivant, sous un second verrou `wx`
- * dédié à la reprise (décision de l'orchestrateur, après deux tentatives
- * insuffisantes).
- *
- * **Ni une paire suppression-puis-création, ni un simple `renameSync`, ne
- * suffisent** (relu en revue, à trois reprises) : dans les deux cas, un
- * second processus qui a lui aussi observé le même verrou périmé peut
- * encore agir entre l'éviction du premier et sa recréation — y compris en
- * renommant le verrou **neuf** que le premier vient de reposer, puisque
- * `renameSync` ne vérifie pas ce qu'il déplace. Le verrou de reprise ferme
- * cette fenêtre : `wx` garantit qu'un seul processus l'obtient, donc un
- * seul est jamais à l'intérieur de la séquence qui évince puis recrée —
- * qui revérifie l'âge et la vivacité du pid **sous** ce verrou plutôt que
- * de faire confiance à ce qu'il a observé avant de l'obtenir.
- *
- * **L'âge seul ne suffit pas non plus** pour le verrou principal (relu en
- * revue) : un appelant dont le travail dépasse `staleMs` de bonne foi
- * verrait sinon son verrou volé par le réveil suivant pendant qu'il tient
- * encore l'emplacement. Le pid vivant l'emporte sur l'âge, quel qu'il soit.
- *
- * **Le verrou de reprise, lui, se contente de l'âge** — une minute suffit,
- * et rien de plus n'est nécessaire : il n'est jamais tenu à travers le
- * travail de l'appelant, seulement le temps d'une poignée d'appels
- * système, donc son seul risque est un processus tué en plein milieu, pas
- * une lenteur légitime.
+ * Prise atomique (`wx`) ; reprise d'un verrou périmé seulement sous un
+ * second verrou `wx` dédié à la reprise, jamais par suppression-création ni
+ * `renameSync` seul — les deux laissent une fenêtre où un second processus
+ * agit entre l'éviction et la recréation. Un pid vivant l'emporte toujours
+ * sur l'âge (`staleMs`) ; le verrou de reprise, lui, ne se fie qu'à son
+ * propre âge. Démonstration complète et raisons de chaque rejet :
+ * « Reprendre un verrou périmé » dans `docs/lessons.md`.
  */
 function acquireOneSlot(
   o: SlotOptions,
@@ -179,10 +158,10 @@ function acquireOneSlot(
     if (now - stillSince < o.staleMs) return { acquired: false, since: stillSince }
     const holder = readLock(file)
     if (holder !== null && isAlive(holder.pid)) {
-      console.warn(`Verrou de publication vieux de plus de 30 min mais pid ${holder.pid} toujours vivant : pas repris.`)
+      console.warn(`Verrou « ${o.name} » vieux de plus de ${o.staleMs}ms mais pid ${holder.pid} toujours vivant : pas repris.`)
       return { acquired: false, since: stillSince }
     }
-    if (reclaimStaleLock(file, owner, payload, holder?.pid)) return { acquired: true, owner }
+    if (reclaimStaleLock(o, file, owner, payload, holder?.pid)) return { acquired: true, owner }
     // Impossible en principe sous le verrou de reprise — personne d'autre ne
     // devrait pouvoir reposer un verrou frais pendant qu'on le tient — mais
     // on se retire plutôt que de l'écraser si ça arrivait quand même.

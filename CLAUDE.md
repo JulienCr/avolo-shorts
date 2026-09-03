@@ -120,8 +120,8 @@ Les cas qui les ont produites, avec leurs chiffres : [`docs/lessons.md`](docs/le
   WSL change au redémarrage** : la résoudre par `ip route show default`, jamais la
   coder en dur.
 - **VRAM** : un modèle Ollama de 18 Go et WhisperX large-v3 ne tiennent pas
-  ensemble sur 24 Go. La correction des sous-titres s'exécute après la
-  transcription, jamais en parallèle.
+  ensemble sur 24 Go. Un jeton `gpu` (`src/server/scheduler.ts`) le fait
+  respecter entre projets, pas seulement dans une exécution.
 - **Sources vidéo** : 1920x1080, 4,5 à 12,7 Go pièce. La cadence n'est pas
   uniforme — trois émissions en 60 fps, `2025-06-15-cqlp.mp4` en 30. Sans
   conséquence, le filtre `fps=30` traite les deux. Les tournages à venir passeront

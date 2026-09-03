@@ -632,8 +632,11 @@ Ces points vivent dans `CLAUDE.md` et dans la spec, rappelés ici pour mémoire 
 - Ollama tourne sur l'hôte Windows, port 11434. L'adresse de la passerelle WSL
   change au redémarrage : la résoudre par `ip route show default`.
 - 24 Go de VRAM ne suffisent pas à tenir un modèle Ollama de 18 Go et WhisperX
-  large-v3 en même temps. La correction des sous-titres passe après la
-  transcription, jamais en parallèle.
+  large-v3 en même temps. L'ordonnancement l'impose, pas la discipline : un
+  jeton `gpu`, capacité 1, sérialise `transcript` contre toute étape
+  configurée sur Ollama — la correction, mais aussi la sélection —, entre
+  projets et à travers les processus par un fichier de verrou. Une étape sur
+  un fournisseur réseau ne prend que le jeton `net`, sans rapport avec le GPU.
 - Pas de Docker. Node natif, Python en venv, ffmpeg natif.
 
 ## Le port de l'application

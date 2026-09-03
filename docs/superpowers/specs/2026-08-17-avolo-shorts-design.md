@@ -1030,10 +1030,11 @@ Ollama tourne sur l'hôte Windows, joignable depuis WSL sur le port 11434, avec
 - **Contrainte de VRAM, bloquante.** 18 Go de modèle et WhisperX large-v3 ne
   tiennent pas ensemble sur 24 Go. La correction s'exécute après que la
   transcription a rendu le GPU, jamais en parallèle — **posé en dur depuis
-  cette PR** : `POST /api/projects/:id/transcript/correction` refuse en 409
-  tant qu'une exécution du projet est en cours, et revérifie entre chaque
-  empan pour la même raison (issue #93, qui reste ouverte sur la question
-  plus large de la réservation d'écriture partagée du sidecar).
+  la PR D (run wiring)** : un jeton `gpu`, tenu par un seul processus, en
+  fait la même ressource physique que `transcript` et que toute étape
+  configurée sur Ollama, y compris entre deux projets et à travers les
+  processus grâce au fichier de verrou. L'issue #93 reste ouverte sur sa
+  seule autre moitié, la réservation d'écriture partagée du sidecar.
 
 ## 10. Le cadrage
 

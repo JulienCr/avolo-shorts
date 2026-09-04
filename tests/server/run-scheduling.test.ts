@@ -9,6 +9,7 @@ import { applySettings, openDb, upsertProject } from '@/server/db'
 import { launch, lireStatus, progression, stopRun, wait, type Steps } from '@/server/run'
 import { candidatesPath } from '@/server/paths'
 import { createScheduler, type Scheduler } from '@/server/scheduler'
+import { snapshotEnv } from '../helpers/env'
 
 /**
  * The resource scheduler, wired into the runner (PR D): two projects
@@ -29,6 +30,7 @@ let db: Database.Database
 let calls: string[]
 let testScheduler: Scheduler
 let openGates: Array<() => void>
+const restoreEnv = snapshotEnv()
 
 /**
  * A promise opened from the outside, to drive a step by hand.
@@ -116,6 +118,7 @@ afterEach(async () => {
   await Promise.all([A, B, C].map((id) => wait(id)))
   db.close()
   fs.rmSync(root, { recursive: true, force: true })
+  restoreEnv()
 })
 
 describe('deux projets, un programmateur commun', () => {

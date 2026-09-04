@@ -1,7 +1,7 @@
 'use client'
 
 import { Keyboard, Send, TriangleAlert } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 
 import {
   clipEligibilityFromStatus,
@@ -13,21 +13,14 @@ import {
 import type { ClipStatus } from '@/core/edl'
 import { count } from '@/core/phase'
 import type { SelectionReport, CandidateClip } from '@/lib/api'
-import { toggleStatus, type Decision } from '@/lib/clip-status'
 import { formatDuration } from '@/lib/format'
 import type { Next } from '@/lib/navigation'
 import { CandidateCard } from '@/components/review/candidate-card'
 import { LoopEnd } from '@/components/review/loop-end'
-import {
-  agreement,
-  belongs,
-  idsForView,
-  detectionWord,
-  VIEWS,
-  type View,
-} from '@/components/review/template'
+import { agreement, detectionWord, VIEWS, type View } from '@/components/review/template'
 import { useShortcutsReview } from '@/components/review/shortcuts'
-import { lireSessionReview, writeSessionReview } from '@/components/review/session'
+import { useSortLoop } from '@/components/review/sort-loop'
+import { useReviewSession, writeSessionReview } from '@/components/review/session'
 import { PublishDialog, type PublishClipTarget } from '@/components/publication/publish-dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -124,13 +117,9 @@ export function ReviewFeed({
   const counts = count(clips)
   const word = detectionWord(summary)
 
-  const visible = useViewFrozen(clips, view)
   const grid = useRef<HTMLDivElement>(null)
 
-  const [selection, setSelection] = useState<string | null>(null)
   const [help, setHelp] = useState(false)
-  // La pile d'annulation : le statut d'avant, et sur quelle carte le rendre.
-  const [stack, setStack] = useState<{ clipId: string; before: ClipStatus }[]>([])
 
   /**
    * La sélection pour la publication en masse (retour d'usage §2.4).
@@ -189,12 +178,6 @@ export function ReviewFeed({
   const publicationRecordsLoading = clipsToPublish.some((c) => publicationRecordsPending?.has(c.clipId))
   const publicationRecordsError = clipsToPublish.some((c) => publicationRecordsFailed?.has(c.clipId))
 
-  // La carte sur laquelle le clavier travaille. Elle se déduit plutôt qu'elle ne
-  // se stocke : une sélection gardée dans l'état survivrait à la disparition de
-  // sa carte — au changement de vue, ou après un repérage forcé — et le clavier
-  // travaillerait sur un identifiant que plus rien n'affiche.
-  const current = visible.some((c) => c.id === selection) ? selection : (visible[0]?.id ?? null)
-
   // **Aucun `useCallback` ici, et c'est délibéré.** Ces gestes ferment sur la
   // liste, la vue et la sélection : leurs tableaux de dépendances seraient longs,
   // faux un jour, et sans bénéfice — `useShortcutsReview` garde les derniers
@@ -210,59 +193,20 @@ export function ReviewFeed({
     return null
   }
 
-  // Elle rend **si elle a trouvé sa carte** : la restauration au retour en a
-  // besoin pour savoir s'il lui reste à réessayer après un changement de vue.
-  function focus(clipId: string | null): boolean {
-    setSelection(clipId)
+  // Reports whether it found the card: restoring focus on return needs to
+  // know whether to retry after the next view change.
+  function attemptFocus(clipId: string | null): boolean {
     const card = element(clipId)
     if (card === null) return false
     card.focus()
-    // `scrollIntoView` n'existe pas sous jsdom, et le focus suffit dans un
-    // navigateur pour les cartes déjà visibles.
+    // `scrollIntoView` doesn't exist under jsdom; focus alone suffices in a
+    // real browser for cards already on screen.
     if (typeof card.scrollIntoView === 'function') card.scrollIntoView({ block: 'nearest' })
     return true
   }
 
-  function move(not: number) {
-    if (visible.length === 0) return
-    const since = visible.findIndex((c) => c.id === current)
-    // **Sans rebouclage, aux deux bouts.** Reboucler ferait repasser
-    // indéfiniment sur des cartes déjà vues sans que rien ne dise qu'on a fait
-    // le tour — le même choix que `clipNext`.
-    const toward = Math.max(0, Math.min(visible.length - 1, (since < 0 ? 0 : since) + not))
-    focus(visible[toward]?.id ?? null)
-  }
-
-  function pushUndo(clip: CandidateClip) {
-    setStack((p) => [...p, { clipId: clip.id, before: clip.status }])
-  }
-
-  function decide(decision: Decision) {
-    const clip = visible.find((c) => c.id === current)
-    if (clip === undefined) return
-    pushUndo(clip)
-    onStatus(clip.id, toggleStatus(clip.status, decision))
-    move(1)
-  }
-
-  function undo() {
-    const last = stack.at(-1)
-    if (last === undefined) return
-    // **Rien ne se défait hors de vue.** Reprendre une décision sur une carte
-    // que la vue courante n'affiche pas changerait l'état sans que rien ne bouge
-    // à l'écran — c'est la pire des corrections, celle qu'on ne voit pas, et
-    // c'est exactement ce que `U` existe pour éviter puisqu'il ramène sur la
-    // carte. La pile n'est pas vidée pour autant : revenir là où la carte est
-    // rend le geste, et sa cible.
-    if (element(last.clipId) === null) return
-    setStack((p) => p.slice(0, -1))
-    // **`exported` ne se réécrit pas.** Le serveur refuse ce statut en `PATCH` —
-    // un clip devient exporté parce qu'un MP4 a été produit, jamais parce que
-    // quelqu'un l'a écrit — et le rendu a de toute façon été écarté par la
-    // décision qu'on défait. `kept` est le maximum honnête.
-    onStatus(last.clipId, last.before === 'exported' ? 'kept' : last.before)
-    focus(last.clipId)
-  }
+  const { visible, current, select, focusCard: focus, move, decide, decideOn, undo, done } =
+    useSortLoop(clips, view, onStatus, attemptFocus)
 
   function open() {
     // Le lien de la carte, pas le routeur : une seule navigation, celle que le
@@ -281,8 +225,6 @@ export function ReviewFeed({
   })
 
   useReviewSession(projectId, current, view, focus)
-
-  const done = clips.length > 0 && counts.aSort === 0 && view === 'atrier'
 
   return (
     <div
@@ -495,7 +437,7 @@ export function ReviewFeed({
                     clip={clip}
                     proxyReady={proxyReady}
                     selected={clip.id === current}
-                    onSelection={() => setSelection(clip.id)}
+                    onSelection={() => select(clip.id)}
                     // **Le focus revient à la carte après un clic.** Il resterait
                     // sinon sur le bouton, que la garde des raccourcis écarte comme
                     // tout `button` : plus une seule touche ne répondrait, sans
@@ -505,13 +447,11 @@ export function ReviewFeed({
                     // d'usage attendu, pas un cas tordu. Un focus posé par programme
                     // ne déclenche pas `:focus-visible` : rien ne bouge à l'œil.
                     onKeep={() => {
-                      pushUndo(clip)
-                      onStatus(clip.id, toggleStatus(clip.status, 'kept'))
+                      decideOn(clip.id, 'kept')
                       focus(clip.id)
                     }}
                     onDiscard={() => {
-                      pushUndo(clip)
-                      onStatus(clip.id, toggleStatus(clip.status, 'discarded'))
+                      decideOn(clip.id, 'discarded')
                       focus(clip.id)
                     }}
                   />
@@ -559,133 +499,6 @@ function Empty({ title, detail }: { title: string; detail: string }) {
       <p className="mt-1 text-sm text-muted-foreground">{detail}</p>
     </div>
   )
-}
-
-/**
- * La liste affichée, **figée jusqu'au prochain changement de vue**.
- *
- * C'est la mécanique de « rien ne bouge sous la main » : une carte décidée reste
- * à sa place, marquée, et la grille ne reflue pas sous le curseur. Le compactage
- * se fait au changement de vue, et à ce moment-là seulement.
- *
- * **Elle ne fige que l'appartenance, pas les données.** Le jeu d'identifiants
- * est recalculé dès qu'un clip apparaît ou disparaît — une passe de repérage qui
- * se termine pendant qu'on trie ajoute des cartes, et les cacher jusqu'au
- * prochain changement de vue serait un vide inexplicable. Les statuts, eux,
- * viennent toujours de la liste vivante : ce sont les cartes qui se marquent,
- * pas la liste qui se réordonne.
- */
-function useViewFrozen(clips: readonly CandidateClip[], view: View): CandidateClip[] {
-  // Le séparateur est un octet nul, et non une espace : les identifiants de clip
-  // héritent du nom de fichier d'origine, espaces comprises, et deux listes
-  // différentes pourraient sinon produire la même chaîne — auquel cas la vue ne
-  // se rafraîchirait pas.
-  const identities = clips.map((c) => c.id).join('\u0000')
-  const [frozen, setFrozen] = useState(() => ({ view, identities, ids: idsForView(clips, view) }))
-
-  // Un ajustement d'état pendant le rendu, et non un effet : React rejoue le
-  // rendu avant de peindre, donc la grille ne s'affiche jamais dans son état
-  // d'avant. Un `useEffect` produirait une image intermédiaire à chaque
-  // changement de vue.
-  if (frozen.view !== view || frozen.identities !== identities) {
-    setFrozen({
-      view,
-      identities,
-      // **Un changement de vue recalcule ; une arrivée de clips complète.**
-      // Refiger depuis zéro sur un simple changement d'identifiants escamotait
-      // les cartes décidées — et le déclencheur est le bouton posé dans
-      // l'en-tête juste au-dessus : un repérage forcé conserve les décisions
-      // humaines **et** ajoute des candidats, donc le jeu d'identifiants change
-      // au moment précis où l'on vient de trier.
-      ids:
-        frozen.view !== view
-          ? idsForView(clips, view)
-          : clips
-              .filter((c) => frozen.ids.includes(c.id) || belongs(c.status, view))
-              .map((c) => c.id),
-    })
-  }
-
-  const byId = new Map(clips.map((c) => [c.id, c]))
-  return frozen.ids.flatMap((id) => {
-    const clip = byId.get(id)
-    return clip === undefined ? [] : [clip]
-  })
-}
-
-/**
- * Ce qu'un aller-retour vers un clip doit retrouver.
- *
- * **Le focus revient sur la carte d'où l'on est parti.** Sans cela le clavier
- * repart du haut de la page à chaque aller-retour, soit quatre fois par
- * émission. C'est l'écran de tri qui le porte : celui de clip n'en sait rien, il
- * ne fait que naviguer par un lien.
- */
-function useReviewSession(
-  projectId: string,
-  current: string | null,
-  view: View,
-  focus: (clipId: string | null) => boolean,
-) {
-  const poser = useRef(focus)
-  useEffect(() => {
-    poser.current = focus
-  })
-
-  // **Rejouée à chaque vue, et seulement sur un retour marqué.**
-  //
-  // Deux défauts se referment ici ensemble. Un retour par URL nue monte d'abord
-  // « à trier » : la vue mémorisée n'arrive qu'après, par un remplacement
-  // d'URL, donc une restauration jouée une seule fois au montage cherchait une
-  // carte qui n'existait pas encore et ne réessayait jamais — la vue revenait,
-  // le focus non. Et sans la marque de retour, la même mémoire s'appliquait à
-  // une visite ordinaire depuis la bibliothèque, qui emprunte la même URL nue :
-  // on volait le focus de quelqu'un qui ouvrait simplement le projet.
-  // (relevé par Codex et Copilot)
-  useEffect(() => {
-    const { card, scroll, view: memoized, returning } = lireSessionReview(projectId)
-    if (!returning) return
-
-    // Le défilement d'abord, le focus ensuite : une carte retrouvée place la vue
-    // plus précisément qu'une position en pixels, et son `scrollIntoView`
-    // l'emporte alors.
-    if (scroll > 0) window.scrollTo(0, scroll)
-    const posed = card !== null && poser.current(card)
-
-    // On consomme la marque quand la carte est retrouvée — ou quand on est
-    // arrivé dans la vue mémorisée sans l'y trouver : il n'y a alors plus rien à
-    // attendre, et laisser la marque ferait réessayer à chaque changement de vue
-    // pour le reste de la session.
-    if (posed || memoized === null || memoized === view) {
-      writeSessionReview(projectId, { returning: false })
-    }
-  }, [projectId, view])
-
-  useEffect(() => {
-    // **Étranglé à quatre écritures par seconde.** Un événement de défilement
-    // part à chaque image ; sérialiser la session soixante fois par seconde
-    // pour une valeur qu'on ne relit qu'au retour serait payer un travail
-    // continu pour un geste rare.
-    let scheduled = 0
-    function onScroll() {
-      if (scheduled !== 0) return
-      scheduled = window.setTimeout(() => {
-        scheduled = 0
-        writeSessionReview(projectId, { scroll: window.scrollY })
-      }, 250)
-    }
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => {
-      window.removeEventListener('scroll', onScroll)
-      // **On vide avant d'annuler.** Ouvrir un clip dans les 250 ms qui suivent
-      // un défilement démontait le composant, supprimait le minuteur sans qu'il
-      // ait écrit, et le retour restaurait l'ancienne position — c'est-à-dire
-      // pile le geste que cette mémoire existe pour servir. (relevé par Copilot)
-      if (scheduled === 0) return
-      window.clearTimeout(scheduled)
-      writeSessionReview(projectId, { scroll: window.scrollY })
-    }
-  }, [projectId])
 }
 
 /**

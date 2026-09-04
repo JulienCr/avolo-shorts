@@ -1,5 +1,7 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
+
 import { VIEWS, type View } from '@/components/review/template'
 
 /**
@@ -155,4 +157,62 @@ export function writeSessionReview(projectId: string, state: Partial<ReviewState
   } catch {
     // Quota, navigation privée : rien à réparer et rien à dire.
   }
+}
+
+/**
+ * Restores the focus and scroll a round trip to a clip screen left behind.
+ *
+ * The clip screen doesn't know this exists: it only leaves by a plain link,
+ * and this is the sort screen's own memory of where it was.
+ */
+export function useReviewSession(
+  projectId: string,
+  current: string | null,
+  view: View,
+  focus: (clipId: string | null) => boolean,
+): void {
+  const poser = useRef(focus)
+  useEffect(() => {
+    poser.current = focus
+  })
+
+  useEffect(() => {
+    const { card, scroll, view: memoized, returning } = lireSessionReview(projectId)
+    if (!returning) return
+
+    // Scroll first, focus second: a recovered card places the view more
+    // precisely than a pixel position, and its `scrollIntoView` then wins.
+    if (scroll > 0) window.scrollTo(0, scroll)
+    const posed = card !== null && poser.current(card)
+
+    // Replayed per view, only on a marked return: a bare-URL return mounts
+    // 'atrier' first and the memoized view lands later, so a mount-only replay
+    // would miss it; the mark also keeps an ordinary visit from being hijacked.
+    if (posed || memoized === null || memoized === view) {
+      writeSessionReview(projectId, { returning: false })
+    }
+  }, [projectId, view])
+
+  useEffect(() => {
+    // Throttled to four writes a second: a scroll event fires every frame,
+    // and serializing on each one would pay for a rare read.
+    let scheduled = 0
+    function onScroll() {
+      if (scheduled !== 0) return
+      scheduled = window.setTimeout(() => {
+        scheduled = 0
+        writeSessionReview(projectId, { scroll: window.scrollY })
+      }, 250)
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      // Flushed before cancelling: opening a clip within the 250ms window
+      // unmounted this before the timer wrote, and the return restored the
+      // stale position — exactly the gesture this memory exists to serve.
+      if (scheduled === 0) return
+      window.clearTimeout(scheduled)
+      writeSessionReview(projectId, { scroll: window.scrollY })
+    }
+  }, [projectId])
 }

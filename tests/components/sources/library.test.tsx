@@ -49,6 +49,7 @@ function project(id: string, partial: Partial<ProjectListItem> = {}): ProjectLis
     durationSec: 5_940,
     createdAt: '2025-06-15T19:04:00.000Z',
     running: null,
+    runningAll: [],
     error: null,
     warning: null,
     stopped: false,

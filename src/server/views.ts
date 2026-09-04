@@ -9,7 +9,7 @@ import type { CandidateClip, ProjectListItem, ProjectSummary } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
 import type { Project } from '@/server/db'
 import { candidatesPath, proxyPath } from '@/server/paths'
-import { pathTranscript, lireStatus, progression } from '@/server/run'
+import { pathTranscript, lireStatus, progression, progressionAll } from '@/server/run'
 import { lireTranscript, type TranscriptLu } from '@/server/steps/candidates'
 
 /**
@@ -80,6 +80,7 @@ export function listElement(project: Project): ProjectListItem {
   return {
     ...summaryProject(project),
     running,
+    runningAll: progressionAll(project.id),
     error: status?.error ?? null,
     // Même relevé qu'`error`, sans coût de plus — voir `ProjectListItem.warning`.
     warning: status?.warning ?? null,

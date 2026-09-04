@@ -781,7 +781,11 @@ describe('lancer', () => {
 
       const original = path.join(root, 'replays', `${PROJECT}.mp4`)
       expect(inputsSteps).toEqual([original, original])
-      expect(calls).toEqual(['proxy', 'audio'])
+      // `proxy` and `audio` have no edge between them, so both are ready at
+      // once; the DAG pump admits only one local step at a time and picks by
+      // `priorityFor` (audio: 10, proxy: 80) — the property this protects is
+      // that candidates arrive before the montage opens, never behind a proxy.
+      expect(calls).toEqual(['audio', 'proxy'])
     })
 
     /**

@@ -58,6 +58,7 @@ function state(fields: Partial<ProjectStatus> = {}): ProjectStatus {
       renders: false,
     },
     running: { step: 'candidates', progress: 0.5, waiting: null },
+    runningAll: [{ step: 'candidates', progress: 0.5, waiting: null }],
     error: null,
     warning: null,
     selectionReport: null,

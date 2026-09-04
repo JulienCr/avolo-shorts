@@ -25,6 +25,7 @@ function project(partial: Partial<LibraryProject> & { id: string }): LibraryProj
     title: partial.id,
     durationSec: 5_940,
     running: null,
+    runningAll: [],
     error: null,
     stopped: false,
     everRan: true,

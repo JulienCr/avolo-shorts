@@ -316,6 +316,7 @@ describe('GET /api/projects', () => {
       'everRan',
       'id',
       'running',
+      'runningAll',
       'stopped',
       'title',
       'warning',

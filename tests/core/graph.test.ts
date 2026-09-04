@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planSteps, type StepName } from '@/core/graph'
+import { dependenciesOf, planSteps, readySteps, type StepName } from '@/core/graph'
 
 /**
  * Le graphe de l'itération 0 : la **présence d'un fichier**, pas encore une clé
@@ -219,5 +219,48 @@ describe('planSteps — analysis', () => {
   // et le rendu se lance par clip, jamais par le graphe.
   it('ne fait pas repartir le repérage des candidats', () => {
     expect(planSteps('candidates', all, ['analysis'])).toEqual([])
+  })
+})
+
+describe('dependenciesOf', () => {
+  it('renvoie les dépendances directes de chaque étape', () => {
+    expect(dependenciesOf('candidates')).toEqual(['correction'])
+    expect(dependenciesOf('proxy')).toEqual([])
+  })
+})
+
+/**
+ * PR E : exécuter le plan comme le DAG qu'il décrit, pas comme une liste.
+ * `readySteps` ne connaît ni les ressources ni la priorité — l'exécuteur les
+ * applique — et son seul travail est de dire quelles étapes n'ont plus de
+ * dépendance en attente **dans ce plan**.
+ */
+describe('readySteps', () => {
+  const none = new Set<StepName>()
+
+  // La subtlété qui doit vivre dans le code et dans un test qui la nomme :
+  // une dépendance absente du plan est déjà sur le disque (contrat de
+  // `planSteps`), donc elle ne bloque rien. Sans cette règle, viser
+  // `['correction', 'candidates']` sur un transcript déjà là bloquerait pour
+  // toujours sur un `transcript` que personne n'a planifié.
+  it('ne bloque pas sur une dépendance absente du plan', () => {
+    expect(readySteps(['correction', 'candidates'], none, none)).toEqual(['correction'])
+  })
+
+  it('bloque sur une dépendance du plan qui n’est ni faite ni en cours', () => {
+    expect(readySteps(['audio', 'transcript'], none, none)).toEqual(['audio'])
+    expect(readySteps(['audio', 'transcript'], new Set(['audio']), none)).toEqual(['transcript'])
+  })
+
+  it('n’admet pas deux fois une étape déjà en cours', () => {
+    expect(readySteps(['proxy', 'analysis'], none, new Set(['proxy']))).toEqual([])
+  })
+
+  it('n’admet pas une étape déjà faite', () => {
+    expect(readySteps(['proxy', 'analysis'], new Set(['proxy']), none)).toEqual(['analysis'])
+  })
+
+  it('rend deux branches indépendantes prêtes à la fois, dans l’ordre du plan', () => {
+    expect(readySteps(['audio', 'proxy', 'transcript'], none, none)).toEqual(['audio', 'proxy'])
   })
 })

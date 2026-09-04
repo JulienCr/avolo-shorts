@@ -1,6 +1,6 @@
 import { getDb, getProject } from '@/server/db'
 import { notFound, json, route } from '@/server/http'
-import { lireStatus, progression, readingPresence } from '@/server/run'
+import { lireStatus, progression, progressionAll, readingPresence } from '@/server/run'
 import { summaryProject } from '@/server/views'
 
 /**
@@ -25,6 +25,7 @@ export const GET = route(
     // son échec, et l'invalidation des candidats qui la suit. (relevé par Copilot)
     const steps = await readingPresence(project)
     const running = progression(id)
+    const runningAll = progressionAll(id)
     // Une seule lecture du fichier pour les deux champs qui en sortent : il est
     // petit et local, mais le lire deux fois laisserait la porte ouverte à une
     // réponse qui mêle deux versions.
@@ -33,6 +34,7 @@ export const GET = route(
       project: summaryProject(project),
       steps,
       running,
+      runningAll,
       // **Le seul chemin de retour d'un échec de tâche de fond.** `lancer` a
       // répondu 202 quarante minutes plus tôt, et son rejet part dans une
       // promesse que personne n'attend : sans ce champ, une analyse qui échoue

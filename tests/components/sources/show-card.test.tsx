@@ -42,6 +42,7 @@ const PROJECT: ProjectListItem = {
   durationSec: 5_940,
   createdAt: '2025-06-15T19:04:00.000Z',
   running: null,
+  runningAll: [],
   error: null,
   warning: null,
   stopped: false,

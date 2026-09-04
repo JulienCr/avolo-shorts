@@ -5,6 +5,7 @@ import { Suspense, use } from 'react'
 import { AppBar } from '@/components/navigation/app-bar'
 import { ProjectScreen } from '@/components/review/project-screen'
 import { Skeleton } from '@/components/ui/skeleton'
+import { routeId } from '@/lib/navigation'
 
 /**
  * La route `/projects/:id`, réduite à ce qu'une route doit faire.
@@ -16,7 +17,8 @@ import { Skeleton } from '@/components/ui/skeleton'
  * demand ».
  */
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params)
+  const { id: raw } = use(params)
+  const id = routeId(raw)
   return (
     <Suspense fallback={<Loading id={id} />}>
       <ProjectScreen id={id} />

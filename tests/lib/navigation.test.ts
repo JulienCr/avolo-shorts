@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ClipStatus } from '@/core/edl'
 import type { StepName } from '@/core/graph'
 import { phaseProject, type Phase } from '@/core/phase'
-import { path, clipNext, planningLink, settingsLink, next } from '@/lib/navigation'
+import { path, clipNext, linkClip, linkProject, planningLink, routeId, settingsLink, next } from '@/lib/navigation'
 
 const project = { id: 'p1', title: 'La scène Avolo du 15 juin' }
 
@@ -238,6 +238,44 @@ describe('suite', () => {
     // `{ triable, livre }` : le proxy a disparu du disque après coup, mais tous
     // les MP4 sont là. Il n'y a rien à attendre.
     expect(next({ analysis: 'sortable', work: 'delivered' }, project).kind).toBe('action')
+  })
+})
+
+describe('routeId', () => {
+  /**
+   * The invariant is the round trip: `linkProject` and `linkClip` encode, and
+   * a route hands the segment back still encoded. Assert the pair, not the
+   * decoding alone — a decoder that is right about a string nobody builds is
+   * worth nothing.
+   */
+  const segment = (url: string): string => url.slice(url.lastIndexOf('/') + 1)
+
+  it('rend un identifiant accentué à l’identique après l’aller-retour', () => {
+    const id = '2026-01-11-méchante'
+    expect(segment(linkProject(id))).toBe('2026-01-11-m%C3%A9chante')
+    expect(routeId(segment(linkProject(id)))).toBe(id)
+  })
+
+  it('rend un identifiant à espaces à l’identique — le cas courant des replays', () => {
+    const id = 'Emission du 5 mai'
+    expect(segment(linkProject(id))).toBe('Emission%20du%205%20mai')
+    expect(routeId(segment(linkProject(id)))).toBe(id)
+  })
+
+  it('fait l’aller-retour sur un identifiant de clip, qui hérite de celui du projet', () => {
+    const id = '2026-01-11-méchante_005472883-005518477'
+    expect(routeId(segment(linkClip(id)))).toBe(id)
+  })
+
+  it('rend le segment tel quel plutôt que de lever sur un encodage invalide', () => {
+    // A malformed URL names no project: it must end in a 404, never in an
+    // error screen.
+    expect(routeId('%')).toBe('%')
+    expect(routeId('%zz')).toBe('%zz')
+  })
+
+  it('laisse intact un identifiant qui n’a rien à décoder', () => {
+    expect(routeId('2025-06-15-cqlp')).toBe('2025-06-15-cqlp')
   })
 })
 

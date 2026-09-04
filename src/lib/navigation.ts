@@ -84,6 +84,22 @@ export function linkClip(clipId: string): string {
 }
 
 /**
+ * The id a route hands back, decoded — the return leg of `linkProject` and
+ * `linkClip`, which encode it.
+ *
+ * @param raw - The route segment, as Next hands it over: still percent-encoded.
+ * @returns The decoded id, or `raw` when it is not valid percent-encoding. A
+ * malformed URL matches no project and must 404, never throw.
+ */
+export function routeId(raw: string): string {
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
+/**
  * Le fil d'Ariane du lieu.
  *
  * **La racine n'y figure pas** : la marque du produit occupe déjà ce cran dans

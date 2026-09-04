@@ -7,6 +7,7 @@ import { AppBar } from '@/components/navigation/app-bar'
 import { ClipScreen } from '@/components/clip/clip-screen'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { routeId } from '@/lib/navigation'
 import { useClip } from '@/lib/queries'
 
 /**
@@ -18,7 +19,8 @@ import { useClip } from '@/lib/queries'
  * par `use(params)`.
  */
 export default function ClipPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params)
+  const { id: raw } = use(params)
+  const id = routeId(raw)
   const detail = useClip(id)
 
   return (

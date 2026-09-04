@@ -27,9 +27,8 @@ export function SortScreen({ scope }: { scope: SortScope }) {
 
   const clips = candidates.data ?? []
   const steps = project.data?.steps ?? ({} as Record<StepName, boolean>)
-  // **Le même geste que `ProjectScreen`** : le proxy est un seul fichier par
-  // projet, jamais par clip — `steps.proxy` en dit la présence pour tous les
-  // candidats à la fois.
+  // Same check as `ProjectScreen`: the proxy is one file per project, never
+  // per clip, so `steps.proxy` speaks for every candidate at once.
   const proxyReady = steps.proxy === true
   const title = project.data?.project.title ?? projectId
 
@@ -53,7 +52,7 @@ export function SortScreen({ scope }: { scope: SortScope }) {
         {!project.isSuccess && !candidates.isSuccess ? (
           <Skeleton className="aspect-video w-full max-w-3xl self-center rounded-xl" />
         ) : !proxyReady ? (
-          <NoProxy />
+          <NoProxy projectId={projectId} />
         ) : (
           <SortStage
             projectId={projectId}
@@ -68,7 +67,7 @@ export function SortScreen({ scope }: { scope: SortScope }) {
   )
 }
 
-function NoProxy() {
+function NoProxy({ projectId }: { projectId: string }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
       <Film className="size-6 text-muted-foreground/50" aria-hidden />
@@ -76,6 +75,9 @@ function NoProxy() {
         Cette vue s’ouvre avec le proxy, en cours d’encodage : elle ne peut pas jouer une vidéo qui
         n’existe pas encore.
       </p>
+      <Link href={linkProject(projectId)} className="text-sm underline hover:no-underline">
+        Trier sur la grille en attendant
+      </Link>
     </div>
   )
 }

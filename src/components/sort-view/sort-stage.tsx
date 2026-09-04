@@ -113,7 +113,7 @@ export function SortStage({
     <div
       ref={stage}
       tabIndex={-1}
-      className="flex flex-1 flex-col items-center justify-center gap-4 outline-none"
+      className="flex h-full min-h-0 flex-1 flex-col items-center gap-3 outline-none"
     >
       <p className="text-sm text-muted-foreground">
         <span data-testid="remaining" className="font-mono tabular-nums">
@@ -126,46 +126,51 @@ export function SortStage({
         <p className="text-sm text-muted-foreground">Rien à trier pour le moment.</p>
       ) : (
         <>
-          <div className="relative aspect-video w-full max-w-3xl overflow-hidden rounded-xl bg-zinc-950">
-            {proxyUrl !== null && (
-              <video
-                ref={video}
-                src={proxyUrl}
-                muted={muted}
-                playsInline
-                onTimeUpdate={onTimeUpdate}
-                onSeeked={onTimeUpdate}
-                className="size-full object-contain"
-              />
-            )}
-            {muted && (
-              <Badge
-                variant="outline"
-                className="absolute top-2 right-2 gap-1 bg-black/55 text-white backdrop-blur-sm"
-              >
-                <VolumeX className="size-3" aria-hidden />
-                <button type="button" onClick={() => setMuted(false)} className="underline">
-                  son coupé
-                </button>
-              </Badge>
-            )}
-            {showsPassMarker && (
-              <Badge data-testid="pass-marker" variant="outline" className="absolute top-2 left-2 bg-black/55 text-white backdrop-blur-sm">
-                nouvelle passe
-              </Badge>
-            )}
+          {/* The video is this screen's whole reason to exist, so it gets the
+              remaining height rather than a fixed `max-w`: the surrounding
+              flex column lets it grow, `aspect-video` keeps its shape. */}
+          <div className="flex w-full min-h-0 flex-1 items-center justify-center">
+            <div className="relative aspect-video h-full max-h-full max-w-full overflow-hidden rounded-xl bg-zinc-950">
+              {proxyUrl !== null && (
+                <video
+                  ref={video}
+                  src={proxyUrl}
+                  muted={muted}
+                  playsInline
+                  onTimeUpdate={onTimeUpdate}
+                  onSeeked={onTimeUpdate}
+                  className="size-full object-contain"
+                />
+              )}
+              {muted && (
+                <Badge
+                  variant="outline"
+                  className="absolute top-2 right-2 gap-1 bg-black/55 text-white backdrop-blur-sm"
+                >
+                  <VolumeX className="size-3" aria-hidden />
+                  <button type="button" onClick={() => setMuted(false)} className="underline">
+                    son coupé
+                  </button>
+                </Badge>
+              )}
+              {showsPassMarker && (
+                <Badge data-testid="pass-marker" variant="outline" className="absolute top-2 left-2 bg-black/55 text-white backdrop-blur-sm">
+                  nouvelle passe
+                </Badge>
+              )}
+            </div>
           </div>
 
           <p data-testid="stage-title" className="text-base font-medium">
             {currentClip.title || currentClip.id}
           </p>
 
-          <div className="flex items-center gap-3">
-            <Button size="lg" variant="outline" onClick={() => decide('discarded')}>
-              Écarter
-            </Button>
+          <div className="flex items-center gap-3 pb-2">
             <Button size="lg" onClick={() => decide('kept')}>
               Garder
+            </Button>
+            <Button size="lg" variant="outline" onClick={() => decide('discarded')}>
+              Écarter
             </Button>
           </div>
         </>

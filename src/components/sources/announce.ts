@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-import { RESOURCE_LABEL } from '@/components/review/progress'
+import { RESOURCE_OF } from '@/components/review/progress'
 import { LABELS_STEPS } from '@/core/phase'
 import type { Resource } from '@/core/resources'
 import type { ProjectListItem, StepName } from '@/lib/api'
@@ -116,7 +116,7 @@ function announce(
     ) {
       messages.push(
         now.resource !== null
-          ? `${p.title} : en attente de ${RESOURCE_LABEL[now.resource]}.`
+          ? `${p.title} : en attente ${RESOURCE_OF[now.resource]}.`
           : `${p.title} : ${LABELS_STEPS[now.step]}.`,
       )
     } else if (now === undefined && before !== undefined) {

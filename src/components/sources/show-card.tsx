@@ -239,14 +239,14 @@ function StateLine({ entry, creating }: { entry: Entry; creating: boolean }) {
       <Progress
         value={percent}
         locale="fr-FR"
-        aria-label={`${label} en cours`}
+        aria-label={waiting != null ? `${label} en attente — ${RESOURCE_NOUN[waiting.resource]}` : `${label} en cours`}
         className="w-full gap-x-2 gap-y-0.5"
       >
         <span className="text-xs font-normal text-muted-foreground">{label}</span>
-        {/* Seul le pourcentage cède sa place à l'attente : la barre reste, et
-            c'est ce qui garde `CARD_HEIGHT` constant (issue #56). */}
+        {/* Only the percentage yields to the wait: the bar stays, and that is
+            what keeps `CARD_HEIGHT` constant (issue #56). */}
         <span className="ml-auto text-xs font-normal text-muted-foreground tabular-nums">
-          {waiting !== null ? `En attente — ${RESOURCE_NOUN[waiting.resource]}` : `${percent} %`}
+          {waiting != null ? `En attente — ${RESOURCE_NOUN[waiting.resource]}` : `${percent} %`}
         </span>
       </Progress>
     )

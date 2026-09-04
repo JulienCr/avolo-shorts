@@ -681,6 +681,24 @@ describe('lancer', () => {
     expect(calls).toEqual(['audio', 'transcript', 'correction', 'candidates'])
   })
 
+  /**
+   * `GET /api/projects/:id` attend sa propre sonde (`readingPresence`) avant
+   * de lire `progression()`, précisément pour ne pas manquer un lancement qui
+   * aurait démarré pendant cette attente (voir ce fichier). Ce garde-fou
+   * suppose que `progression()` n'est jamais `null` dès qu'un projet est dans
+   * `inCurrent` — y compris avant que `launch()` ait fini de calculer son
+   * propre plan.
+   */
+  it('progression() n’est jamais nul entre l’inscription et le plan calculé', async () => {
+    poserProject()
+    const promise = launch(PROJECT, ['proxy'], { db, steps: stepsFake() })
+    // Rien d'asynchrone n'a encore résolu : la portion synchrone de `launch()`
+    // (avant son premier `await`) a tourné, le reste non.
+    expect(progression(PROJECT)).not.toBeNull()
+    await promise
+    await waitFin()
+  })
+
   it('force entraîne l’aval avec lui', async () => {
     poserProject()
     poserTranscript()
@@ -1021,6 +1039,33 @@ describe("l'étape correction", () => {
     const status = lireStatus(PROJECT)
     expect(status?.error).toContain('ENOSPC')
     expect(status?.warning).toBeNull()
+  })
+
+  /**
+   * `error: null` est le sentinelle de succès de la pompe, et JavaScript
+   * autorise `throw null`. Sans normalisation, cette panne se lirait comme
+   * une réussite : `candidates` passerait en `done`, `error` resterait `null`.
+   */
+  it('lever littéralement `null` reste un échec, jamais un succès silencieux', async () => {
+    poserProject()
+    poserTranscript()
+    poserCorrection()
+
+    await launch(PROJECT, ['candidates'], {
+      db,
+      steps: {
+        ...stepsFake(),
+        runCandidates: async () => {
+          calls.push('candidates')
+          throw null
+        },
+      },
+    })
+    await waitFin()
+
+    const status = lireStatus(PROJECT)
+    expect(status?.error).not.toBeNull()
+    expect(status?.stopped).toBe(false)
   })
 
   it('un échec de suppression de l’ancien candidates.json ne fait pas échouer la correction (#141)', async () => {

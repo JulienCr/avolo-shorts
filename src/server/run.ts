@@ -824,11 +824,15 @@ export async function launch(
   // course entre deux requêtes simultanées, et elle ne la ferme que si aucun
   // point d'attente ne s'intercale entre le contrôle et la pose.
   if (inCurrent.has(projectId)) throw new ExecutionInCurrentError(projectId)
+  // Placeholder set synchronously, so `progression()` is never `null` for an
+  // execution already in `inCurrent` — `GET /api/projects/:id` awaits its own
+  // `readingPresence` first and would otherwise miss a launch started meanwhile.
+  const initialStep = targets[0] ?? 'candidates'
   const execution: Execution = {
     projectId,
     targets: [...targets],
     plan: [],
-    current: new Map(),
+    current: new Map([[initialStep, { progress: 0, waiting: null }]]),
     detection: 'absent',
     lastWrite: 0,
     finished: Promise.resolve(),
@@ -850,16 +854,15 @@ export async function launch(
 
     const presence = await readingPresence(project)
     execution.plan = planForTargets(targets, presence, force)
-    // **L'oubli est posé au lancement, pas à l'entrée du repérage.** Une
-    // exécution qui vise `candidates` peut passer une demi-heure dans la
-    // transcription avant d'y arriver, et `status.json` publierait pendant tout
-    // ce temps le décompte de la passe précédente comme s'il décrivait celle-ci.
-    // `runCandidates` refait ce nettoyage pour son propre compte — il s'appelle
-    // aussi hors du lanceur —, ce qui ne le rend pas redondant ici.
+    // **L'oubli est posé au lancement**, pas à l'entrée du repérage : sinon
+    // une demi-heure jusqu'à `candidates` publierait le décompte de la passe
+    // précédente entre-temps (`runCandidates` refait ce nettoyage aussi).
     if (execution.plan.includes('candidates')) forgetSummary(projectId)
-    // Placeholder before the pump starts, for ingest's progress; `runStep`
-    // overwrites it once that step is actually admitted.
-    execution.current.set(execution.plan[0] ?? targets[0] ?? 'candidates', { progress: 0, waiting: null })
+    // Refines the placeholder above to the plan's actual first step, removing
+    // the old key so the two don't coexist — `runStep` overwrites this one.
+    const planStep = execution.plan[0] ?? targets[0] ?? 'candidates'
+    if (planStep !== initialStep) execution.current.delete(initialStep)
+    execution.current.set(planStep, { progress: 0, waiting: null })
 
     // Ingestion is decided ahead, not inside the execution: a re-registered
     // project left `0:00` forever without this, and the first `run --force`
@@ -1018,18 +1021,13 @@ async function execute(
   const resourceScheduler = options.scheduler ?? defaultScheduler()
   const { projectId } = execution
   let project = projectInitial
-  // **Portée par l'exécution, jamais par un throw.** L'étape `correction`
-  // avale une panne du modèle plutôt que d'arrêter toute l'analyse (voir son
-  // `case` dans `executeStep`) ; ce que cette variable porte, c'est ce que
-  // `status.json` doit dire malgré tout — sinon la panne n'échoue pas, elle
-  // disparaît.
+  // **Portée par l'exécution, jamais par un throw** : `correction` avale une
+  // panne du modèle plutôt que d'arrêter l'analyse, et cette variable porte ce
+  // que `status.json` doit dire malgré tout — sinon la panne disparaît.
   let correctionWarning: string | null = null
   /** The step whose error, if any, is reported first — see the pump below. */
   let firstFailedStep: StepName | null = null
-  /**
-   * The first error the pump recorded, if any — read by the outer `catch`
-   * too, so a failure already in hand survives a stop requested afterward.
-   */
+  /** The first error recorded — read by the outer `catch` too, so it survives a stop requested afterward. */
   let firstError: unknown = null
 
   const advance = (step: StepName, fraction: number | null): void => {
@@ -1138,7 +1136,9 @@ async function execute(
       // A cut pass has not failed, it has not finished — both publish
       // `partial: true`, but one is an incident and the other a decision.
       if (step === 'candidates') execution.detection = signal.aborted ? 'running' : 'failed'
-      return { step, error: cause }
+      // `error: null` is the pump's own "succeeded" sentinel; JS lets code
+      // `throw null` (or `undefined`), which would otherwise read as one.
+      return { step, error: cause ?? new Error(`${step} a échoué sans cause explicite`) }
     } finally {
       // `hold()` can throw without losing the local token (scheduler.test.ts);
       // this `finally` must absorb it, or the "never rejects" promise above
@@ -1272,11 +1272,9 @@ async function execute(
       writeStoppedStatus([])
       return
     }
-    // **Le message complet au journal, sa version épurée dans le fichier.** Les
-    // erreurs de `runFfmpeg`, `statWithDelay` et `launchWorker` portent la
-    // commande entière, chemins absolus compris : c'est ce qu'il faut sous les
-    // yeux pour diagnostiquer, et c'est ce qui n'a rien à faire dans un fichier
-    // qu'on recopie dans un rapport ou qu'une route finirait par servir.
+    // **Le message complet au journal, sa version épurée dans le fichier** :
+    // `runFfmpeg`/`statWithDelay`/`launchWorker` portent la commande entière,
+    // chemins absolus compris, utile au diagnostic mais pas à un rapport recopié.
     console.error(`[${projectId}] échec sur ${firstFailedStep ?? execution.plan[0] ?? execution.targets[0] ?? '?'} :`, cause)
     writeStatus(
       projectId,

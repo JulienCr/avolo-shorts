@@ -335,4 +335,44 @@ describe('la correction sur Ollama contend avec le transcript', () => {
     gateA.resolve()
     await wait(A)
   })
+
+  it('un basculement vers Ollama en cours d’exécution reclasse `correction` sur le gpu', async () => {
+    createProjectFixture(A)
+    createProjectFixture(B)
+    const gateA = deferred()
+    const gateB = deferred()
+
+    // Network provider at launch: under the old frozen classification,
+    // `correction` would stay on `net` even after the switch below.
+    await launch(B, ['correction'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        transcribe: stepsTranscript(B, gateB.promise).transcribe,
+        applyTranscriptCorrections: async () => {
+          calls.push(`${B}:correction:start`)
+          return { entries: [], applied: 0, failed: 0, rejected: {} }
+        },
+      },
+    })
+    await pollUntil(() => calls.includes(`${B}:transcript:start`))
+
+    await launch(A, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(A, gateA.promise) })
+    await pollUntil(() => progression(A)?.waiting?.resource === 'gpu')
+
+    // Switched while B still holds the gpu for its transcript — so before
+    // the `correction` step runs.
+    applySettings(db, { ai: { correctionProvider: 'ollama' } })
+
+    gateB.resolve()
+    // A was queued before B released the gpu: it gets it first, so B's
+    // `correction` must in turn wait for it.
+    await pollUntil(() => progression(B)?.step === 'correction' && progression(B)?.waiting?.resource === 'gpu')
+    expect(calls).not.toContain(`${B}:correction:start`)
+
+    gateA.resolve()
+    await wait(A)
+    await wait(B)
+    expect(calls).toContain(`${B}:correction:start`)
+  })
 })

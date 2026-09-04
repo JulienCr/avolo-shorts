@@ -637,6 +637,12 @@ Ces points vivent dans `CLAUDE.md` et dans la spec, rappelés ici pour mémoire 
   configurée sur Ollama — la correction, mais aussi la sélection —, entre
   projets et à travers les processus par un fichier de verrou. Une étape sur
   un fournisseur réseau ne prend que le jeton `net`, sans rapport avec le GPU.
+  Le classement se relit à chaque étape, jamais figé au lancement (le fige
+  ferait manquer un basculement de fournisseur en cours de route). Une
+  fenêtre résiduelle subsiste entre ce classement et l'appel réel du client
+  LLM, qui relit lui aussi les réglages : quelques millisecondes, non fermée
+  — la fermer demanderait de faire transiter le fournisseur résolu jusque
+  dans `transcript-correction.ts`, `candidates.ts` et `registry.ts`.
 - Pas de Docker. Node natif, Python en venv, ffmpeg natif.
 
 ## Le port de l'application

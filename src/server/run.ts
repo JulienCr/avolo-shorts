@@ -6,7 +6,7 @@ import type Database from 'better-sqlite3'
 import { planSteps, type StepName } from '@/core/graph'
 import type { SelectionReport } from '@/lib/api'
 import { progressWorker } from '@/core/pipeline'
-import { priorityFor, resourceFor, type LocalModels, type Resource, type Wait } from '@/core/resources'
+import { priorityFor, resourceFor, type Resource, type Wait } from '@/core/resources'
 import { isAAbsence } from '@/server/bytes'
 import {
   copiesSourceLocally,
@@ -852,9 +852,6 @@ export async function launch(
     // qu'aucune relance ne pouvait plus débloquer. La valeur lue ici vaut pour
     // tout le reste du lancement (relevé par la review de la PR #113).
     const copyLocally = copiesSourceLocally(db)
-    // One read for the whole execution, like `copyLocally` above: over-reserve
-    // the GPU if the setting changes mid-run, never under-reserve.
-    const models = localModels(effectiveSettings(db).ai)
     const doitIngest = ingestionNecessary(project, execution.plan, copyLocally)
 
     // Un plan vide n'est pas une exécution : tout est déjà là, il n'y a rien à
@@ -880,7 +877,7 @@ export async function launch(
     }
 
     publish(execution, true)
-    execution.finished = execute(execution, project, db, options, doitIngest, copyLocally, models).finally(() => {
+    execution.finished = execute(execution, project, db, options, doitIngest, copyLocally).finally(() => {
       inCurrent.delete(projectId)
       // **Le nettoyage du cache de travail, après traitement** (retour d'usage
       // §5). Best effort et sans attente : il ne fait pas partie de
@@ -1000,7 +997,6 @@ async function execute(
   options: OptionsLaunch,
   doitIngest: boolean,
   copyLocally: boolean,
-  models: LocalModels,
 ): Promise<void> {
   const steps = { ...STEPS, ...options.steps }
   const resourceScheduler = options.scheduler ?? defaultScheduler()
@@ -1100,7 +1096,10 @@ async function execute(
       publish(execution, true)
       console.log(`[${projectId}] ${step}…`)
 
-      const resource = resourceFor(step, models)
+      // Resolved as late as possible: the step's LLM client
+      // (`createCallFromSettings`, `registry.ts`) reads settings live, on
+      // every call — an earlier snapshot here could name the wrong resource.
+      const resource = resourceFor(step, localModels(effectiveSettings(db).ai))
       const hold =
         resource === null
           ? null

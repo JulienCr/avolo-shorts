@@ -44,9 +44,9 @@ describe('processAlreadyKey', () => {
   })
 
   it('écarte le contenu d’une boîte de dialogue', () => {
-    // Le popup de Base UI porte `role="dialog"` et `tabIndex={-1}` : cliquer son
-    // texte en fait l'élément actif. Sans lui dans la garde, `P` déciderait une
-    // carte qu'on ne voit pas, derrière la boîte.
+    // Base UI's popup carries `role="dialog"` and `tabIndex={-1}`: clicking its
+    // text makes it the active element. Without this guard entry, `P` would
+    // decide a card it cannot see, sitting behind the dialog.
     const popup = mount('<div role="dialog"><p>P — garder</p></div>')
     expect(processAlreadyKey(popup)).toBe(true)
     expect(processAlreadyKey(popup.firstElementChild)).toBe(true)
@@ -130,13 +130,25 @@ describe('useShortcutsReview', () => {
     expect(actions.aide).toHaveBeenCalledTimes(1)
   })
 
-  it('rend la main dès qu’un modificateur est enfoncé', async () => {
-    // `Ctrl+P` ouvre la boîte d'impression : voler cette touche-là ferait
-    // perdre un geste du navigateur pour rien.
+  it('ignore les anciennes touches « G »/« E », sans alias', async () => {
+    const actions = actionsMute()
+    render(<Harness actions={actions} />)
+    const user = userEvent.setup()
 
-    // **La frappe part d'une carte, pas de `document`.** La garde des cibles
-    // rend `true` pour tout ce qui n'est pas un `HTMLElement` : sur `document`,
-    // elle écarterait déjà la frappe, laissant le test vert sans rien prouver.
+    await user.click(screen.getByTestId('card'))
+    await user.keyboard('ge')
+
+    expect(actions.garder).not.toHaveBeenCalled()
+    expect(actions.ecarter).not.toHaveBeenCalled()
+  })
+
+  it('rend la main dès qu’un modificateur est enfoncé', async () => {
+    // `Ctrl+P` opens the print dialog: stealing that key would cost a browser
+    // gesture for nothing.
+
+    // **The keystroke starts from a card, not from `document`.** The target
+    // guard returns `true` on anything that isn't an `HTMLElement`, so on
+    // `document` it would pass vacuously and prove nothing.
     const actions = actionsMute()
     render(<Harness actions={actions} />)
     const user = userEvent.setup()

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 
 /**
- * La boucle de tri : les trois comportements dont une régression serait
- * silencieuse (spec §5.5).
+ * The sort loop: the three behaviours a regression would leave silent
+ * (spec §5.5).
  *
- * `P` avance, `U` revient sur la carte précédente, et une carte décidée ne bouge
- * pas. Aucun des trois ne se voit dans un test pur — ce sont des faits de focus
- * et d'ordre à l'écran —, et les trois se paient trente fois par émission.
+ * `P` advances, `U` reverts the previous card, and a decided card does not
+ * move. None of the three shows up in a pure unit test — they are facts of
+ * focus and on-screen order — and each is paid thirty times per show.
  */
 
 import { cleanup, render, screen, within } from '@testing-library/react'

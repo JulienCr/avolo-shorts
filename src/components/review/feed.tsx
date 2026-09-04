@@ -44,13 +44,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 /**
- * Le fil de tri : vingt-cinq à trente cartes, deux décisions par carte,
- * chacune réversible. Le clavier, l'immobilité de la carte décidée et le
- * compteur du reste à faire portent cette boucle — voir spec §2.5.
+ * The sort feed: twenty-five to thirty cards, two decisions per card, each
+ * reversible. Keyboard shortcuts, the decided card staying put, and the
+ * remaining-count carry this loop — see spec §2.5.
  *
- * Il ne va pas chercher ses données : la page les lui passe. C'est ce qui le
- * rend montable dans un test sans serveur ni cache, et c'est là que vivent
- * les comportements dont une régression serait silencieuse.
+ * It does not fetch its own data: the page hands it clips. That is what makes
+ * it mountable in a test without a server or a cache, and where the
+ * behaviours a regression would leave silent actually live.
  */
 export function ReviewFeed({
   projectId,

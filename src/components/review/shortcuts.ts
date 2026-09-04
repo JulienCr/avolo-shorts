@@ -43,9 +43,9 @@ const ALREADY_TAKEN = [
   // l'anneau de sélection resté sur la carte.
   '[role="checkbox"]',
   'summary',
-  // **Le contenu d'une boîte de dialogue, popup compris.** Celui de Base UI
-  // porte `role="dialog"` et `tabIndex={-1}` : cliquer son texte en fait
-  // l'élément actif, et sans lui ici `P` déciderait une carte sous la boîte.
+  // **Dialog content, popups included.** Base UI's carries `role="dialog"`
+  // and `tabIndex={-1}`: clicking its text makes it the active element, and
+  // without this entry `P` would decide a card sitting under the dialog.
   '[role="dialog"]',
   '[role="alertdialog"]',
   // **Le contenu éditable est nommé ici en plus d'`isContentEditable`.** La
@@ -139,9 +139,9 @@ export function useShortcutsReview(actions: ActionsReview): void {
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      // `Ctrl+P` ouvre la boîte d'impression : voler cette touche-là ferait
-      // perdre un geste du navigateur pour rien. `Shift` reste admis — `?` en
-      // a besoin sur un AZERTY.
+      // This modifier guard is why `Ctrl+P` still opens the print dialog
+      // instead of keeping a card: stealing it would cost a browser gesture
+      // for nothing. `Shift` stays allowed — `?` needs it on AZERTY.
       if (event.ctrlKey || event.metaKey || event.altKey) return
       if (processAlreadyKey(event.target)) return
 

@@ -130,6 +130,11 @@ export function PanelProgress({
                 ? `${LABELS_STEPS[running.step]} en attente ${RESOURCE_OF[leadingWait.resource]}`
                 : `${LABELS_STEPS[running.step]} en cours`
             }
+            // Without it the bar still reads its `aria-valuenow` aloud, so a
+            // queued step would be announced as « en attente…, 0 % ».
+            aria-valuetext={
+              leadingWait !== null ? `en attente ${RESOURCE_OF[leadingWait.resource]}` : undefined
+            }
           />
         </div>
       )}
@@ -159,7 +164,9 @@ export function PanelProgress({
                   tests et la couleur ne s'entend pas : sans ce mot, la liste
                   donnait les noms et les coûts sans dire ce qui est fait.
                   (relevé par Copilot) */}
-              <span className="sr-only">{LABELS_STATE[state]}</span>
+              {/* `queued` says it in full just below — state, resource and
+                  elapsed wait — so the generic word would be heard twice. */}
+              {state !== 'queued' && <span className="sr-only">{LABELS_STATE[state]}</span>}
               {state === 'running' && entry !== null && (
                 <span className="font-mono text-xs tabular-nums">{percent(entry.progress)} %</span>
               )}
@@ -218,8 +225,9 @@ export function PanelProgress({
 }
 
 /**
- * What a running analysis says out loud: step changes and the end, never
- * progress — the screen polls every two seconds.
+ * What a running analysis says out loud: step changes, a step entering the
+ * queue, and the end — never progress, since the screen polls every two
+ * seconds.
  *
  * It sits above the layout, never inside the panel, which is unmounted at the
  * one moment worth announcing. And the text is computed during render, never
@@ -228,11 +236,14 @@ export function PanelProgress({
  */
 export function AnnouncementDStep({
   running,
+  runningAll,
   steps,
   connu,
   everRan = true,
 }: {
   running: { step: StepName; waiting?: Wait | null } | null
+  /** Every step in flight, so a second one entering the queue is announced. */
+  runningAll?: readonly { step: StepName; waiting?: Wait | null }[]
   steps: Record<StepName, boolean>
   /**
    * L'état du projet a-t-il répondu ?
@@ -247,14 +258,17 @@ export function AnnouncementDStep({
   /** Défaut `true`, comme dans `phaseProject` — voir spec §12. */
   everRan?: boolean
 }) {
-  const waiting = running?.waiting ?? null
+  // The queued step, not necessarily the leading one: the panel lists both,
+  // so a second step entering the queue is a change worth announcing.
+  const inFlight = runningAll ?? (running !== null ? [running] : [])
+  const queued = inFlight.find((r) => r.waiting != null) ?? null
   return (
     <p data-testid="announcement" aria-live="polite" className="sr-only">
       {!connu
         ? ''
         : running !== null
-          ? waiting !== null
-            ? `${LABELS_STEPS[running.step]} : en attente ${RESOURCE_OF[waiting.resource]}.`
+          ? queued?.waiting != null
+            ? `${LABELS_STEPS[queued.step]} : en attente ${RESOURCE_OF[queued.waiting.resource]}.`
             : `${LABELS_STEPS[running.step]} en cours.`
           : STEPS.every(({ name }) => steps[name] === true)
             ? 'L’analyse est terminée.'

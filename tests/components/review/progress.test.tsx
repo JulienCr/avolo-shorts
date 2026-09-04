@@ -262,6 +262,9 @@ describe('PanelProgress', () => {
     const step = screen.getByTestId('step-transcript')
     expect(step.getAttribute('data-status')).toBe('queued')
     expect(step.querySelector('.animate-spin')).toBeNull()
+    // Naming the icon, not merely its absence of animation: the upcoming
+    // marker would satisfy that on its own.
+    expect(step.querySelector('.lucide-hourglass')).not.toBeNull()
     expect(step.textContent).toMatch(/en attente de la carte graphique depuis 4 min/)
   })
 
@@ -270,6 +273,20 @@ describe('PanelProgress', () => {
     // line jump once the step actually starts.
     mount(['audio'], waitingGpu)
     expect(screen.getByTestId('step-transcript').textContent).toMatch(/environ/)
+  })
+
+  it('ne redit pas « en attente » avant la phrase qui le dit déjà', () => {
+    mount(['audio'], waitingGpu)
+    const text = screen.getByTestId('step-transcript').textContent ?? ''
+    expect(text.match(/en attente/g)?.length).toBe(1)
+  })
+
+  it('ne laisse pas la barre relire le pourcentage qu’elle vient de remplacer', () => {
+    // The bar stays determinate, so without `aria-valuetext` a screen reader
+    // appends « 0 % » to a label that says the step has not started.
+    mount(['audio'], waitingGpu)
+    const bar = screen.getByRole('progressbar', { name: /transcription/i })
+    expect(bar.getAttribute('aria-valuetext')).toMatch(/en attente de la carte graphique/)
   })
 
   it('contracte l’article sur le processeur, le cas le plus courant', () => {
@@ -356,6 +373,17 @@ describe('AnnouncementDStep', () => {
     expect(screen.getByTestId('announcement').textContent).toMatch(
       /Transcription.*en attente de la carte graphique/i,
     )
+  })
+
+  it('annonce la seconde étape qui entre en file, pas seulement celle de tête', () => {
+    // The panel lists both steps, so a second one queueing is a change worth
+    // saying — the leading step never changed.
+    const local = { step: 'transcript' as StepName, waiting: null }
+    const queued = { step: 'candidates' as StepName, waiting: { resource: 'net' as const, waitedMs: 0 } }
+    render(
+      <AnnouncementDStep running={local} runningAll={[local, queued]} steps={reading(['audio'])} connu />,
+    )
+    expect(screen.getByTestId('announcement').textContent).toMatch(/Repérage.*en attente du réseau/i)
   })
 })
 

@@ -240,6 +240,9 @@ function StateLine({ entry, creating }: { entry: Entry; creating: boolean }) {
         value={percent}
         locale="fr-FR"
         aria-label={waiting != null ? `${label} en attente — ${RESOURCE_NOUN[waiting.resource]}` : `${label} en cours`}
+        // Otherwise the bar still reads `aria-valuenow`, restoring the very
+        // percentage the visible line just replaced.
+        aria-valuetext={waiting != null ? `en attente — ${RESOURCE_NOUN[waiting.resource]}` : undefined}
         className="w-full gap-x-2 gap-y-0.5"
       >
         <span className="text-xs font-normal text-muted-foreground">{label}</span>

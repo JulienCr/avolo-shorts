@@ -656,7 +656,7 @@ describe('garder et écarter, depuis l’écran de clip', () => {
     return d
   }
 
-  /** Les candidats servis à cet écran, `c2` en proposition plutôt que gardé. */
+  /** The candidates served to this screen, `c2` as a proposal rather than kept. */
   const asCandidate = candidates.map((c) => (c.id === 'c2' ? { ...c, status: 'candidate' as const } : c))
 
   it('garde le clip sur `P`, écarte sur `X`', async () => {
@@ -709,9 +709,8 @@ describe('garder et écarter, depuis l’écran de clip', () => {
   }
 
   it('`P` atteint le geste même quand un mot du transcript porte le focus', async () => {
-    // Chaque mot est un `[role="button"]` : la garde des raccourcis n'écarte
-    // que les touches d'activation (Espace, Entrée, flèches) sur ce rôle, pas
-    // `P`/`X`.
+    // Each word is a `[role="button"]`: the shortcut guard only steals
+    // activation keys (Space, Enter, arrows) on that role, not `P`/`X`.
     const patches: unknown[] = []
     vi.stubGlobal('fetch', stubDecisionFetch(patches))
     await mount('c2', candidateDetail())
@@ -737,9 +736,9 @@ describe('garder et écarter, depuis l’écran de clip', () => {
   })
 
   it('un `P` sur un clip exporté redescend à candidat, jamais un statut que le serveur refuse', async () => {
-    // `toggleStatus('exported', 'kept')` vaut `'candidate'` (verrouillé par
-    // `tests/lib/clip-status.test.ts:39`) : rappuyer sur « Garder » défait la
-    // décision plutôt que de tenter de réécrire `exported`, que `PATCH` rejette.
+    // `toggleStatus('exported', 'kept')` is `'candidate'` (locked by
+    // `tests/lib/clip-status.test.ts:39`): pressing "Garder" again undoes the
+    // decision rather than trying to rewrite `exported`, which `PATCH` rejects.
     const exportedDetail = detail('c4')
     exportedDetail.clip.status = 'exported'
     const patches: unknown[] = []

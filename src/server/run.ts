@@ -1096,10 +1096,10 @@ async function execute(
       publish(execution, true)
       console.log(`[${projectId}] ${step}…`)
 
-      // Resolved as late as possible: the step's LLM client
-      // (`createCallFromSettings`, `registry.ts`) reads settings live, on
-      // every call — an earlier snapshot here could name the wrong resource.
-      const resource = resourceFor(step, localModels(effectiveSettings(db).ai))
+      // `renders` never reaches the scheduler (contract D, non-scope): `executeStep`
+      // throws on it regardless. Otherwise resolved as late as possible, since
+      // `createCallFromSettings` reads settings live and an earlier snapshot here could name the wrong resource.
+      const resource = step === 'renders' ? null : resourceFor(step, localModels(effectiveSettings(db).ai))
       const hold =
         resource === null
           ? null

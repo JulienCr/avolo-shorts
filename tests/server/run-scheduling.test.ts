@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CAPACITIES } from '@/core/resources'
 import { applySettings, openDb, upsertProject } from '@/server/db'
 import { launch, lireStatus, progression, stopRun, wait, type Steps } from '@/server/run'
+import { candidatesPath } from '@/server/paths'
 import { createScheduler, type Scheduler } from '@/server/scheduler'
 
 /**
@@ -385,5 +386,27 @@ describe('la correction sur Ollama contend avec le transcript', () => {
     await wait(A)
     await wait(B)
     expect(calls).toContain(`${B}:correction:start`)
+  })
+})
+
+describe('`renders` reste hors du programmateur', () => {
+  it('n’attend pas le gpu déjà tenu par un autre projet avant d’échouer', async () => {
+    createProjectFixture(A)
+    createProjectFixture(B)
+    fs.writeFileSync(candidatesPath(B), '[]')
+    const gateA = deferred()
+
+    await launch(A, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(A, gateA.promise) })
+    await pollUntil(() => calls.includes(`${A}:transcript:start`))
+
+    await launch(B, ['renders'], { db, scheduler: testScheduler, steps: {} })
+    await wait(B).catch(() => {})
+
+    expect(progression(B)).toBeNull()
+    expect(lireStatus(B)?.error).toContain('Le rendu ne se lance pas')
+    expect(testScheduler.snapshot().find((s) => s.resource === 'gpu')).toMatchObject({ held: 1, waiting: 0 })
+
+    gateA.resolve()
+    await wait(A)
   })
 })

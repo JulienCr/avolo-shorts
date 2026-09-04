@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { CAPACITIES } from '@/core/resources'
 import { applySettings, openDb, upsertProject } from '@/server/db'
-import { launch, lireStatus, progression, stopRun, wait, type Steps } from '@/server/run'
+import { launch, lireStatus, progression, progressionAll, stopRun, wait, type Steps } from '@/server/run'
 import { candidatesPath } from '@/server/paths'
-import { createScheduler, type Scheduler } from '@/server/scheduler'
+import { createScheduler, type Scheduler, type Hold } from '@/server/scheduler'
 import { snapshotEnv } from '../helpers/env'
 
 /**
@@ -411,5 +411,455 @@ describe('`renders` reste hors du programmateur', () => {
 
     gateA.resolve()
     await wait(A)
+  })
+})
+
+/**
+ * `execute()` walks the plan as the DAG it describes, not as a flat list.
+ * `correction`/`candidates` on one side and `proxy`/`analysis` on the other
+ * have no edge between them, so a network step from one chain can run
+ * alongside the local step the other chain holds — never two local steps at
+ * once (`isLocal`, `src/core/resources.ts`).
+ */
+describe('un projet, deux chaînes du graphe', () => {
+  /** Poses `correction.json` next to the transcript `createProjectFixture` already wrote. */
+  function writeCorrection(id: string): void {
+    const folder = path.join(root, 'projects', id, `${id}.avolo`)
+    fs.writeFileSync(path.join(folder, 'correction.json'), '{"entries":[]}')
+  }
+
+  it('n’admet qu’une étape locale à la fois, même quand deux sont prêtes', async () => {
+    createProjectFixture(A)
+    const gateTranscript = deferred()
+
+    await launch(A, ['transcript', 'proxy'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        ...stepsTranscript(A, gateTranscript.promise),
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          calls.push(`${A}:proxy:done`)
+          return { path: file, skipped: false }
+        },
+      },
+    })
+    await pollUntil(() => calls.includes(`${A}:transcript:start`))
+    // No edge from `proxy` to `transcript`: it is ready from the start, but
+    // both are local — `priorityFor` (transcript: 20, proxy: 80) decides
+    // which one holds the only slot.
+    expect(calls).not.toContain(`${A}:proxy:start`)
+
+    gateTranscript.resolve()
+    await wait(A)
+    expect(calls).toEqual([
+      `${A}:transcript:start`,
+      `${A}:transcript:done`,
+      `${A}:proxy:start`,
+      `${A}:proxy:done`,
+    ])
+  })
+
+  it('le placeholder posé au lancement ne fait pas croire que proxy tourne déjà', async () => {
+    createProjectFixture(A, { audio: false })
+    const gateAudio = deferred()
+    const gateProxy = deferred()
+
+    // `plan` is `['proxy', 'audio']` (target order), but `priorityFor` admits
+    // `audio` first: the launch-time placeholder, keyed on `plan[0]`
+    // (`proxy`), must not linger as a second, never-started entry.
+    await launch(A, ['proxy', 'audio'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        extractAudio: async () => {
+          calls.push(`${A}:audio:start`)
+          await gateAudio.promise
+          const file = path.join(root, 'projects', A, 'audio.wav')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          await gateProxy.promise
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+      },
+    })
+
+    await pollUntil(() => calls.includes(`${A}:audio:start`))
+    expect(progressionAll(A).map((p) => p.step)).toEqual(['audio'])
+
+    gateAudio.resolve()
+    await pollUntil(() => calls.includes(`${A}:proxy:start`))
+    expect(progressionAll(A).map((p) => p.step)).toEqual(['proxy'])
+
+    gateProxy.resolve()
+    await wait(A)
+  })
+
+  it('le règlement d’une étape publie tout de suite, sans attendre le tic d’une sœur', async () => {
+    createProjectFixture(A, { transcript: true })
+    writeCorrection(A)
+    const gateProxy = deferred()
+
+    await launch(A, ['candidates', 'proxy'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          await gateProxy.promise
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+        // No `onProgress` call at all: if `status.json` only updates on a
+        // progress tick, it never sees `candidates` settle.
+        runCandidates: async () => {
+          calls.push(`${A}:candidates:start`)
+          calls.push(`${A}:candidates:done`)
+          return []
+        },
+      },
+    })
+
+    await pollUntil(() => calls.includes(`${A}:candidates:done`))
+    await pollUntil(() => lireStatus(A)?.running?.step === 'proxy')
+    expect(lireStatus(A)?.running?.step).toBe('proxy')
+
+    gateProxy.resolve()
+    await wait(A)
+  })
+
+  it('correction sur le réseau tourne pendant que proxy encode encore', async () => {
+    createProjectFixture(A, { transcript: true })
+    const gateProxy = deferred()
+    const gateCorrection = deferred()
+
+    await launch(A, ['correction', 'proxy'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          await gateProxy.promise
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          calls.push(`${A}:proxy:done`)
+          return { path: file, skipped: false }
+        },
+        applyTranscriptCorrections: async () => {
+          calls.push(`${A}:correction:start`)
+          await gateCorrection.promise
+          calls.push(`${A}:correction:done`)
+          return { entries: [], applied: 0, failed: 0, rejected: {} }
+        },
+      },
+    })
+
+    // A recorded overlap, never a timing measurement: both started before
+    // either finished. `correction` (priority 30) is admitted before `proxy`
+    // (80), but never blocks it — it is a network step.
+    await pollUntil(() => calls.includes(`${A}:correction:start`))
+    await pollUntil(() => calls.includes(`${A}:proxy:start`))
+    expect(calls).toEqual([`${A}:correction:start`, `${A}:proxy:start`])
+
+    gateCorrection.resolve()
+    await pollUntil(() => calls.includes(`${A}:correction:done`))
+    expect(calls).not.toContain(`${A}:proxy:done`)
+
+    gateProxy.resolve()
+    await wait(A)
+    expect(calls).toEqual([
+      `${A}:correction:start`,
+      `${A}:proxy:start`,
+      `${A}:correction:done`,
+      `${A}:proxy:done`,
+    ])
+  })
+
+  it('une panne sur une branche laisse l’autre finir, et l’erreur remontée est celle de la branche qui a cassé', async () => {
+    createProjectFixture(A)
+    const gateProxy = deferred()
+
+    await launch(A, ['candidates', 'proxy', 'analysis'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        transcribe: async () => {
+          calls.push(`${A}:transcript:start`)
+          throw new Error('panne simulée de la transcription')
+        },
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          await gateProxy.promise
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          calls.push(`${A}:proxy:done`)
+          return { path: file, skipped: false }
+        },
+        runAnalysis: async () => {
+          calls.push(`${A}:analysis:start`)
+          const file = path.join(root, 'projects', A, 'analysis.json')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+        applyTranscriptCorrections: async () => {
+          calls.push(`${A}:correction:start`)
+          return { entries: [], applied: 0, failed: 0, rejected: {} }
+        },
+        runCandidates: async () => {
+          calls.push(`${A}:candidates:start`)
+          return []
+        },
+      },
+    })
+
+    await pollUntil(() => calls.includes(`${A}:proxy:start`))
+    gateProxy.resolve()
+    await wait(A).catch(() => {})
+
+    // `proxy` finished and `analysis` followed, despite the transcript
+    // failure. `correction` and `candidates` never started: their dependency
+    // (`transcript`) never reaches `done`.
+    expect(calls).toEqual([
+      `${A}:transcript:start`,
+      `${A}:proxy:start`,
+      `${A}:proxy:done`,
+      `${A}:analysis:start`,
+    ])
+    expect(lireStatus(A)?.error).toContain('panne simulée de la transcription')
+    expect(lireStatus(A)?.stopped).toBe(false)
+  })
+
+  it('un échec de candidates ne perturbe pas le proxy en cours, et se lit comme un échec (pas un arrêt)', async () => {
+    createProjectFixture(A, { transcript: true })
+    writeCorrection(A)
+    const gateProxy = deferred()
+
+    await launch(A, ['candidates', 'proxy'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        runCandidates: async () => {
+          calls.push(`${A}:candidates:start`)
+          throw new Error('panne simulée du repérage')
+        },
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          await gateProxy.promise
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          calls.push(`${A}:proxy:done`)
+          return { path: file, skipped: false }
+        },
+      },
+    })
+
+    await pollUntil(() => calls.includes(`${A}:candidates:start`) && calls.includes(`${A}:proxy:start`))
+    gateProxy.resolve()
+    await wait(A).catch(() => {})
+
+    // `proxy` finished normally, with no idea `candidates` broke next to it.
+    expect(calls).toContain(`${A}:proxy:done`)
+    // `failed`/`running` (candidates) are never published as such, but they
+    // read through `error`/`stopped`: a real failure writes `error`, a
+    // requested stop would write `stopped` with no `error`.
+    const status = lireStatus(A)
+    expect(status?.error).toContain('panne simulée du repérage')
+    expect(status?.stopped).toBe(false)
+  })
+
+  it('draine les deux branches avant de conclure, sur un arrêt demandé', async () => {
+    createProjectFixture(A, { transcript: true })
+    writeCorrection(A)
+    const gateProxy = deferred()
+    const gateCandidates = deferred()
+
+    await launch(A, ['candidates', 'proxy'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          await gateProxy.promise
+          calls.push(`${A}:proxy:done`)
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+        runCandidates: async () => {
+          calls.push(`${A}:candidates:start`)
+          await gateCandidates.promise
+          calls.push(`${A}:candidates:done`)
+          return []
+        },
+      },
+    })
+
+    await pollUntil(() => calls.includes(`${A}:proxy:start`) && calls.includes(`${A}:candidates:start`))
+    expect(stopRun(A)).toBe(true)
+
+    // `proxy` releases on its own: `candidates` still holds the work, so the
+    // table must not have emptied yet — the drain is under test, not which
+    // of the two lands first.
+    gateProxy.resolve()
+    await pollUntil(() => calls.includes(`${A}:proxy:done`))
+    expect(progression(A)).not.toBeNull()
+    expect(lireStatus(A)?.stopped).not.toBe(true)
+
+    gateCandidates.resolve()
+    await wait(A)
+    expect(progression(A)).toBeNull()
+    expect(lireStatus(A)?.stopped).toBe(true)
+  })
+
+  it('advance() attribue le progrès à la bonne étape, et runningAll porte les deux étapes en cours', async () => {
+    createProjectFixture(A, { transcript: true })
+    writeCorrection(A)
+    const gateProxy = deferred()
+    const gateCandidates = deferred()
+
+    await launch(A, ['candidates', 'proxy'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        buildProxy: async (o) => {
+          calls.push(`${A}:proxy:start`)
+          o.onProgress?.({ seconds: 30, fraction: 0.5 })
+          await gateProxy.promise
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+        runCandidates: async () => {
+          calls.push(`${A}:candidates:start`)
+          await gateCandidates.promise
+          return []
+        },
+      },
+    })
+
+    await pollUntil(() => calls.includes(`${A}:proxy:start`) && calls.includes(`${A}:candidates:start`))
+    await pollUntil(() => (progressionAll(A).find((p) => p.step === 'proxy')?.progress ?? 0) > 0)
+
+    const all = progressionAll(A)
+    expect(all.map((p) => p.step)).toEqual(['candidates', 'proxy'])
+    expect(all.find((p) => p.step === 'proxy')?.progress).toBeGreaterThan(0)
+    // `candidates` never reports a fraction: its entry stays at zero,
+    // `proxy`'s advance never reached it.
+    expect(all.find((p) => p.step === 'candidates')?.progress).toBe(0)
+    // `running` stays the leader (highest priority): candidates (40) < proxy (80).
+    expect(progression(A)?.step).toBe('candidates')
+
+    gateCandidates.resolve()
+    gateProxy.resolve()
+    await wait(A)
+  })
+
+  it('un jeton dont la libération lève ne fait pas conclure execute() pendant qu’un frère tourne', async () => {
+    createProjectFixture(A, { transcript: true })
+    writeCorrection(A)
+    const gateCandidates = deferred()
+
+    // `hold()` can throw (a failed `releaseSlot`) without losing the local
+    // token: `runStep`'s `finally` must absorb it, or the promise it returns
+    // rejects and wins `Promise.race` while `candidates` is still gated below.
+    const throwing: Scheduler = {
+      ...testScheduler,
+      acquire: async (resource, priority, signal, onQueued) => {
+        const hold = await testScheduler.acquire(resource, priority, signal, onQueued)
+        if (resource !== 'cpu') return hold
+        return (() => {
+          hold()
+          throw new Error('boom: échec simulé de releaseSlot')
+        }) as Hold
+      },
+    }
+
+    await launch(A, ['candidates', 'proxy'], {
+      db,
+      scheduler: throwing,
+      steps: {
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          calls.push(`${A}:proxy:done`)
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+        runCandidates: async () => {
+          calls.push(`${A}:candidates:start`)
+          await gateCandidates.promise
+          calls.push(`${A}:candidates:done`)
+          return []
+        },
+      },
+    })
+
+    await pollUntil(() => calls.includes(`${A}:proxy:done`) && calls.includes(`${A}:candidates:start`))
+    expect(progression(A)).not.toBeNull()
+
+    gateCandidates.resolve()
+    // `candidates` must still be drained to completion — the drain guarantee
+    // under test — even though the stuck lock file fails the execution overall.
+    await wait(A).catch(() => {})
+    expect(calls).toContain(`${A}:candidates:done`)
+    expect(lireStatus(A)?.error).toContain('échec simulé de releaseSlot')
+  })
+
+  it('une panne déjà enregistrée survit à un arrêt demandé après coup', async () => {
+    createProjectFixture(A, { transcript: true })
+    writeCorrection(A)
+    const gateProxy = deferred()
+
+    await launch(A, ['candidates', 'proxy'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        runCandidates: async () => {
+          calls.push(`${A}:candidates:start`)
+          throw new Error('panne simulée du repérage')
+        },
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          await gateProxy.promise
+          calls.push(`${A}:proxy:done`)
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+      },
+    })
+
+    await pollUntil(() => calls.includes(`${A}:candidates:start`) && calls.includes(`${A}:proxy:start`))
+    // `candidates` throws synchronously: wait for the pump's own bookkeeping
+    // to have recorded its failure before stopping, so the race under test
+    // (a stop landing after a failure, not concurrently with it) is real.
+    await pollUntil(() => progressionAll(A).length === 1 && progressionAll(A)[0]?.step === 'proxy')
+    expect(stopRun(A)).toBe(true)
+
+    gateProxy.resolve()
+    await wait(A).catch(() => {})
+    const status = lireStatus(A)
+    expect(status?.error).toContain('panne simulée du repérage')
+    expect(status?.stopped).toBe(false)
   })
 })

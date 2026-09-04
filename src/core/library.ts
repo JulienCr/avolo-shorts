@@ -60,6 +60,8 @@ export type LibraryProject = {
   /** La durée sondée à l'ingestion. Zéro tant qu'elle ne l'a pas été. */
   durationSec: number
   running: { step: StepName; progress: number; waiting: Wait | null } | null
+  /** Every step in flight (at most two), in priority order. */
+  runningAll: { step: StepName; progress: number; waiting: Wait | null }[]
   error: string | null
   /**
    * La dernière exécution terminée a-t-elle été **arrêtée** ?

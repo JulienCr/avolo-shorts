@@ -125,4 +125,13 @@ describe("l'avancement publié", () => {
     const towardLibrary: Identical<Progression, NonNullable<LibraryProject['running']>> = true
     expect(towardStatus && towardListItem && towardLibrary).toBe(true)
   })
+
+  // `runningAll` goes plural where `running` went — same three mirrors,
+  // on `Progression[]` rather than `Progression | null`.
+  it('runningAll est identique à ses trois miroirs côté client', () => {
+    const towardStatus: Identical<Progression[], ProjectStatus['runningAll']> = true
+    const towardListItem: Identical<Progression[], ProjectListItem['runningAll']> = true
+    const towardLibrary: Identical<Progression[], LibraryProject['runningAll']> = true
+    expect(towardStatus && towardListItem && towardLibrary).toBe(true)
+  })
 })

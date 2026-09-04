@@ -367,6 +367,22 @@ n'ont pas leur propre artefact.
 Le style n'entre que dans le rendu. Cette propriété du graphe est ce qui rend un
 changement de logo bon marché.
 
+**Correction du 4 septembre 2026 : l'exécution suit le graphe, pas une liste.**
+Le diagramme ci-dessus décrit deux chaînes sans arête entre elles —
+`audio → transcript → correction → candidates` d'un côté, `proxy → analysis` de
+l'autre — mais jusqu'à cette date `execute()` (`src/server/run.ts`) les
+parcourait comme une liste unique, dans l'ordre où `planSteps` les rend, et
+`TARGETS_INITIAL` place la chaîne des candidats avant `proxy`. C'était donc
+`proxy` qui attendait plusieurs minutes de `correction` avant de démarrer,
+alors que rien dans le graphe ne l'exige. `execute()` admet désormais toute
+étape **prête** (`readySteps`, `src/core/graph.ts`), sous une seule règle : au
+plus une étape locale à la fois par projet, plus autant d'étapes réseau qu'on
+veut (`isLocal`, `src/core/resources.ts`). Sur un fournisseur distant,
+`correction` et `candidates` sont des étapes réseau et tournent donc pendant
+que `proxy` encode encore ; sur Ollama, `resourceFor` les classe `gpu`
+(locales), et leur priorité (30/40) devant celle de `proxy` (80) fait que
+c'est encore `proxy` qui attend leur achèvement, comme avant cette PR.
+
 **Empreinte de la source** : taille, date de modification et durée ffprobe. Pas
 de hash. Digérer 12 Go à chaque lancement coûterait plus cher que l'étape qu'on
 cherche à éviter.

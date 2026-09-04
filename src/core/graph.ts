@@ -124,3 +124,33 @@ export function planSteps(
   if (toRedo(target)) schedule(target)
   return plan
 }
+
+/**
+ * A step's direct dependencies.
+ *
+ * An accessor, so callers cannot mutate `DEPS`.
+ */
+export function dependenciesOf(step: StepName): readonly StepName[] {
+  return DEPS[step]
+}
+
+/**
+ * The steps this plan can start now: their in-plan dependencies are done.
+ *
+ * A dependency absent from `plan` never blocks — `planSteps` guarantees it is
+ * already on disk, and waiting on it would deadlock `['correction', 'candidates']`.
+ *
+ * @param done - Steps that finished during this run of the plan.
+ * @param running - Steps already admitted, excluded from the result.
+ * @returns Ready steps, in `plan`'s order — the caller decides priority.
+ */
+export function readySteps(
+  plan: readonly StepName[],
+  done: ReadonlySet<StepName>,
+  running: ReadonlySet<StepName>,
+): StepName[] {
+  return plan.filter((step) => {
+    if (done.has(step) || running.has(step)) return false
+    return dependenciesOf(step).every((dep) => !plan.includes(dep) || done.has(dep))
+  })
+}

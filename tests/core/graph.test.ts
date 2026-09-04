@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planSteps, type StepName } from '@/core/graph'
+import { dependenciesOf, planSteps, readySteps, type StepName } from '@/core/graph'
 
 /**
  * Le graphe de l'itération 0 : la **présence d'un fichier**, pas encore une clé
@@ -219,5 +219,45 @@ describe('planSteps — analysis', () => {
   // et le rendu se lance par clip, jamais par le graphe.
   it('ne fait pas repartir le repérage des candidats', () => {
     expect(planSteps('candidates', all, ['analysis'])).toEqual([])
+  })
+})
+
+describe('dependenciesOf', () => {
+  it('renvoie les dépendances directes de chaque étape', () => {
+    expect(dependenciesOf('candidates')).toEqual(['correction'])
+    expect(dependenciesOf('proxy')).toEqual([])
+  })
+})
+
+/**
+ * `readySteps` knows nothing about resources or priority — the executor
+ * applies those — its only job is which steps have no pending dependency
+ * **within this plan**.
+ */
+describe('readySteps', () => {
+  const none = new Set<StepName>()
+
+  // A dependency absent from the plan is already on disk (`planSteps`'
+  // contract): without this rule, `['correction', 'candidates']` on a
+  // transcript already there would block forever.
+  it('ne bloque pas sur une dépendance absente du plan', () => {
+    expect(readySteps(['correction', 'candidates'], none, none)).toEqual(['correction'])
+  })
+
+  it('bloque sur une dépendance du plan qui n’est ni faite ni en cours', () => {
+    expect(readySteps(['audio', 'transcript'], none, none)).toEqual(['audio'])
+    expect(readySteps(['audio', 'transcript'], new Set(['audio']), none)).toEqual(['transcript'])
+  })
+
+  it('n’admet pas deux fois une étape déjà en cours', () => {
+    expect(readySteps(['proxy', 'analysis'], none, new Set(['proxy']))).toEqual([])
+  })
+
+  it('n’admet pas une étape déjà faite', () => {
+    expect(readySteps(['proxy', 'analysis'], new Set(['proxy']), none)).toEqual(['analysis'])
+  })
+
+  it('rend deux branches indépendantes prêtes à la fois, dans l’ordre du plan', () => {
+    expect(readySteps(['audio', 'proxy', 'transcript'], none, none)).toEqual(['audio', 'proxy'])
   })
 })

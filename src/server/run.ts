@@ -3,10 +3,10 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
 
-import { planSteps, type StepName } from '@/core/graph'
+import { planSteps, readySteps, type StepName } from '@/core/graph'
 import type { SelectionReport } from '@/lib/api'
 import { progressWorker } from '@/core/pipeline'
-import { priorityFor, resourceFor, type Resource, type Wait } from '@/core/resources'
+import { isLocal, priorityFor, resourceFor, type Resource, type Wait } from '@/core/resources'
 import { isAAbsence } from '@/server/bytes'
 import {
   copiesSourceLocally,
@@ -20,7 +20,7 @@ import {
 import { messageSafe } from '@/server/errors'
 import { pathTemporary } from '@/server/ffmpeg'
 import { localModels } from '@/server/resources'
-import { scheduler as defaultScheduler, type Scheduler } from '@/server/scheduler'
+import { scheduler as defaultScheduler, type Hold, type Scheduler } from '@/server/scheduler'
 import {
   analysisPath,
   audioPath,
@@ -86,9 +86,6 @@ import { transcribe } from '@/server/steps/transcript'
 /** Ce que l'interface lit dans `ProjectStatus.running`. */
 export type Progression = { step: StepName; progress: number; waiting: Wait | null }
 
-/** The step and its progress, without the wait — see `progressionFor`. */
-type CurrentStep = { step: StepName; progress: number }
-
 /**
  * The instant a step started waiting on a resource.
  *
@@ -98,13 +95,23 @@ type CurrentStep = { step: StepName; progress: number }
  */
 type Waiting = { resource: Resource; startedAt: number }
 
+/** A step's progress and, if it is queued, what it is queued on. */
+type StepState = { progress: number; waiting: Waiting | null }
+
 /** Une exécution vivante, dans **ce** processus. */
 type Execution = {
   projectId: string
   targets: StepName[]
   plan: StepName[]
-  current: CurrentStep
-  waiting: Waiting | null
+  /**
+   * The plan's steps currently in flight, by name.
+   *
+   * **At most two entries** under the locality rule (`execute` in this
+   * file): one local step, one network step. An entry exists from admission
+   * to settlement — `runStep`'s `finally` removes it, so a step that has
+   * landed is never shown as running.
+   */
+  current: Map<StepName, StepState>
   /** Où en est l'étape `candidates` **dans cette exécution**. Voir `detectionSummary`. */
   detection: StateDetection
   /** Pour ne pas réécrire `status.json` à chaque marque de temps de ffmpeg. */
@@ -170,24 +177,41 @@ export class ProjectErrorCollision extends Error {
   }
 }
 
-/**
- * The publishable progress of an execution: its step, its progress, and its
- * wait converted to a duration.
- */
-function progressionFor(execution: Execution): Progression {
+/** A step's state, converted to what gets published: the wait becomes a duration. */
+function toProgression(step: StepName, state: StepState): Progression {
   return {
-    ...execution.current,
+    step,
+    progress: state.progress,
     waiting:
-      execution.waiting === null
+      state.waiting === null
         ? null
-        : { resource: execution.waiting.resource, waitedMs: Math.max(0, Date.now() - execution.waiting.startedAt) },
+        : { resource: state.waiting.resource, waitedMs: Math.max(0, Date.now() - state.waiting.startedAt) },
   }
 }
 
-/** L'avancement en cours, ou `null` si rien ne tourne. */
+/**
+ * The publishable progress of an execution, in `priorityFor` order.
+ *
+ * @returns `running` — the leading in-flight step, `null` if none — and
+ * `runningAll`, every in-flight step (at most two: see `Execution.current`).
+ */
+function progressionFor(execution: Execution): { running: Progression | null; runningAll: Progression[] } {
+  const runningAll = [...execution.current.entries()]
+    .map(([step, state]) => toProgression(step, state))
+    .sort((a, b) => priorityFor(a.step) - priorityFor(b.step))
+  return { running: runningAll[0] ?? null, runningAll }
+}
+
+/** The leading in-flight step's progress, or `null` if nothing is running. */
 export function progression(projectId: string): Progression | null {
   const execution = inCurrent.get(projectId)
-  return execution === undefined ? null : progressionFor(execution)
+  return execution === undefined ? null : progressionFor(execution).running
+}
+
+/** Every step in flight (at most two — see `Execution.current`), in priority order. */
+export function progressionAll(projectId: string): Progression[] {
+  const execution = inCurrent.get(projectId)
+  return execution === undefined ? [] : progressionFor(execution).runningAll
 }
 
 /**
@@ -691,7 +715,7 @@ function publish(execution: Execution, changeDStep: boolean): void {
       updatedAt: now,
       targets: execution.targets,
       plan: execution.plan,
-      running: progressionFor(execution),
+      running: progressionFor(execution).running,
       error: null,
       warning: null,
       finishedAt: null,
@@ -800,12 +824,15 @@ export async function launch(
   // course entre deux requêtes simultanées, et elle ne la ferme que si aucun
   // point d'attente ne s'intercale entre le contrôle et la pose.
   if (inCurrent.has(projectId)) throw new ExecutionInCurrentError(projectId)
+  // Placeholder set synchronously, so `progression()` is never `null` for an
+  // execution already in `inCurrent` — `GET /api/projects/:id` awaits its own
+  // `readingPresence` first and would otherwise miss a launch started meanwhile.
+  const initialStep = targets[0] ?? 'candidates'
   const execution: Execution = {
     projectId,
     targets: [...targets],
     plan: [],
-    current: { step: targets[0] ?? 'candidates', progress: 0 },
-    waiting: null,
+    current: new Map([[initialStep, { progress: 0, waiting: null }]]),
     detection: 'absent',
     lastWrite: 0,
     finished: Promise.resolve(),
@@ -827,31 +854,22 @@ export async function launch(
 
     const presence = await readingPresence(project)
     execution.plan = planForTargets(targets, presence, force)
-    // **L'oubli est posé au lancement, pas à l'entrée du repérage.** Une
-    // exécution qui vise `candidates` peut passer une demi-heure dans la
-    // transcription avant d'y arriver, et `status.json` publierait pendant tout
-    // ce temps le décompte de la passe précédente comme s'il décrivait celle-ci.
-    // `runCandidates` refait ce nettoyage pour son propre compte — il s'appelle
-    // aussi hors du lanceur —, ce qui ne le rend pas redondant ici.
+    // **Forgotten at launch**, not at the entry to detection: otherwise a
+    // half-hour wait to reach `candidates` would publish the previous pass's
+    // count meanwhile (`runCandidates` also does this cleanup on its own).
     if (execution.plan.includes('candidates')) forgetSummary(projectId)
-    execution.current = { step: execution.plan[0] ?? targets[0] ?? 'candidates', progress: 0 }
+    // Refines the placeholder above to the plan's actual first step, removing
+    // the old key so the two don't coexist — `runStep` overwrites this one.
+    const planStep = execution.plan[0] ?? targets[0] ?? 'candidates'
+    if (planStep !== initialStep) execution.current.delete(initialStep)
+    execution.current.set(planStep, { progress: 0, waiting: null })
 
-    // **L'ingestion se décide avant, pas dans l'exécution.** Un projet dont les
-    // artefacts sont déjà sur le disque mais dont la ligne en base est neuve —
-    // une base effacée, un projet réinscrit — a un plan vide *et* une durée
-    // inconnue. Sortir tout de suite le laissait à `0:00` pour toujours, et le
-    // premier `run --force` échouait bien plus tard sur « le projet n'a pas de
-    // durée ». Un `lstat` et un `ffprobe` sur la copie locale suffisent à le
-    // réparer, et l'ingestion saute la copie si elle est déjà à la bonne taille.
-    //
-    // **Une seule lecture du réglage pour toute l'exécution.** Une transcription
-    // dure jusqu'à quarante minutes avant que `proxy` ne soit atteint ; relire
-    // `copiesSourceLocally(db)` à l'entrée de chaque étape laissait le réglage
-    // coché entre-temps contredire ce que la planification venait de décider —
-    // aucune ingestion prévue, mais l'étape l'exigeant quand même, sur un projet
-    // qu'aucune relance ne pouvait plus débloquer. La valeur lue ici vaut pour
-    // tout le reste du lancement (relevé par la review de la PR #113).
+    // Ingestion is decided ahead, not inside the execution: a re-registered
+    // project left `0:00` forever without this, and the first `run --force`
+    // failed much later on "no duration" — `lstat` + `ffprobe` repair both.
     const copyLocally = copiesSourceLocally(db)
+    // One read for the whole execution: re-reading it at each step's entry
+    // would let a setting flipped mid-run contradict what planning decided.
     const doitIngest = ingestionNecessary(project, execution.plan, copyLocally)
 
     // Un plan vide n'est pas une exécution : tout est déjà là, il n'y a rien à
@@ -1002,16 +1020,20 @@ async function execute(
   const resourceScheduler = options.scheduler ?? defaultScheduler()
   const { projectId } = execution
   let project = projectInitial
-  // **Portée par l'exécution, jamais par un throw.** L'étape `correction`
-  // avale une panne du modèle plutôt que d'arrêter toute l'analyse (voir son
-  // `case` dans `executeStep`) ; ce que cette variable porte, c'est ce que
-  // `status.json` doit dire malgré tout — sinon la panne n'échoue pas, elle
-  // disparaît.
+  // **Scoped to the execution, never thrown**: `correction` swallows a model
+  // failure rather than stopping the analysis, and this variable carries what
+  // `status.json` must say anyway — or the failure disappears silently.
   let correctionWarning: string | null = null
+  /** The step whose error, if any, is reported first — see the pump below. */
+  let firstFailedStep: StepName | null = null
+  /** The first error recorded — read by the outer `catch` too, so it survives a stop requested afterward. */
+  let firstError: unknown = null
 
-  const advance = (fraction: number | null): void => {
+  const advance = (step: StepName, fraction: number | null): void => {
     if (fraction === null) return
-    execution.current.progress = Math.min(1, Math.max(0, fraction))
+    const state = execution.current.get(step)
+    if (state === undefined) return
+    state.progress = Math.min(1, Math.max(0, fraction))
     publish(execution, false)
   }
 
@@ -1041,7 +1063,7 @@ async function execute(
    * tourne, aucune erreur, une étape manque — donc `interrompu`, donc l'écran
    * propose de reprendre.
    */
-  const writeStoppedStatus = (): void => {
+  const writeStoppedStatus = (interrupted: readonly StepName[]): void => {
     writeStatus(
       projectId,
       {
@@ -1057,94 +1079,177 @@ async function execute(
       },
       execution.detection,
     )
-    console.log(`[${projectId}] arrêté sur ${execution.current.step}.`)
+    console.log(`[${projectId}] arrêté sur ${interrupted.join(', ') || execution.plan[0] || '?'}.`)
+  }
+
+  const freshTranscript = execution.plan.includes('transcript')
+
+  /**
+   * Runs one step to completion. **Never rejects**: the pump below is the
+   * only place that turns an outcome into `firstError`.
+   *
+   * @param step - The step to run.
+   * @param resource - The physical resource it reserves, or `null`.
+   * @returns Its own name and error, so `Promise.race` over several in-flight
+   * steps is safe.
+   */
+  const runStep = async (step: StepName, resource: Resource | null): Promise<{ step: StepName; error: unknown }> => {
+    execution.current.set(step, { progress: 0, waiting: null })
+    if (step === 'candidates') execution.detection = 'running'
+    publish(execution, true)
+    console.log(`[${projectId}] ${step}…`)
+
+    let hold: Hold | null = null
+    let outcome: { step: StepName; error: unknown }
+    try {
+      hold =
+        resource === null
+          ? null
+          : await resourceScheduler.acquire(resource, priorityFor(step), signal, () => {
+              const state = execution.current.get(step)
+              if (state !== undefined) state.waiting = { resource, startedAt: Date.now() }
+              publish(execution, true)
+            })
+      const state = execution.current.get(step)
+      if (resource !== null && state !== undefined) {
+        state.waiting = null
+        publish(execution, true)
+      }
+      const warning = await executeStep(
+        step,
+        project,
+        db,
+        copyLocally,
+        steps,
+        (fraction) => advance(step, fraction),
+        flagSummary,
+        signal,
+        // A retranscription in this same plan resets the correction log:
+        // `transcript.json` was just replaced whole, so an earlier log's
+        // offsets no longer point at anything (see `applyTranscriptCorrections`).
+        freshTranscript,
+      )
+      if (warning !== null) correctionWarning = warning
+      if (step === 'candidates') execution.detection = 'done'
+      outcome = { step, error: null }
+    } catch (cause) {
+      // A cut pass has not failed, it has not finished — both publish
+      // `partial: true`, but one is an incident and the other a decision.
+      if (step === 'candidates') execution.detection = signal.aborted ? 'running' : 'failed'
+      // `error: null` is the pump's own "succeeded" sentinel; JS lets code
+      // `throw null` (or `undefined`), which would otherwise read as one.
+      outcome = { step, error: cause ?? new Error(`${step} a échoué sans cause explicite`) }
+    }
+    // `hold()` can throw (a stuck file slot, kept for `releaseAll` to retry)
+    // without losing the local token. Caught rather than rethrown so this
+    // promise still never rejects, but folded into `outcome` on success.
+    try {
+      hold?.()
+    } catch (releaseCause) {
+      console.error(`[${projectId}] échec de la libération du jeton sur ${step} :`, releaseCause)
+      if (outcome.error === null) {
+        outcome = { step, error: releaseCause ?? new Error(`libération de jeton en échec sur ${step}`) }
+      }
+    }
+    execution.current.delete(step)
+    return outcome
   }
 
   try {
     if (doitIngest) {
-      // L'ingestion n'est pas une étape du graphe — la source est là ou le
-      // projet n'existe pas —, elle n'a donc pas de nom à afficher. On garde
-      // celui de la première étape à faire, dont la progression est bien à zéro
-      // tant que la copie n'est pas finie.
-      // **`copyLocally` explicite, pas la lecture propre d'`ingest`.** Sans ce
-      // paramètre, `ingest` relit `copiesSourceLocally(db)` lui-même après le
-      // sondage du montage — un sondage qui peut prendre jusqu'à vingt
-      // secondes — et la valeur figée au lancement cesserait de gouverner
-      // « toute l'exécution » si le réglage changeait pendant l'attente.
-      // (relevé par la review de la PR #113)
+      // Ingestion has no step name: keep the first one to do, whose progress
+      // stays at zero until the copy is finished.
+      const initialStep = execution.plan[0] ?? execution.targets[0] ?? 'candidates'
+      // `copyLocally` explicit, never re-read by `ingest`: the mount probe it
+      // would trigger can take up to twenty seconds, and the value frozen at
+      // launch must govern the whole execution regardless.
       const ingestion = await steps.ingest(project.sourcePath, {
         db,
         signal,
         copyLocally,
-        onProgress: (a) => advance(a.fraction),
+        onProgress: (a) => advance(initialStep, a.fraction),
       })
       const reread = getProject(db, projectId)
       if (reread !== undefined) project = reread
       else project = { ...project, stagedPath: ingestion.stagedPath, durationSec: ingestion.durationSec }
     }
+    // The launch-time placeholder only stood in for ingestion's progress:
+    // cleared here so a plan whose first-admitted step differs from `plan[0]`
+    // doesn't keep it as a second, never-started entry in `runningAll`.
+    execution.current.delete(execution.plan[0] ?? execution.targets[0] ?? 'candidates')
 
-    for (const step of execution.plan) {
-      // **Le contrôle est à l'entrée de chaque étape, pas seulement dans les
-      // processus.** Un arrêt demandé pendant la transcription doit couper le
-      // worker *et* empêcher les six minutes de proxy qui la suivent de partir.
-      if (signal.aborted) break
-      execution.current = { step: step, progress: 0 }
-      // **Le sort du repérage se suit à part, étape par étape.** C'est lui qui
-      // qualifie le bilan, et non celui de l'exécution qui l'entoure : voir
-      // `StateDetection`.
-      if (step === 'candidates') execution.detection = 'running'
-      publish(execution, true)
-      console.log(`[${projectId}] ${step}…`)
+    // **The pump.** `done`/`failed` are this run's bookkeeping, not a presence
+    // check. Keeping `failed` apart from `done` is what makes error propagation
+    // fall out of `readySteps` alone: a failed step's dependents never see it as done.
+    const done = new Set<StepName>()
+    const failed = new Set<StepName>()
+    const inFlight = new Map<StepName, Promise<{ step: StepName; error: unknown }>>()
+    /** The resource each in-flight step holds, frozen for its own lifetime only. */
+    const resourcesOf = new Map<StepName, Resource | null>()
+    /** Steps still in flight the moment admission stopped — for the abort log only. */
+    let interruptedAt: StepName[] | null = null
 
-      // `renders` never reaches the scheduler (contract D, non-scope): `executeStep`
-      // throws on it regardless. Otherwise resolved as late as possible, since
-      // `createCallFromSettings` reads settings live and an earlier snapshot here could name the wrong resource.
-      const resource = step === 'renders' ? null : resourceFor(step, localModels(effectiveSettings(db).ai))
-      const hold =
-        resource === null
-          ? null
-          : await resourceScheduler.acquire(resource, priorityFor(step), signal, () => {
-              execution.waiting = { resource, startedAt: Date.now() }
-              publish(execution, true)
-            })
-      try {
-        if (resource !== null) {
-          execution.waiting = null
-          publish(execution, true)
+    for (;;) {
+      if (signal.aborted) {
+        interruptedAt ??= [...inFlight.keys()]
+      } else {
+        const runningNames = new Set(inFlight.keys())
+        const ready = readySteps(execution.plan, done, runningNames).filter((s) => !failed.has(s))
+        const sorted = [...ready].sort((a, b) => priorityFor(a) - priorityFor(b))
+        /**
+         * Resolved once per pass, not once per candidate step: the pass is
+         * synchronous by construction, no `await` until the last admission
+         * below. An `await` inserted here would silently break the locality
+         * rule and let two local steps through.
+         */
+        const local = localModels(effectiveSettings(db).ai)
+        let localBusy = [...runningNames].some((s) => isLocal(resourcesOf.get(s) ?? null))
+        for (const step of sorted) {
+          const resource = step === 'renders' ? null : resourceFor(step, local)
+          if (isLocal(resource) && localBusy) continue
+          if (isLocal(resource)) localBusy = true
+          resourcesOf.set(step, resource)
+          const settled = runStep(step, resource).then((outcome) => {
+            inFlight.delete(step)
+            resourcesOf.delete(step)
+            if (outcome.error === null) {
+              done.add(step)
+            } else {
+              failed.add(step)
+              // A step rejecting because the signal is already aborted is the
+              // stop doing its job, not a failure: recording it would let it
+              // override a genuine failure recorded before the stop.
+              if (!signal.aborted) {
+                if (firstError === null) {
+                  firstError = outcome.error
+                  firstFailedStep = step
+                } else {
+                  console.error(`[${projectId}] échec secondaire sur ${step} :`, outcome.error)
+                }
+              }
+            }
+            // A step settling is a state change (`detectionSummary` in
+            // particular can just have flipped to `done`), not a progress
+            // tick: it must publish now, not wait for a sibling's next tick.
+            publish(execution, true)
+            return outcome
+          })
+          inFlight.set(step, settled)
         }
-        const warning = await executeStep(
-          step,
-          project,
-          db,
-          copyLocally,
-          steps,
-          advance,
-          flagSummary,
-          signal,
-          // A retranscription in this same plan resets the correction log:
-          // `transcript.json` was just replaced whole, so an earlier log's
-          // offsets no longer point at anything (see `applyTranscriptCorrections`).
-          execution.plan.includes('transcript'),
-        )
-        if (warning !== null) correctionWarning = warning
-      } catch (cause) {
-        // Une passe coupée n'a pas échoué : elle n'a pas fini. Les deux donnent
-        // `partiel: true` dans le bilan publié, mais l'un décrit un incident et
-        // l'autre une décision, et le code se relit.
-        if (step === 'candidates') execution.detection = signal.aborted ? 'running' : 'failed'
-        throw cause
-      } finally {
-        hold?.()
       }
-      if (step === 'candidates') execution.detection = 'done'
+      if (inFlight.size === 0) break
+      await Promise.race(inFlight.values())
     }
 
-    // L'arrêt tombé entre deux étapes, ou pendant la dernière : la boucle est
-    // sortie sans lever, et il ne faut surtout pas écrire un statut de succès.
-    if (signal.aborted) {
-      writeStoppedStatus()
+    // Abort landed between two admission passes: the loop exited without
+    // throwing. A branch that had already failed keeps precedence over a
+    // stop requested afterward — the `catch` below applies the same rule.
+    if (signal.aborted && firstError === null) {
+      writeStoppedStatus(interruptedAt ?? [])
       return
     }
+
+    if (firstError !== null) throw firstError
 
     writeStatus(
       projectId,
@@ -1163,22 +1268,17 @@ async function execute(
     )
     console.log(`[${projectId}] terminé : ${execution.plan.join(' → ')}`)
   } catch (cause) {
-    // **L'arrêt se lit sur le signal, jamais sur l'erreur reçue.** Selon
-    // l'étape, elle vaut `StopRequestedError`, une `AbortError` de `pipeline` ou
-    // le refus d'un flux fermé sous les pieds d'une bibliothèque tierce ; le
-    // seul fait commun est que quelqu'un a demandé l'arrêt. Et on ne relève pas
-    // l'erreur : une exécution arrêtée s'est terminée comme on le voulait, donc
-    // `attendre()` doit rendre la main sans rejeter.
-    if (signal.aborted) {
-      writeStoppedStatus()
+    // Abort is read from the signal, never from the received error (a
+    // `StopRequestedError`, an `AbortError`, or a third-party rejection).
+    // A failure already recorded in `firstError` overrides it: see below.
+    if (signal.aborted && firstError === null) {
+      writeStoppedStatus([])
       return
     }
-    // **Le message complet au journal, sa version épurée dans le fichier.** Les
-    // erreurs de `runFfmpeg`, `statWithDelay` et `launchWorker` portent la
-    // commande entière, chemins absolus compris : c'est ce qu'il faut sous les
-    // yeux pour diagnostiquer, et c'est ce qui n'a rien à faire dans un fichier
-    // qu'on recopie dans un rapport ou qu'une route finirait par servir.
-    console.error(`[${projectId}] échec sur ${execution.current.step} :`, cause)
+    // **The full message to the log, a scrubbed one to the file**:
+    // `runFfmpeg`/`statWithDelay`/`launchWorker` carry the whole command,
+    // absolute paths included — useful to diagnose, not to a copied report.
+    console.error(`[${projectId}] échec sur ${firstFailedStep ?? execution.plan[0] ?? execution.targets[0] ?? '?'} :`, cause)
     writeStatus(
       projectId,
       {

@@ -296,6 +296,8 @@ export type ProjectStatus = {
   project: ProjectSummary
   steps: Record<StepName, boolean>
   running: { step: StepName; progress: number; waiting: Wait | null } | null
+  /** Every step in flight (at most two: one local, one network), in priority order. */
+  runningAll: { step: StepName; progress: number; waiting: Wait | null }[]
   /**
    * L'échec de la **dernière exécution terminée**, ou `null` si elle s'est bien
    * passée — et `null` aussi tant que rien n'a jamais tourné.
@@ -464,6 +466,8 @@ export type SourcesListing = {
 export type ProjectListItem = ProjectSummary & {
   /** Ce qui tourne **dans ce processus**, ou `null`. Une lecture de `Map`. */
   running: { step: StepName; progress: number; waiting: Wait | null } | null
+  /** Every step in flight (at most two), in priority order. */
+  runningAll: { step: StepName; progress: number; waiting: Wait | null }[]
   /** L'échec de la dernière exécution terminée. Un petit fichier local. */
   error: string | null
   /**

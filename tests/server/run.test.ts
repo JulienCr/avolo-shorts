@@ -681,6 +681,23 @@ describe('lancer', () => {
     expect(calls).toEqual(['audio', 'transcript', 'correction', 'candidates'])
   })
 
+  /**
+   * `GET /api/projects/:id` awaits its own probe (`readingPresence`) before
+   * reading `progression()`, precisely so it never misses a launch that
+   * started during that same wait (see this file). That guard assumes
+   * `progression()` is never `null` as soon as a project is in `inCurrent` —
+   * even before `launch()` has finished computing its own plan.
+   */
+  it('progression() n’est jamais nul entre l’inscription et le plan calculé', async () => {
+    poserProject()
+    const promise = launch(PROJECT, ['proxy'], { db, steps: stepsFake() })
+    // Nothing async has resolved yet: only the synchronous prefix of
+    // `launch()` (before its first `await`) has run.
+    expect(progression(PROJECT)).not.toBeNull()
+    await promise
+    await waitFin()
+  })
+
   it('force entraîne l’aval avec lui', async () => {
     poserProject()
     poserTranscript()
@@ -781,7 +798,10 @@ describe('lancer', () => {
 
       const original = path.join(root, 'replays', `${PROJECT}.mp4`)
       expect(inputsSteps).toEqual([original, original])
-      expect(calls).toEqual(['proxy', 'audio'])
+      // No edge between `proxy` and `audio`: both are ready at once, only one
+      // local step is admitted, and `priorityFor` (audio: 10, proxy: 80) picks
+      // audio — the ordering that keeps candidates ahead of the montage.
+      expect(calls).toEqual(['audio', 'proxy'])
     })
 
     /**
@@ -1018,6 +1038,33 @@ describe("l'étape correction", () => {
     const status = lireStatus(PROJECT)
     expect(status?.error).toContain('ENOSPC')
     expect(status?.warning).toBeNull()
+  })
+
+  /**
+   * `error: null` is the pump's own success sentinel, and JavaScript allows
+   * `throw null`. Without normalizing it, this failure would read as a
+   * success: `candidates` would land in `done`, `error` would stay `null`.
+   */
+  it('lever littéralement `null` reste un échec, jamais un succès silencieux', async () => {
+    poserProject()
+    poserTranscript()
+    poserCorrection()
+
+    await launch(PROJECT, ['candidates'], {
+      db,
+      steps: {
+        ...stepsFake(),
+        runCandidates: async () => {
+          calls.push('candidates')
+          throw null
+        },
+      },
+    })
+    await waitFin()
+
+    const status = lireStatus(PROJECT)
+    expect(status?.error).not.toBeNull()
+    expect(status?.stopped).toBe(false)
   })
 
   it('un échec de suppression de l’ancien candidates.json ne fait pas échouer la correction (#141)', async () => {

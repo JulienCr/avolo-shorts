@@ -1147,7 +1147,9 @@ async function execute(
       hold?.()
     } catch (releaseCause) {
       console.error(`[${projectId}] échec de la libération du jeton sur ${step} :`, releaseCause)
-      if (outcome.error === null) outcome = { step, error: releaseCause }
+      if (outcome.error === null) {
+        outcome = { step, error: releaseCause ?? new Error(`libération de jeton en échec sur ${step}`) }
+      }
     }
     execution.current.delete(step)
     return outcome

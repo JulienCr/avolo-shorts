@@ -84,6 +84,31 @@ export function linkClip(clipId: string): string {
 }
 
 /**
+ * La portée de la vue de tri vidéo : quels candidats alimentent la file.
+ *
+ * **Un paramètre dès le départ, une seule variante livrée.** `project` est la
+ * seule branche câblée ; une file inter-émissions viendra plus tard sur la
+ * même route, avec une autre portée — jamais une route sœur, pour ne pas
+ * devoir renommer une URL déjà en usage.
+ */
+export type SortScope = { kind: 'project'; projectId: string }
+
+/** L'URL de la vue de tri vidéo pour une portée donnée. */
+export function linkSort(scope: SortScope): string {
+  return `/sort?project=${encodeURIComponent(scope.projectId)}`
+}
+
+/**
+ * La portée lue depuis les paramètres de la route `/sort`, ou `null` si
+ * aucune portée reconnue n'y figure — c'est `SortScreen` qui décide quoi en
+ * faire, cette fonction ne fait que la lecture.
+ */
+export function scopeFromSearchParams(searchParams: URLSearchParams): SortScope | null {
+  const projectId = searchParams.get('project')
+  return projectId === null ? null : { kind: 'project', projectId: routeId(projectId) }
+}
+
+/**
  * The id a route hands back, decoded — the return leg of `linkProject` and
  * `linkClip`, which encode it.
  *

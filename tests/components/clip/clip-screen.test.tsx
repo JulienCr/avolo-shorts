@@ -735,6 +735,37 @@ describe('garder et écarter, depuis l’écran de clip', () => {
 
     expect(patches).toEqual([])
   })
+
+  it('un `P` sur un clip exporté redescend à candidat, jamais un statut que le serveur refuse', async () => {
+    // `toggleStatus('exported', 'kept')` vaut `'candidate'` (verrouillé par
+    // `tests/lib/clip-status.test.ts:39`) : rappuyer sur « Garder » défait la
+    // décision plutôt que de tenter de réécrire `exported`, que `PATCH` rejette.
+    const exportedDetail = detail('c4')
+    exportedDetail.clip.status = 'exported'
+    const patches: unknown[] = []
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') {
+        const body = JSON.parse(String(options.body)) as { status?: string }
+        patches.push(body.status)
+        return response({
+          applied: true,
+          clip: { ...exportedDetail.clip, status: body.status },
+          outputs: exportedDetail.outputs,
+          seq: patches.length,
+        })
+      }
+      if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(exportedDetail)
+    })
+    vi.stubGlobal('fetch', fetch)
+    await mount('c4', exportedDetail)
+
+    fireEvent.keyDown(document.body, { key: 'p' })
+    await waitFor(() => expect(patches).toEqual(['candidate']))
+    expect(await screen.findByRole('button', { name: /^garder$/i })).toBeTruthy()
+  })
 })
 
 describe('les valeurs limites', () => {

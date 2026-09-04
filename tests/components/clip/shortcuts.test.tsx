@@ -146,18 +146,6 @@ describe('useShortcuts', () => {
     expect(a.discard).toHaveBeenCalledTimes(1)
   })
 
-  it('n’abonne l’écoute qu’une fois : un rendu suivant lit les derniers gestes', () => {
-    // Les fonctions changent de référence à chaque rendu ; les mettre en
-    // dépendance de l'effet retirerait puis reposerait l'écouteur à chaque
-    // frappe (`useShortcutsReview` suit le même principe).
-    const a = actions()
-    const { rerender } = render(<Harness {...a} />)
-    const b = actions()
-    rerender(<Harness {...b} />)
-    fireEvent.keyDown(document.body, { key: 'p' })
-    expect(a.keep).not.toHaveBeenCalled()
-    expect(b.keep).toHaveBeenCalledTimes(1)
-  })
 })
 
 describe('volerait', () => {

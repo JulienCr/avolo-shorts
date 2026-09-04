@@ -372,10 +372,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     [write],
   )
 
-  // **Le statut vient de la liste des candidats, pas du `detail` figé.** Cette
-  // liste porte déjà la mise à jour optimiste de `usePatchClip` ; relire
-  // `clip.status` ferait retomber le badge sur l'ancienne valeur jusqu'au
-  // prochain chargement de la page.
+  // Read from the candidates list, not the frozen `detail` prop: it already
+  // carries `usePatchClip`'s optimistic update, so the buttons reflect a
+  // decision before the next page load.
   const liveStatus = (candidates.data ?? []).find((c) => c.id === clip.id)?.status ?? clip.status
   const keepPressed = isGuard(liveStatus)
   const discardPressed = isDiscarded(liveStatus)
@@ -645,8 +644,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
       <div className="flex shrink-0 items-center gap-3 border-b pr-4">
         <ClipStrip clips={guards} currentId={clip.id} />
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          {/* Même bouton bascule (`candidate-card.tsx`) : rappuyer défait la
-              décision. `toggleStatus` porte la règle, jamais recopiée ici. */}
+          {/* Same toggle button as `candidate-card.tsx`: pressing again undoes
+              the decision. `toggleStatus` owns that rule, never copied here. */}
           <Button
             size="sm"
             variant={keepPressed ? 'default' : 'outline'}
@@ -660,8 +659,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
           </Button>
           <Button
             size="sm"
-            variant="ghost"
-            className="shrink-0 text-muted-foreground"
+            variant={discardPressed ? 'destructive' : 'ghost'}
+            className={cn('shrink-0', !discardPressed && 'text-muted-foreground')}
             onClick={() => decide('discarded')}
             aria-pressed={discardPressed}
             title="X"

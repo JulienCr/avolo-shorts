@@ -1569,6 +1569,8 @@ mêmes au clavier.
 | Clip | `Suppr` | retirer la sélection |
 | Clip | `Échap` | vider la sélection |
 | Clip | `I` / `O` | poser la borne de début, de fin, sur le mot sous le curseur |
+| Clip | `P` | garder le clip |
+| Clip | `X` | écarter le clip |
 | Clip | `Ctrl+F` | chercher dans le transcript |
 | Clip | `,` / `.` | frontière de plan précédente, suivante (itération 1, voir 3.5) |
 | Partout | `?` | la liste des raccourcis |

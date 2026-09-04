@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 
 import {
   Dialog,
@@ -14,7 +14,7 @@ import {
  * Les raccourcis de l'écran de clip, et la garde qui les empêche de voler une
  * frappe.
  *
- * Douze touches (spec §4.1), **toutes directes en AZERTY** : `I` et `O` sont la
+ * Quatorze touches (spec §4.1), **toutes directes en AZERTY** : `I` et `O` sont la
  * convention des bancs de montage pour les points d'entrée et de sortie, et un
  * raccourci à deux mains n'économise rien sur un geste répété trente fois.
  * `Ctrl+F` remplace celui du navigateur, que la virtualisation neutralise de
@@ -93,24 +93,33 @@ export type ActionsShortcuts = {
   escape: () => void
   poserBound: (edge: 'start' | 'end') => void
   find: () => void
+  /** `P`. La décision et la bascule vivent dans `toggleStatus` (`@/lib/clip-status`). */
+  keep: () => void
+  /** `X`. Même remarque que `keep`. */
+  discard: () => void
   help: () => void
   aSelection: boolean
 }
 
-export function useShortcuts({
-  playbackOrPause,
-  cancel,
-  restore,
-  remove,
-  escape,
-  poserBound,
-  find,
-  help,
-  aSelection,
-}: ActionsShortcuts) {
+/**
+ * Les gestes derrière une référence, l'écoute posée une seule fois — même
+ * raison qu'`useShortcutsReview` (`@/components/review/shortcuts`) : les
+ * fonctions changent à chaque rendu, et les mettre en dépendance de l'effet
+ * retirerait puis reposerait l'écouteur à chaque frappe.
+ */
+export function useShortcuts(actions: ActionsShortcuts) {
+  const last = useRef(actions)
+  useEffect(() => {
+    last.current = actions
+  })
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (wouldSteal(e.target, e.key)) return
+      const {
+        playbackOrPause, cancel, restore, remove, escape,
+        poserBound, find, keep, discard, help, aSelection,
+      } = last.current
       const command = e.ctrlKey || e.metaKey
       const key = e.key.toLowerCase()
 
@@ -150,6 +159,12 @@ export function useShortcuts({
       } else if (key === 'o') {
         e.preventDefault()
         poserBound('end')
+      } else if (key === 'p') {
+        e.preventDefault()
+        keep()
+      } else if (key === 'x') {
+        e.preventDefault()
+        discard()
       } else if (e.key === '?') {
         e.preventDefault()
         help()
@@ -158,7 +173,7 @@ export function useShortcuts({
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [playbackOrPause, cancel, restore, remove, escape, poserBound, find, help, aSelection])
+  }, [])
 }
 
 /**
@@ -178,6 +193,8 @@ const TABLE: { key: string; effect: string }[] = [
   { key: 'Échap', effect: 'Vider la sélection' },
   { key: 'I', effect: 'Commencer le clip sur le mot sélectionné' },
   { key: 'O', effect: 'Terminer le clip sur le mot sélectionné' },
+  { key: 'P', effect: 'Garder le clip' },
+  { key: 'X', effect: 'Écarter le clip' },
   { key: 'Ctrl+F', effect: 'Chercher dans le transcript' },
   { key: '←  →', effect: 'Mot précédent, suivant (dans le transcript)' },
   { key: 'Entrée', effect: 'Placer la lecture sur le mot, ou le remonter' },

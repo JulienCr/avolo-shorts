@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronLeft, ChevronRight, Keyboard, RotateCw, Redo2, TriangleAlert, Undo2 } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Keyboard, RotateCw, Redo2, TriangleAlert, Undo2, X } from 'lucide-react'
 import { useIsMutating } from '@tanstack/react-query'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -22,7 +22,6 @@ import { usePlayback } from '@/components/clip/playback'
 import { DialogueShortcuts, useShortcuts } from '@/components/clip/shortcuts'
 import { Timeline } from '@/components/clip/timeline'
 import { outputNames } from '@/components/clip/texts'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -42,11 +41,10 @@ import { retimeWords } from '@/core/captions/retime'
 import { clipDuration } from '@/core/edl'
 import { RATIOS } from '@/core/framing'
 import { resolveHook } from '@/core/hook'
-import { isGuard } from '@/core/phase'
 import { clipExportEligibility, composeDescription } from '@/core/publication'
 import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
 import { ApiError, HOOK_DEFAULTS } from '@/lib/api'
-import { LABELS_STATUS } from '@/lib/clip-status'
+import { LABELS_STATUS, isDiscarded, isGuard, toggleStatus, type Decision } from '@/lib/clip-status'
 import { indexTranscript, lineInitial, toMontageTime } from '@/lib/editing'
 import { differences, useAutosave } from '@/lib/autosave'
 import { clipNext, linkClip } from '@/lib/navigation'
@@ -374,6 +372,22 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     [write],
   )
 
+  // **Le statut vient de la liste des candidats, pas du `detail` figé.** Cette
+  // liste porte déjà la mise à jour optimiste de `usePatchClip` ; relire
+  // `clip.status` ferait retomber le badge sur l'ancienne valeur jusqu'au
+  // prochain chargement de la page.
+  const liveStatus = (candidates.data ?? []).find((c) => c.id === clip.id)?.status ?? clip.status
+  const keepPressed = isGuard(liveStatus)
+  const discardPressed = isDiscarded(liveStatus)
+
+  function decide(decision: Decision) {
+    patch.mutate({
+      clipId: clip.id,
+      projectId: clip.projectId,
+      patch: { status: toggleStatus(liveStatus, decision) },
+    })
+  }
+
   useShortcuts({
     playbackOrPause: () => togglePlayback(video, segments),
     cancel: editor.cancel,
@@ -389,6 +403,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     // `Ctrl+F` demande la recherche : le transcript est toujours monté,
     // la barre trouve donc toujours une surface où chercher.
     find: () => setSearch(true),
+    keep: () => decide('kept'),
+    discard: () => decide('discarded'),
     help: () => setHelp(true),
     aSelection: selection !== null,
   })
@@ -629,9 +645,30 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
       <div className="flex shrink-0 items-center gap-3 border-b pr-4">
         <ClipStrip clips={guards} currentId={clip.id} />
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <Badge variant="outline" className="shrink-0 text-[0.75rem]">
-            {LABELS_STATUS[clip.status]}
-          </Badge>
+          {/* Même bouton bascule (`candidate-card.tsx`) : rappuyer défait la
+              décision. `toggleStatus` porte la règle, jamais recopiée ici. */}
+          <Button
+            size="sm"
+            variant={keepPressed ? 'default' : 'outline'}
+            className={cn('shrink-0', keepPressed && 'bg-stage text-stage-foreground hover:bg-stage/85')}
+            onClick={() => decide('kept')}
+            aria-pressed={keepPressed}
+            title="P"
+          >
+            <Check aria-hidden />
+            {keepPressed ? LABELS_STATUS[liveStatus] : 'Garder'}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="shrink-0 text-muted-foreground"
+            onClick={() => decide('discarded')}
+            aria-pressed={discardPressed}
+            title="X"
+          >
+            {discardPressed ? <Undo2 aria-hidden /> : <X aria-hidden />}
+            {discardPressed ? LABELS_STATUS[liveStatus] : 'Écarter'}
+          </Button>
           {rank >= 0 && (
             // Le rang dit qu'on est dans une boucle, pas au bout du monde.
             <span className="text-[0.75rem] text-muted-foreground">

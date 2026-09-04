@@ -649,6 +649,94 @@ describe('les cartes de la colonne Image (spec du 30 août §2.1-§2.3)', () => 
   })
 })
 
+describe('garder et écarter, depuis l’écran de clip', () => {
+  function candidateDetail(): ClipDetail {
+    const d = detail('c2')
+    d.clip.status = 'candidate'
+    return d
+  }
+
+  /** Les candidats servis à cet écran, `c2` en proposition plutôt que gardé. */
+  const asCandidate = candidates.map((c) => (c.id === 'c2' ? { ...c, status: 'candidate' as const } : c))
+
+  it('garde le clip sur `P`, écarte sur `X`', async () => {
+    const patches: unknown[] = []
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') {
+        const body = JSON.parse(String(options.body)) as { status?: string }
+        patches.push(body.status)
+        return response({
+          applied: true,
+          clip: { ...detail('c2').clip, status: body.status },
+          outputs: detail('c2').outputs,
+          seq: patches.length,
+        })
+      }
+      if (String(url).includes('/candidates')) return response(asCandidate)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(candidateDetail())
+    })
+    vi.stubGlobal('fetch', fetch)
+    await mount('c2', candidateDetail())
+
+    fireEvent.keyDown(document.body, { key: 'p' })
+    await waitFor(() => expect(screen.getByRole('button', { name: /^gardé$/i })).toBeTruthy())
+
+    fireEvent.keyDown(document.body, { key: 'x' })
+    await waitFor(() => expect(screen.getByRole('button', { name: /^écarté$/i })).toBeTruthy())
+
+    expect(patches).toEqual(['kept', 'discarded'])
+  })
+
+  function stubDecisionFetch(patches: unknown[]) {
+    return vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') {
+        const body = JSON.parse(String(options.body)) as { status?: string }
+        patches.push(body.status)
+        return response({
+          applied: true,
+          clip: { ...detail('c2').clip, status: body.status },
+          outputs: detail('c2').outputs,
+          seq: patches.length,
+        })
+      }
+      if (String(url).includes('/candidates')) return response(asCandidate)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
+      return response(candidateDetail())
+    })
+  }
+
+  it('`P` atteint le geste même quand un mot du transcript porte le focus', async () => {
+    // Chaque mot est un `[role="button"]` : la garde des raccourcis n'écarte
+    // que les touches d'activation (Espace, Entrée, flèches) sur ce rôle, pas
+    // `P`/`X`.
+    const patches: unknown[] = []
+    vi.stubGlobal('fetch', stubDecisionFetch(patches))
+    await mount('c2', candidateDetail())
+
+    const word = screen.getByText(/m0-0/)
+    fireEvent.pointerDown(word)
+    fireEvent.pointerUp(word)
+    word.focus()
+    fireEvent.keyDown(word, { key: 'p' })
+
+    await waitFor(() => expect(patches).toEqual(['kept']))
+  })
+
+  it('ne décide pas pendant qu’un champ de texte porte le focus', async () => {
+    const patches: unknown[] = []
+    vi.stubGlobal('fetch', stubDecisionFetch(patches))
+    await mount('c2', candidateDetail())
+
+    const title = screen.getByLabelText('Titre')
+    fireEvent.keyDown(title, { key: 'p' })
+
+    expect(patches).toEqual([])
+  })
+})
+
 describe('les valeurs limites', () => {
   it('désactive « clip précédent » sur le premier', async () => {
     await mount('c1')

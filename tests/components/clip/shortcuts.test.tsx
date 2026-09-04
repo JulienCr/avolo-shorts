@@ -28,6 +28,8 @@ function actions() {
     escape: vi.fn(),
     poserBound: vi.fn(),
     find: vi.fn(),
+    keep: vi.fn(),
+    discard: vi.fn(),
     help: vi.fn(),
     aSelection: true,
   }
@@ -133,6 +135,28 @@ describe('useShortcuts', () => {
     render(<Harness {...a} />)
     fireEvent.keyDown(document.body, { key: 'Delete' })
     expect(a.remove).not.toHaveBeenCalled()
+  })
+
+  it('garde sur `P`, écarte sur `X`', () => {
+    const a = actions()
+    render(<Harness {...a} />)
+    fireEvent.keyDown(document.body, { key: 'p' })
+    fireEvent.keyDown(document.body, { key: 'x' })
+    expect(a.keep).toHaveBeenCalledTimes(1)
+    expect(a.discard).toHaveBeenCalledTimes(1)
+  })
+
+  it('n’abonne l’écoute qu’une fois : un rendu suivant lit les derniers gestes', () => {
+    // Les fonctions changent de référence à chaque rendu ; les mettre en
+    // dépendance de l'effet retirerait puis reposerait l'écouteur à chaque
+    // frappe (`useShortcutsReview` suit le même principe).
+    const a = actions()
+    const { rerender } = render(<Harness {...a} />)
+    const b = actions()
+    rerender(<Harness {...b} />)
+    fireEvent.keyDown(document.body, { key: 'p' })
+    expect(a.keep).not.toHaveBeenCalled()
+    expect(b.keep).toHaveBeenCalledTimes(1)
   })
 })
 

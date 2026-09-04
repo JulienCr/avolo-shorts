@@ -546,7 +546,7 @@ tri en cours, ils restent en place, grisés. Ce que le plan protège vraiment (u
 `mergeCandidates`.
 
 **Les mains sur le clavier.** Sur trente items, l'aller-retour souris devient le
-coût dominant. `J`/`K` pour se déplacer, `G` pour garder, `E` pour écarter,
+coût dominant. `J`/`K` pour se déplacer, `P` pour garder, `X` pour écarter,
 `Entrée` pour ouvrir, `U` pour défaire la dernière décision. Ce n'est pas un
 confort d'expert : c'est ce qui fait passer le tri de dix minutes à trois.
 
@@ -1560,8 +1560,8 @@ mêmes au clavier.
 | Écran | Touche | Effet |
 |---|---|---|
 | Tri | `J` / `K` ou flèches | carte suivante, précédente |
-| Tri | `G` | garder, et avancer d'une carte |
-| Tri | `E` | écarter, et avancer d'une carte |
+| Tri | `P` | garder, et avancer d'une carte |
+| Tri | `X` | écarter, et avancer d'une carte |
 | Tri | `Entrée` | ouvrir le clip |
 | Tri | `U` | défaire la dernière décision |
 | Clip | `Espace` | lecture, pause |
@@ -1575,7 +1575,7 @@ mêmes au clavier.
 
 Trois règles derrière ce tableau.
 
-**`G` et `E` avancent.** Une boucle se parcourt : décider sans avancer oblige à un
+**`P` et `X` avancent.** Une boucle se parcourt : décider sans avancer oblige à un
 geste sur deux. `U` revient sur la décision précédente **et sur sa carte**, sinon
 on corrige à l'aveugle.
 

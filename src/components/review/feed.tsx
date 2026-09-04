@@ -742,8 +742,8 @@ function HelpKeyboard({
 const SHORTCUTS: readonly [string, string][] = [
   ['J / K', 'carte suivante, précédente'],
   ['Flèches', 'idem'],
-  ['G', 'garder, et avancer d’une carte'],
-  ['E', 'écarter, et avancer d’une carte'],
+  ['P', 'garder, et avancer d’une carte'],
+  ['X', 'écarter, et avancer d’une carte'],
   ['Entrée', 'ouvrir le clip'],
   ['U', 'défaire la dernière décision, et revenir sur sa carte'],
   ['?', 'cette liste'],

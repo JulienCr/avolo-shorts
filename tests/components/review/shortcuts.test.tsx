@@ -45,10 +45,10 @@ describe('processAlreadyKey', () => {
 
   it('écarte le contenu d’une boîte de dialogue', () => {
     // Le popup de Base UI porte `role="dialog"` et `tabIndex={-1}` : cliquer son
-    // texte en fait l'élément actif. Sans lui dans la garde, `G` déciderait une
+    // texte en fait l'élément actif. Sans lui dans la garde, `P` déciderait une
     // carte qu'on ne voit pas — et l'écran invite précisément à ce geste, en
-    // affichant « G — garder » dans une boîte qu'on vient d'ouvrir.
-    const popup = mount('<div role="dialog"><p>G — garder</p></div>')
+    // affichant « P — garder » dans une boîte qu'on vient d'ouvrir.
+    const popup = mount('<div role="dialog"><p>P — garder</p></div>')
     expect(processAlreadyKey(popup)).toBe(true)
     expect(processAlreadyKey(popup.firstElementChild)).toBe(true)
     expect(processAlreadyKey(mount('<div role="alertdialog"></div>'))).toBe(true)
@@ -120,7 +120,7 @@ describe('useShortcutsReview', () => {
     const user = userEvent.setup()
 
     await user.click(screen.getByTestId('card'))
-    await user.keyboard('jk{ArrowDown}{ArrowUp}ge{Enter}u?')
+    await user.keyboard('jk{ArrowDown}{ArrowUp}px{Enter}u?')
 
     expect(actions.suivant).toHaveBeenCalledTimes(2)
     expect(actions.precedent).toHaveBeenCalledTimes(2)
@@ -132,8 +132,8 @@ describe('useShortcutsReview', () => {
   })
 
   it('rend la main dès qu’un modificateur est enfoncé', async () => {
-    // `Ctrl+E` ouvre la barre d'adresse, `Cmd+G` cherche à nouveau : voler ces
-    // touches-là ferait perdre un geste du navigateur pour rien.
+    // `Ctrl+P` ouvre la boîte d'impression : voler cette touche-là ferait
+    // perdre un geste du navigateur pour rien.
     //
     // **La frappe part d'une carte, pas de `document`.** Dispatché sur
     // `document`, l'événement était déjà écarté par la garde des cibles — qui
@@ -144,13 +144,13 @@ describe('useShortcutsReview', () => {
     const user = userEvent.setup()
 
     await user.click(screen.getByTestId('card'))
-    await user.keyboard('{Control>}e{/Control}')
-    expect(actions.ecarter).not.toHaveBeenCalled()
+    await user.keyboard('{Control>}p{/Control}')
+    expect(actions.garder).not.toHaveBeenCalled()
 
     // Et la même touche sans modificateur passe : c'est ce qui prouve que la
     // frappe atteignait bien le gestionnaire.
-    await user.keyboard('e')
-    expect(actions.ecarter).toHaveBeenCalledTimes(1)
+    await user.keyboard('p')
+    expect(actions.garder).toHaveBeenCalledTimes(1)
   })
 
   it('ne vole aucune frappe à un bouton qui a le focus', async () => {

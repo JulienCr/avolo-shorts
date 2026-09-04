@@ -45,9 +45,9 @@ const ALREADY_TAKEN = [
   'summary',
   // **Le contenu d'une boîte de dialogue, popup compris.** Celui de Base UI
   // porte `role="dialog"` et `tabIndex={-1}` : cliquer son texte en fait
-  // l'élément actif, et sans lui ici `G` déciderait une carte que la boîte
+  // l'élément actif, et sans lui ici `P` déciderait une carte que la boîte
   // recouvre. Le chemin est celui que l'écran invite lui-même à prendre — on
-  // ouvre l'aide avec `?`, on y lit « G — garder », on essaie.
+  // ouvre l'aide avec `?`, on y lit « P — garder », on essaie.
   '[role="dialog"]',
   '[role="alertdialog"]',
   // **Le contenu éditable est nommé ici en plus d'`isContentEditable`.** La
@@ -113,9 +113,9 @@ function actionForKey(key: string, actions: ActionsReview): (() => void) | null 
     case 'ArrowUp':
     case 'ArrowLeft':
       return actions.previous
-    case 'g':
+    case 'p':
       return actions.keep
-    case 'e':
+    case 'x':
       return actions.discard
     case 'Enter':
       return actions.open
@@ -141,9 +141,9 @@ export function useShortcutsReview(actions: ActionsReview): void {
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      // `Ctrl+E` ouvre la barre d'adresse, `Cmd+G` cherche l'occurrence
-      // suivante : voler ces touches-là ferait perdre un geste du navigateur
-      // pour rien. `Shift` reste admis — `?` en a besoin sur un AZERTY.
+      // `Ctrl+P` ouvre la boîte d'impression : voler cette touche-là ferait
+      // perdre un geste du navigateur pour rien. `Shift` reste admis — `?` en
+      // a besoin sur un AZERTY.
       if (event.ctrlKey || event.metaKey || event.altKey) return
       if (processAlreadyKey(event.target)) return
 

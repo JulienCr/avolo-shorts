@@ -126,8 +126,8 @@ describe("l'avancement publié", () => {
     expect(towardStatus && towardListItem && towardLibrary).toBe(true)
   })
 
-  // PR E : `runningAll` va plural là où `running` allait — mêmes trois
-  // miroirs, sur `Progression[]` plutôt que `Progression | null`.
+  // PR E: `runningAll` goes plural where `running` went — same three
+  // mirrors, on `Progression[]` rather than `Progression | null`.
   it('runningAll est identique à ses trois miroirs côté client', () => {
     const towardStatus: Identical<Progression[], ProjectStatus['runningAll']> = true
     const towardListItem: Identical<Progression[], ProjectListItem['runningAll']> = true

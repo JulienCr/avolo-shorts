@@ -137,13 +137,11 @@ export function dependenciesOf(step: StepName): readonly StepName[] {
 /**
  * The steps this plan can start now: their in-plan dependencies are done.
  *
- * A dependency absent from `plan` never blocks a step — `planSteps`' own
- * contract already guarantees it is on disk (`toRedo` was false for it), and
- * waiting on it here would deadlock a plan like `['correction', 'candidates']`
- * where `transcript` exists but was never planned.
+ * A dependency absent from `plan` never blocks — `planSteps` guarantees it is
+ * already on disk, and waiting on it would deadlock `['correction', 'candidates']`.
  *
  * @param done - Steps that finished during this run of the plan.
- * @param running - Steps already admitted, excluded so they are not admitted twice.
+ * @param running - Steps already admitted, excluded from the result.
  * @returns Ready steps, in `plan`'s order — the caller decides priority.
  */
 export function readySteps(

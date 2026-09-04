@@ -202,13 +202,13 @@ function progressionFor(execution: Execution): { running: Progression | null; ru
   return { running: runningAll[0] ?? null, runningAll }
 }
 
-/** L'avancement en cours de l'étape la plus prioritaire, ou `null` si rien ne tourne. */
+/** The leading in-flight step's progress, or `null` if nothing is running. */
 export function progression(projectId: string): Progression | null {
   const execution = inCurrent.get(projectId)
   return execution === undefined ? null : progressionFor(execution).running
 }
 
-/** Toutes les étapes en cours (au plus deux — voir `Execution.current`), dans l'ordre de priorité. */
+/** Every step in flight (at most two — see `Execution.current`), in priority order. */
 export function progressionAll(projectId: string): Progression[] {
   const execution = inCurrent.get(projectId)
   return execution === undefined ? [] : progressionFor(execution).runningAll
@@ -857,28 +857,17 @@ export async function launch(
     // `runCandidates` refait ce nettoyage pour son propre compte — il s'appelle
     // aussi hors du lanceur —, ce qui ne le rend pas redondant ici.
     if (execution.plan.includes('candidates')) forgetSummary(projectId)
-    // Placeholder before the pump starts: `doitIngest`'s progress attaches to
-    // the first planned step, matching what the pump would admit first if
-    // nothing else were ready — `runStep` overwrites this entry once that
-    // step is actually admitted.
+    // Placeholder before the pump starts, for ingest's progress; `runStep`
+    // overwrites it once that step is actually admitted.
     execution.current.set(execution.plan[0] ?? targets[0] ?? 'candidates', { progress: 0, waiting: null })
 
-    // **L'ingestion se décide avant, pas dans l'exécution.** Un projet dont les
-    // artefacts sont déjà sur le disque mais dont la ligne en base est neuve —
-    // une base effacée, un projet réinscrit — a un plan vide *et* une durée
-    // inconnue. Sortir tout de suite le laissait à `0:00` pour toujours, et le
-    // premier `run --force` échouait bien plus tard sur « le projet n'a pas de
-    // durée ». Un `lstat` et un `ffprobe` sur la copie locale suffisent à le
-    // réparer, et l'ingestion saute la copie si elle est déjà à la bonne taille.
-    //
-    // **Une seule lecture du réglage pour toute l'exécution.** Une transcription
-    // dure jusqu'à quarante minutes avant que `proxy` ne soit atteint ; relire
-    // `copiesSourceLocally(db)` à l'entrée de chaque étape laissait le réglage
-    // coché entre-temps contredire ce que la planification venait de décider —
-    // aucune ingestion prévue, mais l'étape l'exigeant quand même, sur un projet
-    // qu'aucune relance ne pouvait plus débloquer. La valeur lue ici vaut pour
-    // tout le reste du lancement (relevé par la review de la PR #113).
+    // Ingestion is decided ahead, not inside the execution: a re-registered
+    // project can have an empty plan *and* an unknown duration; `lstat` +
+    // `ffprobe` on the local copy repair that without touching the Drive.
     const copyLocally = copiesSourceLocally(db)
+    // One read for the whole execution: re-reading it at each step's entry
+    // would let a setting flipped mid-run contradict what planning already
+    // decided (review of PR #113).
     const doitIngest = ingestionNecessary(project, execution.plan, copyLocally)
 
     // Un plan vide n'est pas une exécution : tout est déjà là, il n'y a rien à
@@ -1137,9 +1126,8 @@ async function execute(
       if (step === 'candidates') execution.detection = 'done'
       return { step, error: null }
     } catch (cause) {
-      // Une passe coupée n'a pas échoué : elle n'a pas fini. Les deux donnent
-      // `partiel: true` dans le bilan publié, mais l'un décrit un incident et
-      // l'autre une décision, et le code se relit.
+      // A cut pass has not failed, it has not finished — both publish
+      // `partial: true`, but one is an incident and the other a decision.
       if (step === 'candidates') execution.detection = signal.aborted ? 'running' : 'failed'
       return { step, error: cause }
     } finally {
@@ -1150,17 +1138,12 @@ async function execute(
 
   try {
     if (doitIngest) {
-      // L'ingestion n'est pas une étape du graphe — la source est là ou le
-      // projet n'existe pas —, elle n'a donc pas de nom à afficher. On garde
-      // celui de la première étape à faire, dont la progression est bien à zéro
-      // tant que la copie n'est pas finie.
-      // **`copyLocally` explicite, pas la lecture propre d'`ingest`.** Sans ce
-      // paramètre, `ingest` relit `copiesSourceLocally(db)` lui-même après le
-      // sondage du montage — un sondage qui peut prendre jusqu'à vingt
-      // secondes — et la valeur figée au lancement cesserait de gouverner
-      // « toute l'exécution » si le réglage changeait pendant l'attente.
-      // (relevé par la review de la PR #113)
+      // Ingestion has no step name: keep the first one to do, whose progress
+      // stays at zero until the copy is finished.
       const initialStep = execution.plan[0] ?? execution.targets[0] ?? 'candidates'
+      // `copyLocally` explicit, never re-read by `ingest`: the value frozen
+      // at launch must govern the whole execution, not waver if the setting
+      // changes while the mount is being probed (PR #113).
       const ingestion = await steps.ingest(project.sourcePath, {
         db,
         signal,
@@ -1172,12 +1155,9 @@ async function execute(
       else project = { ...project, stagedPath: ingestion.stagedPath, durationSec: ingestion.durationSec }
     }
 
-    // **The pump.** `done`/`failed` are this run's bookkeeping, never a
-    // presence check — the plan itself already encodes presence (contract of
-    // `planSteps`). Keeping `failed` apart from `done` is what makes error
-    // propagation fall out of `readySteps` alone: a failed step's dependents
-    // never see it as done, so they never become ready, with no extra
-    // machinery to stop them.
+    // **The pump.** `done`/`failed` are this run's bookkeeping, not a presence
+    // check. Keeping `failed` apart from `done` is what makes error propagation
+    // fall out of `readySteps` alone: a failed step's dependents never see it as done.
     const done = new Set<StepName>()
     const failed = new Set<StepName>()
     const inFlight = new Map<StepName, Promise<{ step: StepName; error: unknown }>>()
@@ -1194,11 +1174,12 @@ async function execute(
         const runningNames = new Set(inFlight.keys())
         const ready = readySteps(execution.plan, done, runningNames).filter((s) => !failed.has(s))
         const sorted = [...ready].sort((a, b) => priorityFor(a) - priorityFor(b))
-        // **One read for the whole pass, not one per candidate step.** The
-        // pass itself is synchronous — no `await` between here and the last
-        // admission below — so nothing can change the classification mid-pass;
-        // an `await` inserted in this block would let a step's `finally` fire
-        // between two admissions and silently let two local steps through.
+        /**
+         * Resolved once per pass, not once per candidate step: the pass is
+         * synchronous by construction, no `await` until the last admission
+         * below. An `await` inserted here would silently break the locality
+         * rule and let two local steps through.
+         */
         const local = localModels(effectiveSettings(db).ai)
         let localBusy = [...runningNames].some((s) => isLocal(resourcesOf.get(s) ?? null))
         for (const step of sorted) {
@@ -1229,9 +1210,8 @@ async function execute(
       await Promise.race(inFlight.values())
     }
 
-    // L'arrêt tombé entre deux admissions, ou pendant la dernière : la boucle
-    // est sortie sans lever, et il ne faut surtout pas écrire un statut de
-    // succès.
+    // Abort landed between two admission passes: the loop exited without
+    // throwing, and a success status must not be written.
     if (signal.aborted) {
       writeStoppedStatus(interruptedAt ?? [])
       return
@@ -1256,12 +1236,8 @@ async function execute(
     )
     console.log(`[${projectId}] terminé : ${execution.plan.join(' → ')}`)
   } catch (cause) {
-    // **L'arrêt se lit sur le signal, jamais sur l'erreur reçue.** Selon
-    // l'étape, elle vaut `StopRequestedError`, une `AbortError` de `pipeline` ou
-    // le refus d'un flux fermé sous les pieds d'une bibliothèque tierce ; le
-    // seul fait commun est que quelqu'un a demandé l'arrêt. Et on ne relève pas
-    // l'erreur : une exécution arrêtée s'est terminée comme on le voulait, donc
-    // `attendre()` doit rendre la main sans rejeter.
+    // Abort is read from the signal, never from the received error — it
+    // varies by step — so `wait()` never rejects a deliberately stopped run.
     if (signal.aborted) {
       writeStoppedStatus([])
       return

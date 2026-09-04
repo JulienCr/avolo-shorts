@@ -448,9 +448,9 @@ describe('un projet, deux chaînes du graphe', () => {
       },
     })
     await pollUntil(() => calls.includes(`${A}:transcript:start`))
-    // `proxy` n'a pas d'arête vers `transcript` : il est prêt depuis le début,
-    // mais les deux sont locaux — `priorityFor` (transcript : 20, proxy : 80)
-    // tranche lequel tient le seul créneau.
+    // No edge from `proxy` to `transcript`: it is ready from the start, but
+    // both are local — `priorityFor` (transcript: 20, proxy: 80) decides
+    // which one holds the only slot.
     expect(calls).not.toContain(`${A}:proxy:start`)
 
     gateTranscript.resolve()
@@ -490,9 +490,9 @@ describe('un projet, deux chaînes du graphe', () => {
       },
     })
 
-    // Le recouvrement enregistré, jamais une mesure de temps : les deux ont
-    // démarré avant qu'aucun n'ait fini. `correction` (priorité 30) précède
-    // `proxy` (80) à l'admission, mais ne le bloque pas : elle est réseau.
+    // A recorded overlap, never a timing measurement: both started before
+    // either finished. `correction` (priority 30) is admitted before `proxy`
+    // (80), but never blocks it — it is a network step.
     await pollUntil(() => calls.includes(`${A}:correction:start`))
     await pollUntil(() => calls.includes(`${A}:proxy:start`))
     expect(calls).toEqual([`${A}:correction:start`, `${A}:proxy:start`])
@@ -554,9 +554,9 @@ describe('un projet, deux chaînes du graphe', () => {
     gateProxy.resolve()
     await wait(A).catch(() => {})
 
-    // `proxy` a fini et `analysis` a suivi, malgré la panne du transcript.
-    // `correction` et `candidates` n'ont jamais démarré : leur dépendance
-    // (`transcript`) n'est jamais passée à `done`.
+    // `proxy` finished and `analysis` followed, despite the transcript
+    // failure. `correction` and `candidates` never started: their dependency
+    // (`transcript`) never reaches `done`.
     expect(calls).toEqual([
       `${A}:transcript:start`,
       `${A}:proxy:start`,
@@ -596,13 +596,11 @@ describe('un projet, deux chaînes du graphe', () => {
     gateProxy.resolve()
     await wait(A).catch(() => {})
 
-    // `proxy` a fini normalement, sans savoir que `candidates` a cassé à côté.
+    // `proxy` finished normally, with no idea `candidates` broke next to it.
     expect(calls).toContain(`${A}:proxy:done`)
-    // La distinction interne `failed`/`running` (candidates) n'est pas
-    // publiée telle quelle — `detectionSummary` les rend toutes deux
-    // `partial: true` — mais elle se lit dans le couple `error`/`stopped` :
-    // une vraie panne écrit `error`, un arrêt demandé écrirait `stopped` sans
-    // `error`. Ici, personne n'a demandé l'arrêt.
+    // `failed`/`running` (candidates) are never published as such, but they
+    // read through `error`/`stopped`: a real failure writes `error`, a
+    // requested stop would write `stopped` with no `error`.
     const status = lireStatus(A)
     expect(status?.error).toContain('panne simulée du repérage')
     expect(status?.stopped).toBe(false)
@@ -639,9 +637,9 @@ describe('un projet, deux chaînes du graphe', () => {
     await pollUntil(() => calls.includes(`${A}:proxy:start`) && calls.includes(`${A}:candidates:start`))
     expect(stopRun(A)).toBe(true)
 
-    // `proxy` se libère seul : `candidates` tient encore le travail, donc la
-    // table ne doit pas s'être vidée — c'est le drain qui est sous test, pas
-    // le premier des deux à finir.
+    // `proxy` releases on its own: `candidates` still holds the work, so the
+    // table must not have emptied yet — the drain is under test, not which
+    // of the two lands first.
     gateProxy.resolve()
     await pollUntil(() => calls.includes(`${A}:proxy:done`))
     expect(progression(A)).not.toBeNull()
@@ -686,10 +684,10 @@ describe('un projet, deux chaînes du graphe', () => {
     const all = progressionAll(A)
     expect(all.map((p) => p.step)).toEqual(['candidates', 'proxy'])
     expect(all.find((p) => p.step === 'proxy')?.progress).toBeGreaterThan(0)
-    // `candidates` ne rapporte pas de fraction : son entrée reste à zéro,
-    // l'avancement de `proxy` ne l'a pas atteinte.
+    // `candidates` never reports a fraction: its entry stays at zero,
+    // `proxy`'s advance never reached it.
     expect(all.find((p) => p.step === 'candidates')?.progress).toBe(0)
-    // `running` reste la tête (priorité la plus haute) : candidates (40) < proxy (80).
+    // `running` stays the leader (highest priority): candidates (40) < proxy (80).
     expect(progression(A)?.step).toBe('candidates')
 
     gateCandidates.resolve()

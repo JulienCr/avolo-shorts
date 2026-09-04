@@ -466,7 +466,7 @@ export type SourcesListing = {
 export type ProjectListItem = ProjectSummary & {
   /** Ce qui tourne **dans ce processus**, ou `null`. Une lecture de `Map`. */
   running: { step: StepName; progress: number; waiting: Wait | null } | null
-  /** Toutes les étapes en cours (au plus deux), dans l'ordre de priorité. */
+  /** Every step in flight (at most two), in priority order. */
   runningAll: { step: StepName; progress: number; waiting: Wait | null }[]
   /** L'échec de la dernière exécution terminée. Un petit fichier local. */
   error: string | null

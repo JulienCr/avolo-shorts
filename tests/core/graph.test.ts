@@ -230,19 +230,17 @@ describe('dependenciesOf', () => {
 })
 
 /**
- * PR E : exécuter le plan comme le DAG qu'il décrit, pas comme une liste.
- * `readySteps` ne connaît ni les ressources ni la priorité — l'exécuteur les
- * applique — et son seul travail est de dire quelles étapes n'ont plus de
- * dépendance en attente **dans ce plan**.
+ * PR E: execute the plan as the DAG it describes, not as a flat list.
+ * `readySteps` knows nothing about resources or priority — the executor
+ * applies those — its only job is which steps have no pending dependency
+ * **within this plan**.
  */
 describe('readySteps', () => {
   const none = new Set<StepName>()
 
-  // La subtlété qui doit vivre dans le code et dans un test qui la nomme :
-  // une dépendance absente du plan est déjà sur le disque (contrat de
-  // `planSteps`), donc elle ne bloque rien. Sans cette règle, viser
-  // `['correction', 'candidates']` sur un transcript déjà là bloquerait pour
-  // toujours sur un `transcript` que personne n'a planifié.
+  // A dependency absent from the plan is already on disk (`planSteps`'
+  // contract): without this rule, `['correction', 'candidates']` on a
+  // transcript already there would block forever.
   it('ne bloque pas sur une dépendance absente du plan', () => {
     expect(readySteps(['correction', 'candidates'], none, none)).toEqual(['correction'])
   })

@@ -44,6 +44,20 @@ import { filmstripLegacyPath, filmstripPath, vignettePath } from '@/server/thumb
 import { FILMSTRIP_COUNT_DEFAULT } from '@/lib/filmstrip'
 
 /**
+ * In-memory only for the whole file, never the real singleton.
+ *
+ * The `@/server/scheduler` singleton captures `PROJECTS_DIR` at its first
+ * construction and keeps it past the next test's `mkdtempSync` — a lock file
+ * sought under a directory already wiped.
+ */
+vi.mock('@/server/scheduler', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/server/scheduler')>()
+  const { CAPACITIES } = await import('@/core/resources')
+  const instance = actual.createScheduler({ capacities: CAPACITIES, lockDir: null })
+  return { ...actual, scheduler: () => instance }
+})
+
+/**
  * Les routes, appelées comme Next les appelle.
  *
  * Ce qui se vérifie ici est **ce qui ne doit pas traverser la frontière** :
@@ -375,7 +389,7 @@ describe('GET /api/projects', () => {
     const probe = vi.spyOn(fs, 'existsSync')
     try {
       const projects = (await (await listProjects()).json()) as ProjectListItem[]
-      expect(projects[0].running).toEqual({ step: 'candidates', progress: 0 })
+      expect(projects[0].running).toEqual({ step: 'candidates', progress: 0, waiting: null })
       // **Le contrôle qui porte la décision.** `readingPresence` est fait de
       // `existsSync` : s'il revenait dans cette route, ce compteur le dirait.
       expect(probe).not.toHaveBeenCalled()

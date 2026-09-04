@@ -6,9 +6,11 @@ import type Database from 'better-sqlite3'
 import { planSteps, type StepName } from '@/core/graph'
 import type { SelectionReport } from '@/lib/api'
 import { progressWorker } from '@/core/pipeline'
+import { priorityFor, resourceFor, type Resource, type Wait } from '@/core/resources'
 import { isAAbsence } from '@/server/bytes'
 import {
   copiesSourceLocally,
+  effectiveSettings,
   getDb,
   getProject,
   getProjectBySourcePath,
@@ -17,6 +19,8 @@ import {
 } from '@/server/db'
 import { messageSafe } from '@/server/errors'
 import { pathTemporary } from '@/server/ffmpeg'
+import { localModels } from '@/server/resources'
+import { scheduler as defaultScheduler, type Scheduler } from '@/server/scheduler'
 import {
   analysisPath,
   audioPath,
@@ -80,14 +84,27 @@ import { transcribe } from '@/server/steps/transcript'
  */
 
 /** Ce que l'interface lit dans `ProjectStatus.running`. */
-export type Progression = { step: StepName; progress: number }
+export type Progression = { step: StepName; progress: number; waiting: Wait | null }
+
+/** The step and its progress, without the wait — see `progressionFor`. */
+type CurrentStep = { step: StepName; progress: number }
+
+/**
+ * The instant a step started waiting on a resource.
+ *
+ * @remarks Only the instant is kept, never a duration: a queued step emits
+ * no progress callback, so a stored duration would freeze at its starting
+ * value. `progressionFor` derives `waitedMs` at read time.
+ */
+type Waiting = { resource: Resource; startedAt: number }
 
 /** Une exécution vivante, dans **ce** processus. */
 type Execution = {
   projectId: string
   targets: StepName[]
   plan: StepName[]
-  current: Progression
+  current: CurrentStep
+  waiting: Waiting | null
   /** Où en est l'étape `candidates` **dans cette exécution**. Voir `detectionSummary`. */
   detection: StateDetection
   /** Pour ne pas réécrire `status.json` à chaque marque de temps de ffmpeg. */
@@ -153,10 +170,24 @@ export class ProjectErrorCollision extends Error {
   }
 }
 
+/**
+ * The publishable progress of an execution: its step, its progress, and its
+ * wait converted to a duration.
+ */
+function progressionFor(execution: Execution): Progression {
+  return {
+    ...execution.current,
+    waiting:
+      execution.waiting === null
+        ? null
+        : { resource: execution.waiting.resource, waitedMs: Math.max(0, Date.now() - execution.waiting.startedAt) },
+  }
+}
+
 /** L'avancement en cours, ou `null` si rien ne tourne. */
 export function progression(projectId: string): Progression | null {
   const execution = inCurrent.get(projectId)
-  return execution === undefined ? null : { ...execution.current }
+  return execution === undefined ? null : progressionFor(execution)
 }
 
 /**
@@ -660,7 +691,7 @@ function publish(execution: Execution, changeDStep: boolean): void {
       updatedAt: now,
       targets: execution.targets,
       plan: execution.plan,
-      running: { ...execution.current },
+      running: progressionFor(execution),
       error: null,
       warning: null,
       finishedAt: null,
@@ -700,6 +731,8 @@ export type OptionsLaunch = {
   force?: readonly StepName[] | boolean
   db?: Database.Database
   steps?: Partial<Steps>
+  /** The physical-resource scheduler. This is the tests' entry point. */
+  scheduler?: Scheduler
 }
 
 /**
@@ -772,6 +805,7 @@ export async function launch(
     targets: [...targets],
     plan: [],
     current: { step: targets[0] ?? 'candidates', progress: 0 },
+    waiting: null,
     detection: 'absent',
     lastWrite: 0,
     finished: Promise.resolve(),
@@ -965,6 +999,7 @@ async function execute(
   copyLocally: boolean,
 ): Promise<void> {
   const steps = { ...STEPS, ...options.steps }
+  const resourceScheduler = options.scheduler ?? defaultScheduler()
   const { projectId } = execution
   let project = projectInitial
   // **Portée par l'exécution, jamais par un throw.** L'étape `correction`
@@ -1060,7 +1095,23 @@ async function execute(
       if (step === 'candidates') execution.detection = 'running'
       publish(execution, true)
       console.log(`[${projectId}] ${step}…`)
+
+      // `renders` never reaches the scheduler (contract D, non-scope): `executeStep`
+      // throws on it regardless. Otherwise resolved as late as possible, since
+      // `createCallFromSettings` reads settings live and an earlier snapshot here could name the wrong resource.
+      const resource = step === 'renders' ? null : resourceFor(step, localModels(effectiveSettings(db).ai))
+      const hold =
+        resource === null
+          ? null
+          : await resourceScheduler.acquire(resource, priorityFor(step), signal, () => {
+              execution.waiting = { resource, startedAt: Date.now() }
+              publish(execution, true)
+            })
       try {
+        if (resource !== null) {
+          execution.waiting = null
+          publish(execution, true)
+        }
         const warning = await executeStep(
           step,
           project,
@@ -1070,10 +1121,9 @@ async function execute(
           advance,
           flagSummary,
           signal,
-          // **Une retranscription dans ce même plan fait repartir le journal
-          // de correction à vide.** `transcript.json` vient d'être remplacé
-          // en entier : les positions d'un journal antérieur n'y correspondent
-          // plus à rien (voir `applyTranscriptCorrections`).
+          // A retranscription in this same plan resets the correction log:
+          // `transcript.json` was just replaced whole, so an earlier log's
+          // offsets no longer point at anything (see `applyTranscriptCorrections`).
           execution.plan.includes('transcript'),
         )
         if (warning !== null) correctionWarning = warning
@@ -1083,6 +1133,8 @@ async function execute(
         // l'autre une décision, et le code se relit.
         if (step === 'candidates') execution.detection = signal.aborted ? 'running' : 'failed'
         throw cause
+      } finally {
+        hold?.()
       }
       if (step === 'candidates') execution.detection = 'done'
     }

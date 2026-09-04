@@ -82,7 +82,7 @@ describe('les cinq états', () => {
     renderCard(
       entry(
         { projectId: PROJECT.id },
-        { running: { step: 'transcript', progress: 0.42 } },
+        { running: { step: 'transcript', progress: 0.42, waiting: null } },
       ),
     )
     expect(card().getAttribute('data-state')).toBe('analyzing')
@@ -171,7 +171,7 @@ describe('la hauteur', () => {
     // coup, donc la position de défilement reste juste au retour d'un clip.
     const cells: Entry[] = [
       entry({}),
-      entry({ projectId: PROJECT.id }, { running: { step: 'proxy', progress: 0.1 } }),
+      entry({ projectId: PROJECT.id }, { running: { step: 'proxy', progress: 0.1, waiting: null } }),
       entry({ projectId: PROJECT.id }, { stopped: true }),
       entry({ projectId: PROJECT.id }, { error: 'tombé' }),
       entry({ projectId: PROJECT.id }, {}),

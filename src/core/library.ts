@@ -26,6 +26,7 @@
 
 import type { StepName } from '@/core/graph'
 import { titleProject } from '@/core/pipeline'
+import type { Wait } from '@/core/resources'
 
 /**
  * L'état d'une émission dans la bibliothèque.
@@ -58,7 +59,7 @@ export type LibraryProject = {
   title: string
   /** La durée sondée à l'ingestion. Zéro tant qu'elle ne l'a pas été. */
   durationSec: number
-  running: { step: StepName; progress: number } | null
+  running: { step: StepName; progress: number; waiting: Wait | null } | null
   error: string | null
   /**
    * La dernière exécution terminée a-t-elle été **arrêtée** ?

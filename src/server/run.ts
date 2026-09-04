@@ -545,6 +545,12 @@ export type Status = {
    * Déduit par `detectionSummary`, jamais recopié tel quel — voir pourquoi là-bas.
    */
   selectionReport: SelectionReport | null
+  /**
+   * The "+N clips" sweep pass's own report, or `null`. Same survival rule as
+   * `selectionReport`, its own field rather than a nested one: it is not a
+   * notation summary, and it must reach the client even without one.
+   */
+  moreClips: MoreClipsReport | null
 }
 
 /**
@@ -585,28 +591,8 @@ export type StateDetection = 'absent' | 'running' | 'done' | 'failed'
 export function detectionSummary(
   summary: SummaryNotation | null,
   state: StateDetection,
-  /**
-   * The "+N clips" sweep pass's own report, merged in as `moreClips`. Optional:
-   * existing callers that never ran a sweep pass keep passing two arguments.
-   * A sweep-only project (windowed summary absent from this process's memory)
-   * still needs its report to reach the client, hence the zero-filled branch
-   * below rather than folding this into the `summary === null` early return.
-   */
-  more: MoreClipsReport | null = null,
 ): SelectionReport | null {
-  if (state === 'absent') return null
-  if (summary === null) {
-    if (more === null) return null
-    return {
-      windows: 0,
-      scored: 0,
-      rejectedBatches: 0,
-      answeredBatches: 0,
-      coverage: 0,
-      partial: state !== 'done',
-      moreClips: more,
-    }
-  }
+  if (summary === null || state === 'absent') return null
   return {
     windows: summary.windows,
     scored: summary.noted,
@@ -614,7 +600,6 @@ export function detectionSummary(
     answeredBatches: summary.batchesResponded,
     coverage: summary.coverage,
     partial: state !== 'done',
-    moreClips: more ?? undefined,
   }
 }
 
@@ -632,7 +617,7 @@ function pathStatus(projectId: string): string {
  */
 function writeStatus(
   projectId: string,
-  status: Omit<Status, 'selectionReport'>,
+  status: Omit<Status, 'selectionReport' | 'moreClips'>,
   detection: StateDetection,
 ): void {
   try {
@@ -640,9 +625,14 @@ function writeStatus(
     // écrivent ce fichier — début d'étape, marque de temps, plan vide, succès,
     // échec — et un raccord posé dans quatre d'entre eux manquerait au cinquième
     // sans que rien ne le signale.
+
+    // `moreClips` sits next to `selectionReport` rather than inside it: the
+    // sweep pass is not a notation summary, and it must reach the client even
+    // when no windowed summary exists in this process's memory.
     const complete: Status = {
       ...status,
-      selectionReport: detectionSummary(lastSummary(projectId), detection, lastMoreClipsReport(projectId)),
+      selectionReport: detectionSummary(lastSummary(projectId), detection),
+      moreClips: lastMoreClipsReport(projectId),
     }
     const file = pathStatus(projectId)
     fs.mkdirSync(path.dirname(file), { recursive: true })

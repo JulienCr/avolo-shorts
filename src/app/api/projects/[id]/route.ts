@@ -53,6 +53,9 @@ export const GET = route(
       // change la confiance qu'on accorde à la liste : la cacher pendant les
       // trente minutes où elle se construit serait la cacher au moment utile.
       selectionReport: status?.selectionReport ?? null,
+      // Same survival rule and the same reason to publish it even while an
+      // execution runs — see `Status.moreClips`.
+      moreClips: status?.moreClips ?? null,
       // **Le même champ que celui de la bibliothèque, tiré du même relevé.** Un
       // arrêt ne laisse ni `running`, ni `error`, ni artefact particulier : il
       // n'est pas dérivable, et deux écrans qui le déduiraient chacun de leur

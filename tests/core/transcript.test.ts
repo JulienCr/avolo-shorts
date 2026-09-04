@@ -138,18 +138,18 @@ describe('wholeTranscriptWithAnchors', () => {
     expect(text).toBe('[0.000] un [PRIS] [5.000] deux [/PRIS] [10.000] trois [15.000] quatre')
   })
 
-  // La règle du contrat : deux segments pris qui se suivent forment UN seul
-  // bloc, jamais un [PRIS] par segment — un mur de balises alternées
-  // noierait la prose qu'elles annotent.
+  // The contract's rule: two consecutive taken segments form ONE block,
+  // never one [PRIS] per segment — a wall of alternating tags would bury
+  // the prose they annotate.
   it('fusionne deux segments pris adjacents en un seul bloc', () => {
     const text = wholeTranscriptWithAnchors(usableSegments(tx), [{ start: 5, end: 15 }])
     expect(text).toBe('[0.000] un [PRIS] [5.000] deux [10.000] trois [/PRIS] [15.000] quatre')
     expect(text.match(/\[PRIS\]/g)).toHaveLength(1)
   })
 
-  // Le marquage adresse un segment entier, jamais un mot au milieu : l'ancre
-  // désigne un segment, et une coupure en plein milieu pointerait le modèle
-  // sur un temps qui n'adresse plus rien.
+  // Marking addresses a whole segment, never a word in the middle: the
+  // anchor names a segment, and a mid-segment cut would point the model at
+  // a time that addresses nothing.
   it("un chevauchement partiel prend le segment en entier, jamais la moitié", () => {
     const text = wholeTranscriptWithAnchors(usableSegments(tx), [{ start: 7, end: 8 }])
     expect(text).toBe('[0.000] un [PRIS] [5.000] deux [/PRIS] [10.000] trois [15.000] quatre')

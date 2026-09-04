@@ -282,12 +282,6 @@ export type SelectionReport = {
    * à recalculer ici. (relevé par Copilot)
    */
   partial: boolean
-  /**
-   * The last "+N clips" sweep pass's own outcome, or absent — a project
-   * that never ran one has no report at all, which is what tells the UI to
-   * offer the buttons rather than hide them.
-   */
-  moreClips?: MoreClipsReport
 }
 
 /**
@@ -352,6 +346,14 @@ export type ProjectStatus = {
    * pas présenter un décompte partiel comme un résultat.
    */
   selectionReport: SelectionReport | null
+  /**
+   * The last "+N clips" sweep pass's own outcome, or `null` — a project that
+   * never ran one has no report, which is what tells the UI to offer the
+   * buttons rather than hide them. Its own field rather than nested inside
+   * `selectionReport`: it is not a notation summary, and it must reach the
+   * client even when `selectionReport` itself is `null`.
+   */
+  moreClips: MoreClipsReport | null
   /**
    * Vrai quand la dernière exécution s'est arrêtée parce qu'on le lui a demandé.
    *

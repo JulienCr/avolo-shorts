@@ -115,20 +115,20 @@ describe('overlapSeconds', () => {
     expect(overlapSeconds([seg(0, 10)], [seg(5, 15)])).toBe(5)
   })
 
-  // La décision non négociable du contrat : « on the union of segments,
-  // never on the span ». Un clip raccourci par le milieu a un empan bien
-  // plus long que ses segments, et le trou qu'il a laissé n'est pas pris.
+  // The contract's non-negotiable decision: "on the union of segments,
+  // never on the span". A clip shortened in the middle has a span far
+  // longer than its segments, and the hole it left is not taken.
   it('ignore le trou laissé par un clip raccourci par le milieu', () => {
-    // Le clip a couvre 0-10 et 20-30 (le milieu 10-20 a été retiré) ; un
-    // clip b tombant pile dans ce trou ne doit rien recouper.
+    // Clip a covers 0-10 and 20-30 (the middle, 10-20, was removed); a
+    // clip b landing squarely in that hole must not overlap it at all.
     const a = [seg(0, 10), seg(20, 30)]
     const b = [seg(12, 18)]
     expect(overlapSeconds(a, b)).toBe(0)
   })
 
   it('fusionne les segments qui se touchent ou se chevauchent avant de comparer', () => {
-    // Deux segments adjacents de a (0-5 et 5-10) forment une seule étendue
-    // 0-10 ; sans fusion, un double comptage rendrait 10 au lieu de 5.
+    // Two adjacent segments of a (0-5 and 5-10) form a single 0-10 extent;
+    // without merging, double-counting would render 10 instead of 5.
     const a = [seg(0, 5), seg(5, 10)]
     const b = [seg(5, 10)]
     expect(overlapSeconds(a, b)).toBe(5)
@@ -141,16 +141,22 @@ describe('overlapSeconds', () => {
   })
 
   /**
-   * The discriminating test the sweep pass owes: a proposal overlapping an
-   * existing clip by more than `OVERLAP_TOLERANCE_SECONDS` must be told
-   * apart from one that overlaps it by less. Both fail on the parent
-   * commit — `overlapSeconds` does not exist there.
+   * The discriminating test the sweep pass owes, at the boundary itself: a
+   * fencepost (`<` for `<=`) or the constant silently changed from 4 to 8
+   * passes a test that only checks "clearly above" versus "clearly below".
+   * `overlapSeconds` does not exist on the parent commit, so all three fail
+   * there too.
    */
-  it('distingue un chevauchement au-dessus du seuil de tolérance de celui en dessous', () => {
+  it('distingue un chevauchement au-dessus du seuil de tolérance de celui en dessous, frontière incluse', () => {
     const existing = [seg(0, 100)]
-    const overlapsMore = [seg(90, 120)]
-    const overlapsLess = [seg(99, 120)]
-    expect(overlapSeconds(overlapsMore, existing)).toBeGreaterThan(OVERLAP_TOLERANCE_SECONDS)
-    expect(overlapSeconds(overlapsLess, existing)).toBeLessThan(OVERLAP_TOLERANCE_SECONDS)
+    const under = [seg(96.1, 120)] // ~3.9 s of overlap
+    const boundary = [seg(96, 120)] // exactly 4 s: the inclusive boundary
+    const over = [seg(95.9, 120)] // ~4.1 s of overlap
+    expect(overlapSeconds(under, existing)).toBeCloseTo(3.9, 6)
+    expect(overlapSeconds(boundary, existing)).toBe(4)
+    expect(overlapSeconds(over, existing)).toBeCloseTo(4.1, 6)
+    expect(overlapSeconds(under, existing) <= OVERLAP_TOLERANCE_SECONDS).toBe(true)
+    expect(overlapSeconds(boundary, existing) <= OVERLAP_TOLERANCE_SECONDS).toBe(true)
+    expect(overlapSeconds(over, existing) <= OVERLAP_TOLERANCE_SECONDS).toBe(false)
   })
 })

@@ -1747,35 +1747,71 @@ describe("l'étape de repérage", () => {
       return { start, end, predicted_score: 70, video_title_for_youtube_short: title }
     }
 
-    it('rejette une proposition qui recoupe un clip existant de plus que la tolérance, garde celle d’en dessous', async () => {
-      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
-      const [first] = getClips(db, ID)
-      putClip(db, { ...first, status: 'kept' })
-      const [{ start, end }] = first.segments
+    /** A full `Clip`, only the fields these tests actually vary. */
+    function clipLiteral(id: string, segments: { start: number; end: number }[], status: Clip['status']): Clip {
+      return {
+        id: `${ID}_${id}`,
+        projectId: ID,
+        segments,
+        ratio: 'auto',
+        cropX: 0.5,
+        captions: true,
+        branding: true,
+        footer: true,
+        title: 'existant',
+        description: '',
+        status,
+        pass: 1,
+        hookText: '',
+        hookBadge: '',
+        hookStyle: {},
+        framingStyle: {},
+      }
+    }
 
-      const shorts = [
-        proposal(start, end, 'trop proche'),
-        proposal(end - 1, end + 40, 'assez loin'),
-      ]
+    /**
+     * The discriminating test the task owes: overlapping an existing clip by
+     * more than `OVERLAP_TOLERANCE_SECONDS` (4 s) rejects, at or under it
+     * keeps — boundary included.
+     *
+     * `words: []` on a wordless segment makes `snapToWords` return the raw
+     * bounds unchanged, so the taken clip's exact bounds are the only thing
+     * deciding keep or reject — a fencepost (`<` for `<=`) or the constant
+     * silently changed from 4 to 8 would flip at least one case.
+     */
+    it.each([
+      [96.1, true, '~3.9 s : sous la tolérance'],
+      [96, true, '4 s exactement : la frontière incluse'],
+      [95.9, false, '~4.1 s : au-dessus de la tolérance'],
+    ])('un chevauchement de %d à 100 avec le clip existant — %s (gardé : %s)', async (takenStart, kept) => {
+      const sidecar = sidecarDir(SOURCE)
+      fs.writeFileSync(
+        path.join(sidecar, 'transcript.json'),
+        JSON.stringify({
+          language: 'fr',
+          segments: [{ start: 0, end: 200, text: 'un segment continu, sans mots', words: [] }],
+        }),
+      )
+      putClip(db, clipLiteral('taken', [{ start: takenStart, end: 200 }], 'kept'))
+
+      const shorts = [proposal(10, 100, 'sous test')]
       const clips = await runMoreClips(ID, 5, { db, call: sweepCall(shorts), sleep: async () => {} })
-
-      const titles = clips.filter((c) => c.status === 'candidate').map((c) => c.title)
-      expect(titles).not.toContain('trop proche')
-      expect(titles).toContain('assez loin')
+      const present = clips.some((c) => c.status === 'candidate' && c.title === 'sous test')
+      expect(present).toBe(kept)
     })
 
-    it('un tour qui ne rend rien de neuf rend un bilan épuisé plutôt que d’échouer', async () => {
+    it('a round with nothing new reports exhaustion instead of failing', async () => {
       await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
       const [first] = getClips(db, ID)
       putClip(db, { ...first, status: 'kept' })
 
       const clips = await runMoreClips(ID, 5, { db, call: sweepCall([]), sleep: async () => {} })
       expect(clips.filter((c) => c.status === 'candidate')).toHaveLength(0)
-      // Le clip humain traverse la passe sans y être touché.
+      // The human decision crosses the pass untouched.
       expect(clips.find((c) => c.id === first.id)?.status).toBe('kept')
     })
 
-    it('un deuxième tour ne redemande que ce qui manque encore', async () => {
+    it('a second round only asks for what is still missing', async () => {
       await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
       const [first] = getClips(db, ID)
       putClip(db, { ...first, status: 'kept' })
@@ -1794,10 +1830,10 @@ describe("l'étape de repérage", () => {
       await runMoreClips(ID, 5, { db, call, sleep: async () => {} })
 
       expect(rounds).toHaveLength(2)
-      // Le premier tour vise le compte demandé ; le second, ce qu'il en reste.
+      // The first round targets the requested count; the second, what remains.
       expect(rounds[0]).toMatch(/return 5 to 7 clips/)
       expect(rounds[1]).toMatch(/return 4 to 6 clips/)
-      // Et ce que le premier tour a trouvé est marqué pris pour le second.
+      // And what the first round found is marked taken for the second.
       expect(rounds[1]).toContain('[PRIS]')
     })
 

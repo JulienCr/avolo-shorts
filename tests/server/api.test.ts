@@ -578,6 +578,30 @@ describe('GET /api/projects/:id', () => {
   })
 
   /**
+   * The sweep pass's own report travels next to `selectionReport`, never
+   * inside it — a windowed summary absent from this process's memory must
+   * not turn into an invented `windows: 0`.
+   */
+  it('publie le rapport « +N clips » à côté du bilan de notation', async () => {
+    poserStatus({ moreClips: { requested: 5, added: 3, exhausted: false } })
+
+    const state = (await (
+      await getProject(new Request('http://x'), context(PROJECT))
+    ).json()) as ProjectStatus
+    expect(state.moreClips).toEqual({ requested: 5, added: 3, exhausted: false })
+    expect(state.selectionReport).toBeNull()
+  })
+
+  it('rend null quand la passe « +N clips » n’a jamais tourné', async () => {
+    poserStatus({})
+
+    const state = (await (
+      await getProject(new Request('http://x'), context(PROJECT))
+    ).json()) as ProjectStatus
+    expect(state.moreClips).toBeNull()
+  })
+
+  /**
    * Les deux champs que l'écran d'analyse ne peut pas déduire : l'arrêt, qui ne
    * laisse ni `running` ni `error` ni artefact, et la taille de la source, dont
    * `stepDurationRange` a besoin pour annoncer une durée **avant** que ffprobe

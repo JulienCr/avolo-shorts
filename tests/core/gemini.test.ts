@@ -198,8 +198,8 @@ describe('sweepPrompt', () => {
     expect(sweepPrompt(ENTRIES_SWEEP)).toContain('return 5 to 7 clips')
   })
 
-  // Décision non négociable du contrat : jamais de plafond de durée, sur
-  // aucune passe. Même contrôle que detailPrompt, contre la même régression.
+  // The contract's non-negotiable decision: never a duration ceiling, on
+  // any pass. Same check as detailPrompt's, against the same regression.
   it('ne contient jamais de plafond de durée', () => {
     const p = sweepPrompt(ENTRIES_SWEEP)
     expect(p).not.toMatch(/\d+\s+(to|-)\s+\d+\s+seconds long/)

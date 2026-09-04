@@ -17,6 +17,7 @@ import {
   lastSummary,
   isTransient,
   GeminiBlockedError,
+  lastMoreClipsReport,
   leverIfBlocked,
   lireTranscript,
   partCovered,
@@ -1850,6 +1851,48 @@ describe("l'étape de repérage", () => {
       ]
       const clips = await runMoreClips(ID, 5, { db, call: sweepCall(shorts), sleep: async () => {} })
       expect(clips.filter((c) => c.status === 'candidate')).toHaveLength(5)
+    })
+
+    it('déduplique un même id avant de calculer le déficit du tour suivant', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      let round = 0
+      // Round 1 answers with five copies of the same bounds — one real clip.
+      // Counting them as five would satisfy the deficit and stop recovery
+      // after this single round, delivering one clip instead of five.
+      const call: CallGemini = async (_prompt, mode) => {
+        if (mode !== 'sweep') throw new Error(`mode inattendu : ${mode}`)
+        round += 1
+        const shorts =
+          round === 1
+            ? Array(5).fill(proposal(30, 33, 'doublon'))
+            : [proposal(60, 63, 'b'), proposal(90, 93, 'c'), proposal(120, 123, 'd'), proposal(150, 153, 'e')]
+        return response(JSON.stringify({ shorts }))
+      }
+
+      const clips = await runMoreClips(ID, 5, { db, call, sleep: async () => {} })
+      expect(clips.filter((c) => c.status === 'candidate')).toHaveLength(5)
+      expect(round).toBeGreaterThan(1)
+    })
+
+    it('publie un rapport de progression après chaque tour, pas seulement le dernier', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      let round = 0
+      const call: CallGemini = async (_prompt, mode) => {
+        if (mode !== 'sweep') throw new Error(`mode inattendu : ${mode}`)
+        round += 1
+        const shorts = round === 1 ? [proposal(30, 33, 'un')] : [proposal(60, 63, 'deux'), proposal(90, 93, 'trois')]
+        return response(JSON.stringify({ shorts }))
+      }
+
+      const seenAfterFirstCall: (number | null)[] = []
+      await runMoreClips(ID, 3, {
+        db,
+        call,
+        sleep: async () => {},
+        onSummary: () => seenAfterFirstCall.push(lastMoreClipsReport(ID)?.added ?? null),
+      })
+
+      expect(seenAfterFirstCall[0]).toBe(1)
     })
 
     it('lève quand rien n’a répondu du tout, descente comprise', async () => {

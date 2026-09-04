@@ -1287,14 +1287,13 @@ async function detail(kept: Window[], ctx: ContextDetail): Promise<Clip[]> {
 }
 
 /**
- * Proposals reordered by predicted score, best first.
+ * Proposals reordered by predicted score, best first. Ties break on arrival
+ * order, since a content refusal can split `descend` into several calls whose
+ * branches carry no meaningful cross-order.
  *
- * A content refusal can split `descend` into several calls; only each
- * response's own order is meaningful, so concatenating branches would let a
- * weak early clip outrank a stronger later one. Ties break on arrival order.
- *
- * Runs unconditionally: the database is authoritative, so this only reorders
- * `candidates.json`, never what survives.
+ * `detail` runs this over its full result, so it only reorders
+ * `candidates.json`. `runMoreClips` slices the result to `count`: there, this
+ * ranking decides which proposals survive.
  */
 function rankProposals(proposals: readonly DetailClip[]): Clip[] {
   return proposals
@@ -1586,8 +1585,19 @@ export async function runMoreClips(
       exhausted = true
       break
     }
-    accepted.push(...keptThisRound)
-    options.onSummary?.({ requested: count, added: Math.min(accepted.length, count), exhausted: false })
+    // Dedupe against what earlier rounds already accepted before the deficit
+    // is recomputed: a repeated id would otherwise inflate `accepted.length`
+    // and stop recovery short of `count`.
+    const seenIds = new Set(accepted.map((a) => a.clip.id))
+    for (const proposal of keptThisRound) {
+      if (seenIds.has(proposal.clip.id)) continue
+      seenIds.add(proposal.clip.id)
+      accepted.push(proposal)
+    }
+
+    const progress: MoreClipsReport = { requested: count, added: Math.min(accepted.length, count), exhausted: false }
+    moreClipsReports.set(projectId, progress)
+    options.onSummary?.(progress)
   }
 
   // Nothing answered, descent included: only there is it the material, not
@@ -1599,9 +1609,10 @@ export async function runMoreClips(
     )
   }
 
-  const seen = new Set<string>()
-  const unique = accepted.filter((p) => !seen.has(p.clip.id) && seen.add(p.clip.id))
-  const capped = rankProposals(unique).slice(0, count)
+  // `accepted` is already unique by id — each round dedupes against it before
+  // pushing. Rank still runs unconditionally, ahead of the cut, since this
+  // caller's `.slice(0, count)` makes it the thing that decides survivors.
+  const capped = rankProposals(accepted).slice(0, count)
 
   const report: MoreClipsReport = { requested: count, added: capped.length, exhausted }
   moreClipsReports.set(projectId, report)

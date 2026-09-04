@@ -1833,6 +1833,17 @@ describe('POST /api/projects/:id/candidates/more', () => {
     expect((await moreRoute({ count: 7 })).status).toBe(400)
   })
 
+  // `mergeCandidates` ne garde que les clips non `candidate` : lancer le
+  // sweep pendant que le tri est en cours supprimerait silencieusement ceux
+  // qui restent — voir le contrat, « Existing clips: Untouchable ».
+  it('rend 400 quand un clip attend encore un tri', async () => {
+    poserTranscript()
+    poserCorrection()
+    putClip(getDb(), baseClip())
+
+    expect((await moreRoute({ count: 5 })).status).toBe(400)
+  })
+
   it('rend 404 sur un projet inconnu', async () => {
     expect((await moreRoute({ count: 5 }, 'jamais-vu')).status).toBe(404)
   })

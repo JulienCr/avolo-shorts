@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
-import { body, json, route } from '@/server/http'
+import { getClips, getDb } from '@/server/db'
+import { body, json, requestInvalid, route } from '@/server/http'
 import { launch } from '@/server/run'
 
 /**
@@ -21,6 +22,13 @@ export const POST = route(
   async (request: Request, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params
     const { count } = await body(request, REQUEST)
+    // `mergeCandidates` keeps only non-`candidate` clips as untouchable —
+    // running the sweep while some are still untriaged would silently drop
+    // them, breaking the "existing clips are untouchable" guarantee.
+    const db = getDb()
+    if (getClips(db, id).some((clip) => clip.status === 'candidate')) {
+      throw requestInvalid(`Le projet ${id} a encore des clips non triés : la passe « +N clips » les supprimerait.`)
+    }
     const launched = await launch(id, ['candidates'], { force: ['candidates'], count })
     return json(launched, { status: 202 })
   },

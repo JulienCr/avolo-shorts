@@ -198,6 +198,7 @@ export function ProjectScreen({ id }: { id: string }) {
             chose à annoncer. */}
         <AnnouncementDStep
           running={running}
+          runningAll={runningAll}
           steps={steps}
           connu={project.isSuccess}
           everRan={everRan}

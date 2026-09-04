@@ -75,10 +75,10 @@ function finDAnalysis(project: ProjectListItem): string {
 }
 
 /**
- * Ce dont l'annonce dépend, et rien d'autre : l'étape en cours de chaque projet,
- * le fait qu'il ait échoué et le fait qu'il ait été arrêté. La progression n'y
- * est pas — c'est ce qui fait qu'un tour de sondage sur un pourcentage qui
- * avance ne dit rien.
+ * What the announcement depends on, and nothing else: each project's current
+ * step, the resource it waits on, whether it failed and whether it was stopped.
+ * Neither the progress nor `waitedMs` is here — that is what keeps a polling
+ * round on a rising percentage, or on a growing wait, silent.
  */
 function sign(projects: readonly ProjectListItem[] | undefined): string {
   return (projects ?? [])

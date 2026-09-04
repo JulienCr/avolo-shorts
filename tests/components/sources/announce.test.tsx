@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 
 /**
- * `useAnalysisAnnouncement` : les changements d'étape, la fin, et désormais
- * l'entrée dans la file.
+ * `useAnalysisAnnouncement`: step changes, the end, and now entering the
+ * queue.
  *
- * **La file est un changement d'étape de plus, pas une seconde règle.**
- * Personne n'annonce séparément qu'on en sort : l'étape démarre, et c'est déjà
- * annoncé.
+ * **The queue counts as one more step change, not a second rule.** Nobody
+ * announces leaving it separately: the step starts, and that is already
+ * announced.
  */
 
 import { cleanup, renderHook } from '@testing-library/react'

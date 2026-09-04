@@ -180,7 +180,7 @@ function progressionFor(execution: Execution): Progression {
     waiting:
       execution.waiting === null
         ? null
-        : { resource: execution.waiting.resource, waitedMs: Date.now() - execution.waiting.startedAt },
+        : { resource: execution.waiting.resource, waitedMs: Math.max(0, Date.now() - execution.waiting.startedAt) },
   }
 }
 
@@ -1121,10 +1121,9 @@ async function execute(
           advance,
           flagSummary,
           signal,
-          // **Une retranscription dans ce même plan fait repartir le journal
-          // de correction à vide.** `transcript.json` vient d'être remplacé
-          // en entier : les positions d'un journal antérieur n'y correspondent
-          // plus à rien (voir `applyTranscriptCorrections`).
+          // A retranscription in this same plan resets the correction log:
+          // `transcript.json` was just replaced whole, so an earlier log's
+          // offsets no longer point at anything (see `applyTranscriptCorrections`).
           execution.plan.includes('transcript'),
         )
         if (warning !== null) correctionWarning = warning

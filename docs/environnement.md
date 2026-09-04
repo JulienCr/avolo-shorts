@@ -633,14 +633,16 @@ Ces points vivent dans `CLAUDE.md` et dans la spec, rappelés ici pour mémoire 
   change au redémarrage : la résoudre par `ip route show default`.
 - 24 Go de VRAM ne suffisent pas à tenir un modèle Ollama de 18 Go et WhisperX
   large-v3 en même temps. L'ordonnancement l'impose, pas la discipline : un
-  jeton `gpu`, capacité 1, sérialise `transcript` contre toute étape
-  configurée sur Ollama — la correction, mais aussi la sélection —, entre
-  projets et à travers les processus par un fichier de verrou. Une étape sur
-  un fournisseur réseau ne prend que le jeton `net`, sans rapport avec le GPU.
-  Le classement se relit à chaque étape, jamais figé au lancement (le fige
-  ferait manquer un basculement de fournisseur en cours de route). Une
-  fenêtre résiduelle subsiste entre ce classement et l'appel réel du client
-  LLM, qui relit lui aussi les réglages : quelques millisecondes, non fermée
+  jeton `gpu`, capacité 1, sérialise `transcript` et `analysis` (YOLO sur le
+  proxy) contre toute étape configurée sur Ollama — la correction, mais aussi
+  la sélection —, entre projets et à travers les processus par un fichier de
+  verrou. Une étape sur un fournisseur réseau ne prend que le jeton `net`,
+  sans rapport avec le GPU. Le classement se relit à chaque étape, jamais
+  figé au lancement (le figer ferait manquer un basculement de fournisseur en
+  cours de route). Une fenêtre résiduelle subsiste entre ce classement et
+  l'appel réel du client LLM, qui relit lui aussi les réglages : quelques
+  millisecondes d'ordinaire, mais jusqu'à toute la durée d'une file d'attente
+  si le jeton classé (`net`, capacité 2) est déjà pris ailleurs — non fermée
   — la fermer demanderait de faire transiter le fournisseur résolu jusque
   dans `transcript-correction.ts`, `candidates.ts` et `registry.ts`.
 - Pas de Docker. Node natif, Python en venv, ffmpeg natif.

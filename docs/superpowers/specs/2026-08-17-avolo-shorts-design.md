@@ -376,8 +376,10 @@ attendait donc les six minutes de `proxy` avant de lancer `correction`, alors
 que rien dans le graphe ne l'exige. `execute()` admet désormais toute étape
 **prête** (`readySteps`, `src/core/graph.ts`), sous une seule règle : au plus
 une étape locale à la fois par projet, plus autant d'étapes réseau qu'on veut
-(`isLocal`, `src/core/resources.ts`). `correction` et `candidates` tournent
-donc pendant que `proxy` encode encore.
+(`isLocal`, `src/core/resources.ts`). Sur un fournisseur distant, `correction`
+et `candidates` sont des étapes réseau et tournent donc pendant que `proxy`
+encode encore ; sur Ollama, `resourceFor` les classe `gpu` (locales), et la
+règle d'une seule étape locale à la fois les fait attendre le proxy comme avant.
 
 **Empreinte de la source** : taille, date de modification et durée ffprobe. Pas
 de hash. Digérer 12 Go à chaque lancement coûterait plus cher que l'étape qu'on

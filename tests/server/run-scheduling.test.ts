@@ -8,7 +8,7 @@ import { CAPACITIES } from '@/core/resources'
 import { applySettings, openDb, upsertProject } from '@/server/db'
 import { launch, lireStatus, progression, progressionAll, stopRun, wait, type Steps } from '@/server/run'
 import { candidatesPath } from '@/server/paths'
-import { createScheduler, type Scheduler } from '@/server/scheduler'
+import { createScheduler, type Scheduler, type Hold } from '@/server/scheduler'
 import { snapshotEnv } from '../helpers/env'
 
 /**
@@ -423,7 +423,7 @@ describe('`renders` reste hors du programmateur', () => {
  */
 describe('un projet, deux chaînes du graphe', () => {
   /** Poses `correction.json` next to the transcript `createProjectFixture` already wrote. */
-  function poserCorrection(id: string): void {
+  function writeCorrection(id: string): void {
     const folder = path.join(root, 'projects', id, `${id}.avolo`)
     fs.writeFileSync(path.join(folder, 'correction.json'), '{"entries":[]}')
   }
@@ -461,6 +461,83 @@ describe('un projet, deux chaînes du graphe', () => {
       `${A}:proxy:start`,
       `${A}:proxy:done`,
     ])
+  })
+
+  it('le placeholder posé au lancement ne fait pas croire que proxy tourne déjà', async () => {
+    createProjectFixture(A, { audio: false })
+    const gateAudio = deferred()
+    const gateProxy = deferred()
+
+    // `plan` is `['proxy', 'audio']` (target order), but `priorityFor` admits
+    // `audio` first: the launch-time placeholder, keyed on `plan[0]`
+    // (`proxy`), must not linger as a second, never-started entry.
+    await launch(A, ['proxy', 'audio'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        extractAudio: async () => {
+          calls.push(`${A}:audio:start`)
+          await gateAudio.promise
+          const file = path.join(root, 'projects', A, 'audio.wav')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          await gateProxy.promise
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+      },
+    })
+
+    await pollUntil(() => calls.includes(`${A}:audio:start`))
+    expect(progressionAll(A).map((p) => p.step)).toEqual(['audio'])
+
+    gateAudio.resolve()
+    await pollUntil(() => calls.includes(`${A}:proxy:start`))
+    expect(progressionAll(A).map((p) => p.step)).toEqual(['proxy'])
+
+    gateProxy.resolve()
+    await wait(A)
+  })
+
+  it('le règlement d’une étape publie tout de suite, sans attendre le tic d’une sœur', async () => {
+    createProjectFixture(A, { transcript: true })
+    writeCorrection(A)
+    const gateProxy = deferred()
+
+    await launch(A, ['candidates', 'proxy'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          await gateProxy.promise
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+        // No `onProgress` call at all: if `status.json` only updates on a
+        // progress tick, it never sees `candidates` settle.
+        runCandidates: async () => {
+          calls.push(`${A}:candidates:start`)
+          calls.push(`${A}:candidates:done`)
+          return []
+        },
+      },
+    })
+
+    await pollUntil(() => calls.includes(`${A}:candidates:done`))
+    await pollUntil(() => lireStatus(A)?.running?.step === 'proxy')
+    expect(lireStatus(A)?.running?.step).toBe('proxy')
+
+    gateProxy.resolve()
+    await wait(A)
   })
 
   it('correction sur le réseau tourne pendant que proxy encode encore', async () => {
@@ -569,7 +646,7 @@ describe('un projet, deux chaînes du graphe', () => {
 
   it('un échec de candidates ne perturbe pas le proxy en cours, et se lit comme un échec (pas un arrêt)', async () => {
     createProjectFixture(A, { transcript: true })
-    poserCorrection(A)
+    writeCorrection(A)
     const gateProxy = deferred()
 
     await launch(A, ['candidates', 'proxy'], {
@@ -608,7 +685,7 @@ describe('un projet, deux chaînes du graphe', () => {
 
   it('draine les deux branches avant de conclure, sur un arrêt demandé', async () => {
     createProjectFixture(A, { transcript: true })
-    poserCorrection(A)
+    writeCorrection(A)
     const gateProxy = deferred()
     const gateCandidates = deferred()
 
@@ -653,7 +730,7 @@ describe('un projet, deux chaînes du graphe', () => {
 
   it('advance() attribue le progrès à la bonne étape, et runningAll porte les deux étapes en cours', async () => {
     createProjectFixture(A, { transcript: true })
-    poserCorrection(A)
+    writeCorrection(A)
     const gateProxy = deferred()
     const gateCandidates = deferred()
 
@@ -693,5 +770,94 @@ describe('un projet, deux chaînes du graphe', () => {
     gateCandidates.resolve()
     gateProxy.resolve()
     await wait(A)
+  })
+
+  it('un jeton dont la libération lève ne fait pas conclure execute() pendant qu’un frère tourne', async () => {
+    createProjectFixture(A, { transcript: true })
+    writeCorrection(A)
+    const gateCandidates = deferred()
+
+    // `hold()` can throw (a failed `releaseSlot`) without losing the local
+    // token — see `tests/server/scheduler.test.ts`. `runStep`'s `finally`
+    // must absorb it, or the promise it returns rejects and wins
+    // `Promise.race` while `candidates` is still gated below.
+    const throwing: Scheduler = {
+      ...testScheduler,
+      acquire: async (resource, priority, signal, onQueued) => {
+        const hold = await testScheduler.acquire(resource, priority, signal, onQueued)
+        if (resource !== 'cpu') return hold
+        return (() => {
+          hold()
+          throw new Error('boom: échec simulé de releaseSlot')
+        }) as Hold
+      },
+    }
+
+    await launch(A, ['candidates', 'proxy'], {
+      db,
+      scheduler: throwing,
+      steps: {
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          calls.push(`${A}:proxy:done`)
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+        runCandidates: async () => {
+          calls.push(`${A}:candidates:start`)
+          await gateCandidates.promise
+          calls.push(`${A}:candidates:done`)
+          return []
+        },
+      },
+    })
+
+    await pollUntil(() => calls.includes(`${A}:proxy:done`) && calls.includes(`${A}:candidates:start`))
+    expect(progression(A)).not.toBeNull()
+
+    gateCandidates.resolve()
+    await wait(A)
+    expect(calls).toContain(`${A}:candidates:done`)
+  })
+
+  it('une panne déjà enregistrée survit à un arrêt demandé après coup', async () => {
+    createProjectFixture(A, { transcript: true })
+    writeCorrection(A)
+    const gateProxy = deferred()
+
+    await launch(A, ['candidates', 'proxy'], {
+      db,
+      scheduler: testScheduler,
+      steps: {
+        runCandidates: async () => {
+          calls.push(`${A}:candidates:start`)
+          throw new Error('panne simulée du repérage')
+        },
+        buildProxy: async () => {
+          calls.push(`${A}:proxy:start`)
+          await gateProxy.promise
+          calls.push(`${A}:proxy:done`)
+          const file = path.join(root, 'projects', A, 'proxy.mp4')
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, '')
+          return { path: file, skipped: false }
+        },
+      },
+    })
+
+    await pollUntil(() => calls.includes(`${A}:candidates:start`) && calls.includes(`${A}:proxy:start`))
+    // `candidates` throws synchronously: wait for the pump's own bookkeeping
+    // to have recorded its failure before stopping, so the race under test
+    // (a stop landing after a failure, not concurrently with it) is real.
+    await pollUntil(() => progressionAll(A).length === 1 && progressionAll(A)[0]?.step === 'proxy')
+    expect(stopRun(A)).toBe(true)
+
+    gateProxy.resolve()
+    await wait(A).catch(() => {})
+    const status = lireStatus(A)
+    expect(status?.error).toContain('panne simulée du repérage')
+    expect(status?.stopped).toBe(false)
   })
 })

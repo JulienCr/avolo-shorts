@@ -1026,6 +1026,11 @@ async function execute(
   let correctionWarning: string | null = null
   /** The step whose error, if any, is reported first — see the pump below. */
   let firstFailedStep: StepName | null = null
+  /**
+   * The first error the pump recorded, if any — read by the outer `catch`
+   * too, so a failure already in hand survives a stop requested afterward.
+   */
+  let firstError: unknown = null
 
   const advance = (step: StepName, fraction: number | null): void => {
     if (fraction === null) return
@@ -1083,9 +1088,13 @@ async function execute(
   const freshTranscript = execution.plan.includes('transcript')
 
   /**
-   * Runs one step to completion and **never rejects**: it resolves with its
-   * own outcome so `Promise.race` over several in-flight steps is safe, and
-   * the pump below is the only place that turns an outcome into `firstError`.
+   * Runs one step to completion. **Never rejects**: the pump below is the
+   * only place that turns an outcome into `firstError`.
+   *
+   * @param step - The step to run.
+   * @param resource - The physical resource it reserves, or `null`.
+   * @returns Its own name and error, so `Promise.race` over several in-flight
+   * steps is safe.
    */
   const runStep = async (step: StepName, resource: Resource | null): Promise<{ step: StepName; error: unknown }> => {
     execution.current.set(step, { progress: 0, waiting: null })
@@ -1131,7 +1140,14 @@ async function execute(
       if (step === 'candidates') execution.detection = signal.aborted ? 'running' : 'failed'
       return { step, error: cause }
     } finally {
-      hold?.()
+      // `hold()` can throw without losing the local token (scheduler.test.ts);
+      // this `finally` must absorb it, or the "never rejects" promise above
+      // rejects and wins `Promise.race` while a sibling step is still in flight.
+      try {
+        hold?.()
+      } catch (releaseCause) {
+        console.error(`[${projectId}] échec de la libération du jeton sur ${step} :`, releaseCause)
+      }
       execution.current.delete(step)
     }
   }
@@ -1154,6 +1170,10 @@ async function execute(
       if (reread !== undefined) project = reread
       else project = { ...project, stagedPath: ingestion.stagedPath, durationSec: ingestion.durationSec }
     }
+    // The launch-time placeholder only stood in for ingestion's progress:
+    // cleared here so a plan whose first-admitted step differs from `plan[0]`
+    // doesn't keep it as a second, never-started entry in `runningAll`.
+    execution.current.delete(execution.plan[0] ?? execution.targets[0] ?? 'candidates')
 
     // **The pump.** `done`/`failed` are this run's bookkeeping, not a presence
     // check. Keeping `failed` apart from `done` is what makes error propagation
@@ -1163,7 +1183,6 @@ async function execute(
     const inFlight = new Map<StepName, Promise<{ step: StepName; error: unknown }>>()
     /** The resource each in-flight step holds, frozen for its own lifetime only. */
     const resourcesOf = new Map<StepName, Resource | null>()
-    let firstError: unknown = null
     /** Steps still in flight the moment admission stopped — for the abort log only. */
     let interruptedAt: StepName[] | null = null
 
@@ -1194,13 +1213,22 @@ async function execute(
               done.add(step)
             } else {
               failed.add(step)
-              if (firstError === null) {
-                firstError = outcome.error
-                firstFailedStep = step
-              } else {
-                console.error(`[${projectId}] échec secondaire sur ${step} :`, outcome.error)
+              // A step rejecting because the signal is already aborted is the
+              // stop doing its job, not a failure: recording it would let it
+              // override a genuine failure recorded before the stop.
+              if (!signal.aborted) {
+                if (firstError === null) {
+                  firstError = outcome.error
+                  firstFailedStep = step
+                } else {
+                  console.error(`[${projectId}] échec secondaire sur ${step} :`, outcome.error)
+                }
               }
             }
+            // A step settling is a state change (`detectionSummary` in
+            // particular can just have flipped to `done`), not a progress
+            // tick: it must publish now, not wait for a sibling's next tick.
+            publish(execution, true)
             return outcome
           })
           inFlight.set(step, settled)
@@ -1211,8 +1239,9 @@ async function execute(
     }
 
     // Abort landed between two admission passes: the loop exited without
-    // throwing, and a success status must not be written.
-    if (signal.aborted) {
+    // throwing. A branch that had already failed keeps precedence over a
+    // stop requested afterward — the `catch` below applies the same rule.
+    if (signal.aborted && firstError === null) {
       writeStoppedStatus(interruptedAt ?? [])
       return
     }
@@ -1236,10 +1265,10 @@ async function execute(
     )
     console.log(`[${projectId}] terminé : ${execution.plan.join(' → ')}`)
   } catch (cause) {
-    // Abort is read from the signal, never from the received error: it is a
-    // `StopRequestedError`, `pipeline`'s `AbortError`, or a third-party
-    // library refusing a stream closed under it — `wait()` never rejects for any of them.
-    if (signal.aborted) {
+    // Abort is read from the signal, never from the received error (a
+    // `StopRequestedError`, an `AbortError`, or a third-party rejection).
+    // A failure already recorded in `firstError` overrides it: see below.
+    if (signal.aborted && firstError === null) {
       writeStoppedStatus([])
       return
     }
@@ -1248,7 +1277,7 @@ async function execute(
     // commande entière, chemins absolus compris : c'est ce qu'il faut sous les
     // yeux pour diagnostiquer, et c'est ce qui n'a rien à faire dans un fichier
     // qu'on recopie dans un rapport ou qu'une route finirait par servir.
-    console.error(`[${projectId}] échec sur ${firstFailedStep ?? '?'} :`, cause)
+    console.error(`[${projectId}] échec sur ${firstFailedStep ?? execution.plan[0] ?? execution.targets[0] ?? '?'} :`, cause)
     writeStatus(
       projectId,
       {

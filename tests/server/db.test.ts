@@ -1092,6 +1092,23 @@ describe('les clips', () => {
     db.prepare('DELETE FROM projects WHERE id = ?').run(PROJECT.id)
     expect(getClips(db, PROJECT.id)).toEqual([])
   })
+
+  // L'id suit la chronologie du replay (préfixe projet + bornes horodatées) ;
+  // `pass` n'est que le numéro de la passe de repérage qui l'a trouvé. Trier
+  // par id fait alterner les deux passes ; trier par (pass, id) les grouperait.
+  it('trient par id, pas par passe de repérage', () => {
+    putClip(db, clip('c_005000000-005100000', { pass: 2 }))
+    putClip(db, clip('c_004000000-004100000', { pass: 1 }))
+    putClip(db, clip('c_006000000-006100000', { pass: 1 }))
+    putClip(db, clip('c_003000000-003100000', { pass: 2 }))
+
+    expect(getClips(db, PROJECT.id).map((c) => c.id)).toEqual([
+      'c_003000000-003100000',
+      'c_004000000-004100000',
+      'c_005000000-005100000',
+      'c_006000000-006100000',
+    ])
+  })
 })
 
 /**

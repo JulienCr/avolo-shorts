@@ -1789,7 +1789,7 @@ export function replaceClips(db: Database.Database, projectId: string, clips: Cl
 
 export function getClips(db: Database.Database, projectId: string): Clip[] {
   const lines = db
-    .prepare('SELECT * FROM clips WHERE projectId = ? ORDER BY pass, id')
+    .prepare('SELECT * FROM clips WHERE projectId = ? ORDER BY id')
     .all(projectId) as LineClip[]
   return lines.map(clipSinceLine)
 }

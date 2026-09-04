@@ -1874,6 +1874,25 @@ describe('POST /api/projects/:id/candidates/more', () => {
       await leaveFinish()
     }
   })
+
+  // The 409 must win even ahead of `candidates.json`: a project's very
+  // first detection run hasn't written it yet, but is still an execution
+  // this call must not be allowed to collide with.
+  it('rend 409 même quand le premier repérage tourne encore', async () => {
+    poserTranscript()
+    poserCorrection()
+    let release = (): void => {}
+    const inCurrent = new Promise<Clip[]>((resolve) => {
+      release = () => resolveEmpty(resolve)
+    })
+    await launch(PROJECT, ['candidates'], { steps: { runCandidates: () => inCurrent } })
+    try {
+      expect((await moreRoute({ count: 5 })).status).toBe(409)
+    } finally {
+      release()
+      await leaveFinish()
+    }
+  })
 })
 
 describe('POST /api/projects/:id/stop', () => {

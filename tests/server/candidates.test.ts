@@ -1874,6 +1874,49 @@ describe("l'étape de repérage", () => {
       expect(round).toBeGreaterThan(1)
     })
 
+    it('déduplique un même id même quand sa durée tient sous la tolérance', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      // A 3 s clip's full self-overlap is under OVERLAP_TOLERANCE_SECONDS
+      // (4 s): the id check must catch the duplicate anyway.
+      const call = sweepCall(Array(5).fill(proposal(30, 33, 'doublon')))
+
+      const clips = await runMoreClips(ID, 5, { db, call, sleep: async () => {} })
+      expect(clips.filter((c) => c.status === 'candidate')).toHaveLength(1)
+    })
+
+    it('s’arrête sans rien écrire si un clip repasse à `candidate` en cours de passe', async () => {
+      await runCandidates(ID, { call: template([]), db, sleep: async () => {} })
+      const [first] = getClips(db, ID)
+      putClip(db, { ...first, status: 'kept' })
+
+      // The toggle back to `candidate` happens mid-call, exactly the window
+      // the fresh-read fix (round-start vs round-end) cannot see either way.
+      const call: CallGemini = async (_prompt, mode) => {
+        if (mode !== 'sweep') throw new Error(`mode inattendu : ${mode}`)
+        putClip(db, { ...first, status: 'candidate' })
+        return response(JSON.stringify({ shorts: [proposal(30, 33, 'nouveau')] }))
+      }
+
+      await expect(runMoreClips(ID, 5, { db, call, sleep: async () => {} })).rejects.toThrow(/repassé à/)
+      expect(getClips(db, ID).find((c) => c.id === first.id)?.status).toBe('candidate')
+    })
+
+    it('efface le rapport de progression quand la passe échoue après un tour réussi', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      let round = 0
+      // A plain error, not `GeminiBlockedError`: it must escape `sweepDescend`
+      // unrecovered, unlike a content refusal.
+      const call: CallGemini = async (_prompt, mode) => {
+        if (mode !== 'sweep') throw new Error(`mode inattendu : ${mode}`)
+        round += 1
+        if (round === 1) return response(JSON.stringify({ shorts: [proposal(30, 33, 'un')] }))
+        throw new Error('panne réseau')
+      }
+
+      await expect(runMoreClips(ID, 5, { db, call, sleep: async () => {} })).rejects.toThrow('panne réseau')
+      expect(lastMoreClipsReport(ID)).toBeNull()
+    })
+
     it('publie un rapport de progression après chaque tour, pas seulement le dernier', async () => {
       await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
       let round = 0

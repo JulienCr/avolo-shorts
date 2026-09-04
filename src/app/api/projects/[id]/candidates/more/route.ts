@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { getClips, getDb, getProject } from '@/server/db'
 import { body, json, requestInvalid, route } from '@/server/http'
 import { candidatesPath } from '@/server/paths'
-import { launch, UnknownProjectError } from '@/server/run'
+import { ExecutionInCurrentError, launch, progression, UnknownProjectError } from '@/server/run'
 
 /**
  * `POST /api/projects/:id/candidates/more` — the sweep pass: N more clips
@@ -25,6 +25,10 @@ export const POST = route(
   async (request: Request, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params
     const { count } = await body(request, REQUEST)
+    // Ahead of everything below — nothing async intervenes before `launch`'s
+    // own reservation, so this doesn't race it — or a concurrent execution
+    // would read as one of the 400s instead of the promised 409.
+    if (progression(id) !== null) throw new ExecutionInCurrentError(id)
     const db = getDb()
     // Ahead of the two checks below, or an unknown id also reads as
     // "nothing to sweep" and returns their 400 instead of a 404.

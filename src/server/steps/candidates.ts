@@ -1565,53 +1565,73 @@ export async function runMoreClips(
   const slate: SweepSlate = { rejected: 0, succeeded: 0 }
   const accepted: DetailClip[] = []
   let exhausted = false
+  // Every id ever seen with a human decision during this pass. A clip that
+  // was `candidate` all along and stays that way isn't tracked here — only
+  // a regression (`toggleStatus` undoing a decision mid-pass) is.
+  const everDecided = new Set<string>(getClips(db, projectId).filter((c) => c.status !== 'candidate').map((c) => c.id))
 
-  for (let round = 1; round <= RECOVERY_MAX; round += 1) {
-    const deficit = count - accepted.length
-    if (deficit <= 0) break
+  try {
+    for (let round = 1; round <= RECOVERY_MAX; round += 1) {
+      const deficit = count - accepted.length
+      if (deficit <= 0) break
 
-    const before = getClips(db, projectId).filter((c) => c.status !== 'candidate')
-    const takenSegments = [...before, ...accepted.map((a) => a.clip)].flatMap((c) => c.segments)
+      const before = getClips(db, projectId).filter((c) => c.status !== 'candidate')
+      const takenSegments = [...before, ...accepted.map((a) => a.clip)].flatMap((c) => c.segments)
 
-    const proposals = await sweepDescend(segments, { min: deficit, max: deficit + 2 }, ctx, takenSegments, slate)
+      const proposals = await sweepDescend(segments, { min: deficit, max: deficit + 2 }, ctx, takenSegments, slate)
 
-    // Read after this round's own network call, never before it: `PATCH
-    // /api/clips/:id` stays open while this step runs, so a decision made
-    // mid-call must still be visible to the filter this same round applies.
-    const humans = getClips(db, projectId).filter((c) => c.status !== 'candidate')
-    const pool: Clip[] = [...humans, ...accepted.map((a) => a.clip)]
+      // Read after this round's own network call, never before it: `PATCH
+      // /api/clips/:id` stays open while this step runs, so a decision made
+      // mid-call must still be visible to the filter this same round applies.
+      const humans = getClips(db, projectId).filter((c) => c.status !== 'candidate')
+      humans.forEach((c) => everDecided.add(c.id))
+      const pool: Clip[] = [...humans, ...accepted.map((a) => a.clip)]
 
-    // Best-scored first, each survivor joining `pool` before the next is
-    // tested — two proposals overlapping each other, not just a prior
-    // round's clip, would otherwise both pass.
-    const ranked = [...proposals].sort(
-      (a, b) => Number(b.scored) - Number(a.scored) || b.predictedScore - a.predictedScore,
-    )
-    const keptThisRound: DetailClip[] = []
-    for (const p of ranked) {
-      if (pool.every((tc) => overlapSeconds(p.clip.segments, tc.segments) <= OVERLAP_TOLERANCE_SECONDS)) {
-        keptThisRound.push(p)
-        pool.push(p.clip)
+      // Best-scored first, each survivor joining `pool` before the next is
+      // tested — two proposals overlapping each other, not just a prior
+      // round's clip, would otherwise both pass.
+      const ranked = [...proposals].sort(
+        (a, b) => Number(b.scored) - Number(a.scored) || b.predictedScore - a.predictedScore,
+      )
+      const keptThisRound: DetailClip[] = []
+      for (const p of ranked) {
+        // The id check is independent of the tolerance: a clip short enough
+        // that its own duration is under OVERLAP_TOLERANCE_SECONDS would
+        // otherwise dedupe against itself as a "near miss".
+        const seen = pool.some((tc) => tc.id === p.clip.id)
+        const overlapping = pool.some(
+          (tc) => overlapSeconds(p.clip.segments, tc.segments) > OVERLAP_TOLERANCE_SECONDS,
+        )
+        if (!seen && !overlapping) {
+          keptThisRound.push(p)
+          pool.push(p.clip)
+        }
       }
-    }
-    if (keptThisRound.length === 0) {
-      exhausted = true
-      break
-    }
-    accepted.push(...keptThisRound)
+      if (keptThisRound.length === 0) {
+        exhausted = true
+        break
+      }
+      accepted.push(...keptThisRound)
 
-    const progress: MoreClipsReport = { requested: count, added: Math.min(accepted.length, count), exhausted: false }
-    moreClipsReports.set(projectId, progress)
-    options.onSummary?.(progress)
-  }
+      const progress: MoreClipsReport = { requested: count, added: Math.min(accepted.length, count), exhausted: false }
+      moreClipsReports.set(projectId, progress)
+      options.onSummary?.(progress)
+    }
 
-  // Nothing answered, descent included: only there is it the material, not
-  // the ask — same reasoning as `detail`'s own verdict.
-  if (slate.succeeded === 0 && slate.rejected > 0) {
-    throw new GeminiBlockedError(
-      `Le fournisseur a refusé la recherche de clips supplémentaires pour cette vidéo, jusqu'au segment ` +
-        `seul (${slate.rejected} segment(s)). Les règles d'usage du fournisseur refusent ce matériel.`,
-    )
+    // Nothing answered, descent included: only there is it the material, not
+    // the ask — same reasoning as `detail`'s own verdict.
+    if (slate.succeeded === 0 && slate.rejected > 0) {
+      throw new GeminiBlockedError(
+        `Le fournisseur a refusé la recherche de clips supplémentaires pour cette vidéo, jusqu'au segment ` +
+          `seul (${slate.rejected} segment(s)). Les règles d'usage du fournisseur refusent ce matériel.`,
+      )
+    }
+  } catch (error) {
+    // A report surviving a thrown or aborted round would announce clips
+    // that `replaceClips` never wrote — nothing was persisted below this
+    // point, so `status.json` must fall back to `null`, not a stale count.
+    moreClipsReports.delete(projectId)
+    throw error
   }
 
   // `accepted` is already unique by id — each round dedupes against it before
@@ -1619,11 +1639,22 @@ export async function runMoreClips(
   // caller's `.slice(0, count)` makes it the thing that decides survivors.
   const capped = rankProposals(accepted).slice(0, count)
 
+  const existing = getClips(db, projectId)
+  // `mergeCandidates` drops every `candidate` clip in `existing` — right for
+  // a leftover never triaged, wrong for one `everDecided` regressed back to
+  // `candidate` (`toggleStatus`) during the pass. Abort rather than let that
+  // one be silently swept away with nothing written for this pass.
+  if (existing.some((c) => c.status === 'candidate' && everDecided.has(c.id))) {
+    moreClipsReports.delete(projectId)
+    throw new Error(
+      `Le projet ${projectId} a un clip repassé à « candidate » pendant la passe : elle s'arrête sans rien écrire.`,
+    )
+  }
+
   const report: MoreClipsReport = { requested: count, added: capped.length, exhausted }
   moreClipsReports.set(projectId, report)
   options.onSummary?.(report)
 
-  const existing = getClips(db, projectId)
   const past = 1 + existing.reduce((top, c) => Math.max(top, c.pass), 0)
   const clips = mergeCandidates(existing, capped, past)
   eraseArtifact(projectId)

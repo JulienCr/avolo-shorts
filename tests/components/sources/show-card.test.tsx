@@ -118,7 +118,10 @@ describe('les cinq états', () => {
     // full phrase needed 140. The bar's accessible name keeps it in full.
     expect(screen.getByText('GPU')).toBeTruthy()
     expect(screen.queryByText(/En attente — carte graphique/)).toBeNull()
-    expect(screen.getByRole('progressbar').getAttribute('aria-label')).toMatch(
+    // Name then value: the name keeps the step, the value carries the wait —
+    // saying it in both would make a screen reader repeat it.
+    expect(screen.getByRole('progressbar').getAttribute('aria-label')).toBe('Transcription')
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuetext')).toMatch(
       /en attente — carte graphique/,
     )
     expect(screen.queryByText('0 %')).toBeNull()

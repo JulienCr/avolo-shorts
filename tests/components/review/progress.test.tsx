@@ -287,6 +287,7 @@ describe('PanelProgress', () => {
     mount(['audio'], waitingGpu)
     const bar = screen.getByRole('progressbar', { name: /transcription/i })
     expect(bar.getAttribute('aria-valuetext')).toMatch(/en attente de la carte graphique/)
+    expect(bar.getAttribute('aria-label')).not.toMatch(/en attente/)
   })
 
   it('contracte l’article sur le processeur, le cas le plus courant', () => {
@@ -299,13 +300,13 @@ describe('PanelProgress', () => {
     expect(screen.getByTestId('step-proxy').textContent).not.toMatch(/de le processeur/)
   })
 
-  it('dit l’attente dans le nom accessible de la barre, pas « en cours »', () => {
-    // A screen reader on the bar must not hear the opposite of what the
-    // heading and the live region say.
+  it('partage le nom et la valeur de la barre, sans dire l’attente deux fois', () => {
+    // A progressbar is read as name then value. The wait belongs to one of
+    // them: saying it in both makes a screen reader repeat it.
     mount(['audio'], waitingGpu)
     const bar = screen.getByRole('progressbar', { name: /transcription/i })
-    expect(bar.getAttribute('aria-label')).toMatch(/en attente de la carte graphique/)
-    expect(bar.getAttribute('aria-label')).not.toMatch(/en cours/)
+    expect(bar.getAttribute('aria-label')).toBe('Transcription')
+    expect(bar.getAttribute('aria-valuetext')).toMatch(/en attente de la carte graphique/)
   })
 
   it('marque en attente une étape de `runningAll` qui n’est pas en tête', () => {

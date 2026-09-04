@@ -1,13 +1,6 @@
 // @vitest-environment jsdom
 
-/**
- * `useAnalysisAnnouncement`: step changes, the end, and now entering the
- * queue.
- *
- * **The queue counts as one more step change, not a second rule.** Nobody
- * announces leaving it separately: the step starts, and that is already
- * announced.
- */
+/** `useAnalysisAnnouncement`: step changes, entering the queue, and the end. */
 
 import { cleanup, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'

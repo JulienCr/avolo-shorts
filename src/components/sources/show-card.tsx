@@ -239,9 +239,9 @@ function StateLine({ entry, creating }: { entry: Entry; creating: boolean }) {
       <Progress
         value={percent}
         locale="fr-FR"
-        aria-label={waiting != null ? `${label} en attente — ${RESOURCE_NOUN[waiting.resource]}` : `${label} en cours`}
-        // Otherwise the bar still reads `aria-valuenow`, restoring the very
-        // percentage the visible line just replaced.
+        // Name then value, never both: the name keeps the step, the value
+        // replaces the percentage `aria-valuenow` would otherwise say.
+        aria-label={waiting != null ? label : `${label} en cours`}
         aria-valuetext={waiting != null ? `en attente — ${RESOURCE_NOUN[waiting.resource]}` : undefined}
         className="w-full gap-x-2 gap-y-0.5"
       >

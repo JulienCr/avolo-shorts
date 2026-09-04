@@ -132,13 +132,14 @@ export function PanelProgress({
         <div className="mt-4">
           <Progress
             value={percent(running.progress)}
+            // A progressbar is read as name then value, so the wait belongs to
+            // one of them and not both: the name keeps the step, the value
+            // replaces the percentage `aria-valuenow` would otherwise say.
             aria-label={
               leadingWait !== null
-                ? `${LABELS_STEPS[running.step]} en attente ${RESOURCE_OF[leadingWait.resource]}`
+                ? LABELS_STEPS[running.step]
                 : `${LABELS_STEPS[running.step]} en cours`
             }
-            // Without it the bar still reads its `aria-valuenow` aloud, so a
-            // queued step would be announced as « en attente…, 0 % ».
             aria-valuetext={
               leadingWait !== null ? `en attente ${RESOURCE_OF[leadingWait.resource]}` : undefined
             }

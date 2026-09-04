@@ -51,13 +51,7 @@ export const CLIP_SCREEN_PAIRS: readonly OverlapPair[] = [
   },
 ]
 
-/**
- * The library (`src/components/sources/library.tsx`) and the project screen
- * (`src/components/review/project-screen.tsx`).
- *
- * No overlap pair defined here: PR F ("waiting UI") needs these as valid
- * screen names for `pnpm ui-shot`, with no layout guard to check yet.
- */
+/** Valid `--screen` names with no overlap guard yet: nothing to check here. */
 export const LIBRARY_SCREEN_PAIRS: readonly OverlapPair[] = []
 export const PROJECT_SCREEN_PAIRS: readonly OverlapPair[] = []
 

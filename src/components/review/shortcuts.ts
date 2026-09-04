@@ -45,9 +45,7 @@ const ALREADY_TAKEN = [
   'summary',
   // **Le contenu d'une boîte de dialogue, popup compris.** Celui de Base UI
   // porte `role="dialog"` et `tabIndex={-1}` : cliquer son texte en fait
-  // l'élément actif, et sans lui ici `P` déciderait une carte que la boîte
-  // recouvre. Le chemin est celui que l'écran invite lui-même à prendre — on
-  // ouvre l'aide avec `?`, on y lit « P — garder », on essaie.
+  // l'élément actif, et sans lui ici `P` déciderait une carte sous la boîte.
   '[role="dialog"]',
   '[role="alertdialog"]',
   // **Le contenu éditable est nommé ici en plus d'`isContentEditable`.** La

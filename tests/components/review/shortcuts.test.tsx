@@ -46,8 +46,7 @@ describe('processAlreadyKey', () => {
   it('écarte le contenu d’une boîte de dialogue', () => {
     // Le popup de Base UI porte `role="dialog"` et `tabIndex={-1}` : cliquer son
     // texte en fait l'élément actif. Sans lui dans la garde, `P` déciderait une
-    // carte qu'on ne voit pas — et l'écran invite précisément à ce geste, en
-    // affichant « P — garder » dans une boîte qu'on vient d'ouvrir.
+    // carte qu'on ne voit pas, derrière la boîte.
     const popup = mount('<div role="dialog"><p>P — garder</p></div>')
     expect(processAlreadyKey(popup)).toBe(true)
     expect(processAlreadyKey(popup.firstElementChild)).toBe(true)
@@ -134,11 +133,10 @@ describe('useShortcutsReview', () => {
   it('rend la main dès qu’un modificateur est enfoncé', async () => {
     // `Ctrl+P` ouvre la boîte d'impression : voler cette touche-là ferait
     // perdre un geste du navigateur pour rien.
-    //
-    // **La frappe part d'une carte, pas de `document`.** Dispatché sur
-    // `document`, l'événement était déjà écarté par la garde des cibles — qui
-    // rend `true` sur tout ce qui n'est pas un `HTMLElement` —, donc le test
-    // restait vert même en retirant la garde des modificateurs.
+
+    // **La frappe part d'une carte, pas de `document`.** Sur `document`, la
+    // garde des cibles l'aurait déjà écartée, laissant le test vert même sans
+    // la garde des modificateurs.
     const actions = actionsMute()
     render(<Harness actions={actions} />)
     const user = userEvent.setup()

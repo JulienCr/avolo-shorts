@@ -150,8 +150,8 @@ CREATE TABLE IF NOT EXISTS clips (
 );
 
 -- Serves the projectId filter in getClips. Ordering by id is sorted in
--- memory rather than by this index (pass, id doesn't match id alone), which
--- is negligible at this volume (tens to low hundreds of clips per project).
+-- memory rather than by this index (pass, id doesn't match id alone) —
+-- negligible at the volumes this database actually holds.
 --
 -- Nommé \`clips_by_project\` : c'était le seul objet de schéma en français
 -- (\`clips_par_projet\`), et \`migrer\` ci-dessous le renomme sur une base qui le

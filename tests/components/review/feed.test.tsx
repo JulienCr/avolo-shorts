@@ -9,6 +9,7 @@
  * focus and on-screen order — and each is paid thirty times per show.
  */
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
@@ -59,6 +60,14 @@ function candidate(n: number, status: ClipStatus = 'candidate'): CandidateClip {
   }
 }
 
+// `LoopEnd` monte `MoreClips`, qui lit `useProject` par TanStack Query : sans
+// ce fournisseur, chaque harnais qui atteint la fin de la boucle plante sur
+// « No QueryClient set ». `retry: false` évite d'attendre les tentatives sur
+// le `fetch` relatif que ces tests ne stubbent pas.
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+})
+
 /**
  * Le harnais tient les statuts, comme la page le fait par écriture optimiste :
  * sans lui, une décision ne reviendrait jamais à l'écran et les tests
@@ -87,20 +96,22 @@ function Harness({
   const steps = { candidates: true, proxy: proxyReady } as Record<StepName, boolean>
   const issue = next(phaseProject(steps, null, null, clips), { id: 'p1' })
   return (
-    <ReviewFeed
-      projectId="p1"
-      clips={clips}
-      view={view}
-      onView={setView}
-      proxyReady={proxyReady}
-      summary={summary}
-      next={issue}
-      descriptionFooter={descriptionFooter}
-      publicationAvailability={publicationAvailability}
-      onStatus={(clipId, status) =>
-        setClips((list) => list.map((c) => (c.id === clipId ? { ...c, status } : c)))
-      }
-    />
+    <QueryClientProvider client={queryClient}>
+      <ReviewFeed
+        projectId="p1"
+        clips={clips}
+        view={view}
+        onView={setView}
+        proxyReady={proxyReady}
+        summary={summary}
+        next={issue}
+        descriptionFooter={descriptionFooter}
+        publicationAvailability={publicationAvailability}
+        onStatus={(clipId, status) =>
+          setClips((list) => list.map((c) => (c.id === clipId ? { ...c, status } : c)))
+        }
+      />
+    </QueryClientProvider>
   )
 }
 
@@ -114,16 +125,18 @@ function Vivant({ list }: { list: CandidateClip[] }) {
   const clips = list.map((c) => ({ ...c, status: statuses[c.id] ?? c.status }))
   const steps = { candidates: true, proxy: true } as Record<StepName, boolean>
   return (
-    <ReviewFeed
-      projectId="p1"
-      clips={clips}
-      view="atrier"
-      onView={() => {}}
-      proxyReady
-      summary={null}
-      next={next(phaseProject(steps, null, null, clips), { id: 'p1' })}
-      onStatus={(clipId, status) => setStatuses((s) => ({ ...s, [clipId]: status }))}
-    />
+    <QueryClientProvider client={queryClient}>
+      <ReviewFeed
+        projectId="p1"
+        clips={clips}
+        view="atrier"
+        onView={() => {}}
+        proxyReady
+        summary={null}
+        next={next(phaseProject(steps, null, null, clips), { id: 'p1' })}
+        onStatus={(clipId, status) => setStatuses((s) => ({ ...s, [clipId]: status }))}
+      />
+    </QueryClientProvider>
   )
 }
 
@@ -423,16 +436,18 @@ describe('le retour, et lui seul', () => {
   function Driven({ view, list }: { view: View; list: CandidateClip[] }) {
     const steps = { candidates: true, proxy: true } as Record<StepName, boolean>
     return (
-      <ReviewFeed
-        projectId="p1"
-        clips={list}
-        view={view}
-        onView={() => {}}
-        proxyReady
-        summary={null}
-        next={next(phaseProject(steps, null, null, list), { id: 'p1' })}
-        onStatus={() => {}}
-      />
+      <QueryClientProvider client={queryClient}>
+        <ReviewFeed
+          projectId="p1"
+          clips={list}
+          view={view}
+          onView={() => {}}
+          proxyReady
+          summary={null}
+          next={next(phaseProject(steps, null, null, list), { id: 'p1' })}
+          onStatus={() => {}}
+        />
+      </QueryClientProvider>
     )
   }
 

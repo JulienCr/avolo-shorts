@@ -52,6 +52,8 @@ import {
   schedulePublication,
   unschedulePublication,
 } from '@/lib/api'
+// Import à part, même règle, pour la même raison.
+import { requestMoreClips } from '@/lib/api'
 import { clipBounds } from '@/lib/editing'
 import type { TranscriptLine } from '@/lib/editing'
 import type { Platform, PublicationRecord } from '@/core/publication'
@@ -1129,6 +1131,28 @@ export function useUnschedulePublication() {
     onSuccess() {
       void client.invalidateQueries({ queryKey: keys.planningPool })
       void client.invalidateQueries({ queryKey: ['planning-schedule'] })
+    },
+  })
+}
+
+/**
+ * Demande une passe de repérage supplémentaire — +5 ou +10 clips — une fois le
+ * tri fini. Modelée sur `useRetry` (`:632`).
+ *
+ * **`onSettled` invalide l'état du projet quoi qu'il arrive, y compris sur un
+ * 409.** C'est le moment exact où l'écran doit aller chercher l'exécution que
+ * la route vient de refuser de doubler ; sans cette invalidation le cache
+ * reste sur `running: null` et `refetchInterval` (`:128`) ne repart jamais.
+ */
+export function useRequestMoreClips() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ projectId, count }: { projectId: string; count: 5 | 10 }) =>
+      requestMoreClips(projectId, count),
+    onSettled(_shot, _error, { projectId }) {
+      void client.invalidateQueries({ queryKey: keys.projet(projectId) })
+      void client.invalidateQueries({ queryKey: keys.candidats(projectId) })
     },
   })
 }

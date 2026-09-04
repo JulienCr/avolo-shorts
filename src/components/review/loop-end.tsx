@@ -6,6 +6,7 @@ import type { CandidateClip } from '@/lib/api'
 import { isGuard } from '@/lib/clip-status'
 import { formatDuration } from '@/lib/format'
 import { linkClip, linkProject, type Next } from '@/lib/navigation'
+import { MoreClips } from '@/components/review/more-clips'
 import { agreement } from '@/components/review/template'
 import { buttonVariants } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -50,6 +51,7 @@ export function LoopEnd({
           Rien ne part au montage. Un nouveau repérage rendra d’autres
           propositions ; les décisions déjà prises, elles, y survivent.
         </p>
+        <MoreClips projectId={projectId} />
       </section>
     )
   }
@@ -72,6 +74,7 @@ export function LoopEnd({
       />
 
       <Issue next={next} projectId={projectId} />
+      <MoreClips projectId={projectId} />
 
       <ul className="mt-5 flex flex-col gap-1.5">
         {guards.map((clip) => (

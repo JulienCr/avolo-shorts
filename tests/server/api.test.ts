@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GET as serveRender } from '@/app/api/clips/[id]/renders/[file]/route'
 import { GET as getClipRoute, PATCH as patchClipRoute } from '@/app/api/clips/[id]/route'
 import { GET as getCandidates } from '@/app/api/projects/[id]/candidates/route'
+import { POST as postMoreClips } from '@/app/api/projects/[id]/candidates/more/route'
 import { GET as getProject } from '@/app/api/projects/[id]/route'
 import { POST as postRun } from '@/app/api/projects/[id]/run/route'
 import { POST as postStop } from '@/app/api/projects/[id]/stop/route'
@@ -574,6 +575,30 @@ describe('GET /api/projects/:id', () => {
       await getProject(new Request('http://x'), context(PROJECT))
     ).json()) as ProjectStatus
     expect(state.error).toBeNull()
+  })
+
+  /**
+   * The sweep pass's own report travels next to `selectionReport`, never
+   * inside it — a windowed summary absent from this process's memory must
+   * not turn into an invented `windows: 0`.
+   */
+  it('publie le rapport « +N clips » à côté du bilan de notation', async () => {
+    poserStatus({ moreClips: { requested: 5, added: 3, exhausted: false } })
+
+    const state = (await (
+      await getProject(new Request('http://x'), context(PROJECT))
+    ).json()) as ProjectStatus
+    expect(state.moreClips).toEqual({ requested: 5, added: 3, exhausted: false })
+    expect(state.selectionReport).toBeNull()
+  })
+
+  it('rend null quand la passe « +N clips » n’a jamais tourné', async () => {
+    poserStatus({})
+
+    const state = (await (
+      await getProject(new Request('http://x'), context(PROJECT))
+    ).json()) as ProjectStatus
+    expect(state.moreClips).toBeNull()
   })
 
   /**
@@ -1776,6 +1801,97 @@ describe('POST /api/projects/:id/run', () => {
 
   it('rend 404 sur un projet inconnu', async () => {
     expect((await launchRoute({ target: 'candidates' }, 'jamais-vu')).status).toBe(404)
+  })
+})
+
+describe('POST /api/projects/:id/candidates/more', () => {
+  const moreRoute = (body: unknown, id = PROJECT): Promise<Response> =>
+    postMoreClips(
+      new Request('http://x', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      context(id),
+    )
+
+  // `candidates.json` already there is exactly the case this route exists
+  // for — a normal `POST /run` would plan nothing, `force` is why this one
+  // still does.
+  it('lance la passe même quand candidates.json existe déjà', async () => {
+    poserTranscript()
+    poserCorrection()
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
+
+    const response = await moreRoute({ count: 5 })
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ projectId: PROJECT, plan: ['candidates'] })
+    await leaveFinish()
+  })
+
+  it('refuse un compte hors de {5, 10}', async () => {
+    expect((await moreRoute({ count: 7 })).status).toBe(400)
+  })
+
+  // `mergeCandidates` ne garde que les clips non `candidate` : lancer le
+  // sweep pendant que le tri est en cours supprimerait silencieusement ceux
+  // qui restent — voir le contrat, « Existing clips: Untouchable ».
+  it('rend 400 quand un clip attend encore un tri', async () => {
+    poserTranscript()
+    poserCorrection()
+    putClip(getDb(), baseClip())
+
+    expect((await moreRoute({ count: 5 })).status).toBe(400)
+  })
+
+  // Zéro clip ne prouve pas un tri terminé : ça peut aussi être un projet qui
+  // n'a jamais eu de premier repérage — la passe « +N clips » n'est pas la
+  // passe fenêtrée initiale.
+  it('rend 400 sur un projet qui n’a jamais eu de premier repérage', async () => {
+    poserTranscript()
+    poserCorrection()
+
+    expect((await moreRoute({ count: 5 })).status).toBe(400)
+  })
+
+  it('rend 404 sur un projet inconnu', async () => {
+    expect((await moreRoute({ count: 5 }, 'jamais-vu')).status).toBe(404)
+  })
+
+  it('rend 409 quand une exécution tourne déjà sur ce projet', async () => {
+    poserTranscript()
+    poserCorrection()
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
+    let release = (): void => {}
+    const inCurrent = new Promise<Clip[]>((resolve) => {
+      release = () => resolveEmpty(resolve)
+    })
+    await launch(PROJECT, ['candidates'], { force: ['candidates'], steps: { runCandidates: () => inCurrent } })
+    try {
+      expect((await moreRoute({ count: 5 })).status).toBe(409)
+    } finally {
+      release()
+      await leaveFinish()
+    }
+  })
+
+  // The 409 must win even ahead of `candidates.json`: a project's very
+  // first detection run hasn't written it yet, but is still an execution
+  // this call must not be allowed to collide with.
+  it('rend 409 même quand le premier repérage tourne encore', async () => {
+    poserTranscript()
+    poserCorrection()
+    let release = (): void => {}
+    const inCurrent = new Promise<Clip[]>((resolve) => {
+      release = () => resolveEmpty(resolve)
+    })
+    await launch(PROJECT, ['candidates'], { steps: { runCandidates: () => inCurrent } })
+    try {
+      expect((await moreRoute({ count: 5 })).status).toBe(409)
+    } finally {
+      release()
+      await leaveFinish()
+    }
   })
 })
 

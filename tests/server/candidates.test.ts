@@ -17,10 +17,12 @@ import {
   lastSummary,
   isTransient,
   GeminiBlockedError,
+  lastMoreClipsReport,
   leverIfBlocked,
   lireTranscript,
   partCovered,
   runCandidates,
+  runMoreClips,
   type CallGemini,
   type ModeGemini,
 } from '@/server/steps/candidates'
@@ -1729,6 +1731,221 @@ describe("l'étape de repérage", () => {
         expect((error as Error).message).not.toContain(file)
         expect((error as Error).message).not.toContain(root)
       }
+    })
+  })
+
+  describe('runMoreClips', () => {
+    /** A `call` that always answers `mode: 'sweep'` with the same fixed shorts. */
+    function sweepCall(shorts: Record<string, unknown>[]): CallGemini {
+      return async (_prompt, mode) => {
+        if (mode !== 'sweep') throw new Error(`mode inattendu pour la passe « +N clips » : ${mode}`)
+        return response(JSON.stringify({ shorts }))
+      }
+    }
+
+    /** A short-form sweep proposal, only the fields a test actually varies. */
+    function proposal(start: number, end: number, title: string) {
+      return { start, end, predicted_score: 70, video_title_for_youtube_short: title }
+    }
+
+    /** A full `Clip`, only the fields these tests actually vary. */
+    function clipLiteral(id: string, segments: { start: number; end: number }[], status: Clip['status']): Clip {
+      return {
+        id: `${ID}_${id}`,
+        projectId: ID,
+        segments,
+        ratio: 'auto',
+        cropX: 0.5,
+        captions: true,
+        branding: true,
+        footer: true,
+        title: 'existant',
+        description: '',
+        status,
+        pass: 1,
+        hookText: '',
+        hookBadge: '',
+        hookStyle: {},
+        framingStyle: {},
+      }
+    }
+
+    /**
+     * The discriminating test the task owes: overlapping an existing clip by
+     * more than `OVERLAP_TOLERANCE_SECONDS` (4 s) rejects, at or under it
+     * keeps — boundary included.
+     *
+     * `words: []` on a wordless segment makes `snapToWords` return the raw
+     * bounds unchanged, so the taken clip's exact bounds are the only thing
+     * deciding keep or reject — a fencepost (`<` for `<=`) or the constant
+     * silently changed from 4 to 8 would flip at least one case.
+     */
+    it.each([
+      [96.1, true, '~3.9 s : sous la tolérance'],
+      [96, true, '4 s exactement : la frontière incluse'],
+      [95.9, false, '~4.1 s : au-dessus de la tolérance'],
+    ])('un chevauchement de %d à 100 avec le clip existant — %s (gardé : %s)', async (takenStart, kept) => {
+      const sidecar = sidecarDir(SOURCE)
+      fs.writeFileSync(
+        path.join(sidecar, 'transcript.json'),
+        JSON.stringify({
+          language: 'fr',
+          segments: [{ start: 0, end: 200, text: 'un segment continu, sans mots', words: [] }],
+        }),
+      )
+      putClip(db, clipLiteral('taken', [{ start: takenStart, end: 200 }], 'kept'))
+
+      const shorts = [proposal(10, 100, 'sous test')]
+      const clips = await runMoreClips(ID, 5, { db, call: sweepCall(shorts), sleep: async () => {} })
+      const present = clips.some((c) => c.status === 'candidate' && c.title === 'sous test')
+      expect(present).toBe(kept)
+    })
+
+    it('a round with nothing new reports exhaustion instead of failing', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      const [first] = getClips(db, ID)
+      putClip(db, { ...first, status: 'kept' })
+
+      const clips = await runMoreClips(ID, 5, { db, call: sweepCall([]), sleep: async () => {} })
+      expect(clips.filter((c) => c.status === 'candidate')).toHaveLength(0)
+      // The human decision crosses the pass untouched.
+      expect(clips.find((c) => c.id === first.id)?.status).toBe('kept')
+    })
+
+    it('a second round only asks for what is still missing', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      const [first] = getClips(db, ID)
+      putClip(db, { ...first, status: 'kept' })
+
+      const rounds: string[] = []
+      let round = 0
+      const call: CallGemini = async (prompt, mode) => {
+        if (mode !== 'sweep') throw new Error(`mode inattendu : ${mode}`)
+        round += 1
+        rounds.push(prompt)
+        if (round === 1) {
+          return response(JSON.stringify({ shorts: [proposal(30, 33, 'premier tour')] }))
+        }
+        return response(JSON.stringify({ shorts: [] }))
+      }
+      await runMoreClips(ID, 5, { db, call, sleep: async () => {} })
+
+      expect(rounds).toHaveLength(2)
+      // The first round targets the requested count; the second, what remains.
+      expect(rounds[0]).toMatch(/return 5 to 7 clips/)
+      expect(rounds[1]).toMatch(/return 4 to 6 clips/)
+      // And what the first round found is marked taken for the second.
+      expect(rounds[1]).toContain('[PRIS]')
+    })
+
+    it('plafonne au compte demandé même si le modèle en rend plus', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      const shorts = [
+        proposal(30, 33, 'un'),
+        proposal(60, 63, 'deux'),
+        proposal(90, 93, 'trois'),
+        proposal(120, 123, 'quatre'),
+        proposal(150, 153, 'cinq'),
+        proposal(180, 183, 'six'),
+        proposal(210, 213, 'sept'),
+      ]
+      const clips = await runMoreClips(ID, 5, { db, call: sweepCall(shorts), sleep: async () => {} })
+      expect(clips.filter((c) => c.status === 'candidate')).toHaveLength(5)
+    })
+
+    it('déduplique un même id avant de calculer le déficit du tour suivant', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      let round = 0
+      // Round 1 answers five copies of the same bounds — one real clip, long
+      // enough that a full self-overlap clears OVERLAP_TOLERANCE_SECONDS.
+      // Counting them as five would satisfy the deficit after this round.
+      const call: CallGemini = async (_prompt, mode) => {
+        if (mode !== 'sweep') throw new Error(`mode inattendu : ${mode}`)
+        round += 1
+        const shorts =
+          round === 1
+            ? Array(5).fill(proposal(30, 40, 'doublon'))
+            : [proposal(60, 70, 'b'), proposal(90, 100, 'c'), proposal(120, 130, 'd'), proposal(150, 160, 'e')]
+        return response(JSON.stringify({ shorts }))
+      }
+
+      const clips = await runMoreClips(ID, 5, { db, call, sleep: async () => {} })
+      expect(clips.filter((c) => c.status === 'candidate')).toHaveLength(5)
+      expect(round).toBeGreaterThan(1)
+    })
+
+    it('déduplique un même id même quand sa durée tient sous la tolérance', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      // A 3 s clip's full self-overlap is under OVERLAP_TOLERANCE_SECONDS
+      // (4 s): the id check must catch the duplicate anyway.
+      const call = sweepCall(Array(5).fill(proposal(30, 33, 'doublon')))
+
+      const clips = await runMoreClips(ID, 5, { db, call, sleep: async () => {} })
+      expect(clips.filter((c) => c.status === 'candidate')).toHaveLength(1)
+    })
+
+    it('s’arrête sans rien écrire si un clip repasse à `candidate` en cours de passe', async () => {
+      await runCandidates(ID, { call: template([]), db, sleep: async () => {} })
+      const [first] = getClips(db, ID)
+      putClip(db, { ...first, status: 'kept' })
+
+      // The toggle back to `candidate` happens mid-call, exactly the window
+      // the fresh-read fix (round-start vs round-end) cannot see either way.
+      const call: CallGemini = async (_prompt, mode) => {
+        if (mode !== 'sweep') throw new Error(`mode inattendu : ${mode}`)
+        putClip(db, { ...first, status: 'candidate' })
+        return response(JSON.stringify({ shorts: [proposal(30, 33, 'nouveau')] }))
+      }
+
+      await expect(runMoreClips(ID, 5, { db, call, sleep: async () => {} })).rejects.toThrow(/repassé à/)
+      expect(getClips(db, ID).find((c) => c.id === first.id)?.status).toBe('candidate')
+    })
+
+    it('efface le rapport de progression quand la passe échoue après un tour réussi', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      let round = 0
+      // A plain error, not `GeminiBlockedError`: it must escape `sweepDescend`
+      // unrecovered, unlike a content refusal.
+      const call: CallGemini = async (_prompt, mode) => {
+        if (mode !== 'sweep') throw new Error(`mode inattendu : ${mode}`)
+        round += 1
+        if (round === 1) return response(JSON.stringify({ shorts: [proposal(30, 33, 'un')] }))
+        throw new Error('panne réseau')
+      }
+
+      await expect(runMoreClips(ID, 5, { db, call, sleep: async () => {} })).rejects.toThrow('panne réseau')
+      expect(lastMoreClipsReport(ID)).toBeNull()
+    })
+
+    it('publie un rapport de progression après chaque tour, pas seulement le dernier', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      let round = 0
+      const call: CallGemini = async (_prompt, mode) => {
+        if (mode !== 'sweep') throw new Error(`mode inattendu : ${mode}`)
+        round += 1
+        const shorts = round === 1 ? [proposal(30, 33, 'un')] : [proposal(60, 63, 'deux'), proposal(90, 93, 'trois')]
+        return response(JSON.stringify({ shorts }))
+      }
+
+      const seenAfterFirstCall: (number | null)[] = []
+      await runMoreClips(ID, 5, {
+        db,
+        call,
+        sleep: async () => {},
+        onSummary: () => seenAfterFirstCall.push(lastMoreClipsReport(ID)?.added ?? null),
+      })
+
+      expect(seenAfterFirstCall[0]).toBe(1)
+    })
+
+    it('lève quand rien n’a répondu du tout, descente comprise', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      const blocked: CallGemini = async () => {
+        throw new GeminiBlockedError('refusé')
+      }
+      await expect(runMoreClips(ID, 5, { db, call: blocked, sleep: async () => {} })).rejects.toThrow(
+        GeminiBlockedError,
+      )
     })
   })
 })

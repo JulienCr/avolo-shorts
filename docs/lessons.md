@@ -500,3 +500,30 @@ Une paire suppression-puis-création ne compile pas moins bien que la version
 retenue, ne fait échouer aucun lint : c'est un test qui simule deux reprises
 concurrentes (`tests/server/publication-scheduler.test.ts`) qui distingue les
 deux, pas une lecture du code.
+
+## Le fenêtrage facture chaque seconde une fois et demie
+
+Pour la passe « +N clips » (repérer davantage de clips une fois le tri fini),
+le réflexe est de relancer la passe de détail existante en élargissant sa
+fenêtre. Mesuré sur `2025-06-15-cqlp` (1 h 36, 1630 segments, 15 918 mots,
+77 min de parole) : le transcript entier, ancré et annoté, tient en
+**29 487 jetons** en **un seul appel**, contre **~44 000 jetons sur ~11 appels**
+pour la passe de notation actuelle (84 fenêtres de 90 s, chevauchées de 30 s).
+
+La raison n'est pas la taille du transcript, c'est le chevauchement : une
+fenêtre de 90 s qui en chevauche la suivante de 30 s fait relire un tiers de
+sa propre matière par la fenêtre voisine, donc chaque seconde de parole est
+facturée environ une fois et demie. Envoyer le transcript entier en une fois
+n'a pas ce défaut — il n'y a qu'un seul passage, donc aucun recouvrement à
+payer — et coûte de ce fait un tiers de moins que la passe de notation qui le
+précède déjà. Le fenêtrage reste justifié par la couverture exhaustive
+(éviter qu'un moment tombe entre deux fenêtres), pas par le coût : cette
+couverture-là a déjà été payée par la première passe.
+
+Sur la forme de la charge : la même transcription sérialisée en JSON par
+segment plutôt qu'en texte plat coûte 34 493 jetons (+17 %). Et raccourcir les
+clés de la réponse (`s`/`e` au lieu de `start`/`end`, etc.) ne vaut pas le
+détour : le schéma structuré n'existe qu'en JSON, les noms de champs portent du
+sens pour le modèle, et l'économie ne pèse que 63 jetons par clip de
+métadonnées (soit 629 sur une demande de 10 clips), 418 avec des clés courtes
+— 1,4 % du total. Aucune des deux pistes n'a été retenue.

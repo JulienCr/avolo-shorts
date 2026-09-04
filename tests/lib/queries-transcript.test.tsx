@@ -181,6 +181,7 @@ const runningStatus: ProjectStatus = {
   warning: null,
   stopped: false,
   selectionReport: null,
+  moreClips: null,
   sizeBytes: null,
   everRan: true,
 }

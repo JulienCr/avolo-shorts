@@ -4,7 +4,7 @@ import path from 'node:path'
 import type Database from 'better-sqlite3'
 
 import { planSteps, readySteps, type StepName } from '@/core/graph'
-import type { SelectionReport } from '@/lib/api'
+import type { MoreClipsReport, SelectionReport } from '@/lib/api'
 import { progressWorker } from '@/core/pipeline'
 import { isLocal, priorityFor, resourceFor, type Resource, type Wait } from '@/core/resources'
 import { isAAbsence } from '@/server/bytes'
@@ -38,7 +38,10 @@ import { extractAudio } from '@/server/steps/audio'
 import {
   lastSummary,
   forgetSummary,
+  lastMoreClipsReport,
+  forgetMoreClipsReport,
   runCandidates,
+  runMoreClips,
   type SummaryNotation,
 } from '@/server/steps/candidates'
 import {
@@ -542,6 +545,12 @@ export type Status = {
    * Déduit par `detectionSummary`, jamais recopié tel quel — voir pourquoi là-bas.
    */
   selectionReport: SelectionReport | null
+  /**
+   * The "+N clips" sweep pass's own report, or `null`. Same survival rule as
+   * `selectionReport`, its own field rather than a nested one: it is not a
+   * notation summary, and it must reach the client even without one.
+   */
+  moreClips: MoreClipsReport | null
 }
 
 /**
@@ -608,7 +617,7 @@ function pathStatus(projectId: string): string {
  */
 function writeStatus(
   projectId: string,
-  status: Omit<Status, 'selectionReport'>,
+  status: Omit<Status, 'selectionReport' | 'moreClips'>,
   detection: StateDetection,
 ): void {
   try {
@@ -616,9 +625,14 @@ function writeStatus(
     // écrivent ce fichier — début d'étape, marque de temps, plan vide, succès,
     // échec — et un raccord posé dans quatre d'entre eux manquerait au cinquième
     // sans que rien ne le signale.
+
+    // `moreClips` sits next to `selectionReport` rather than inside it: the
+    // sweep pass is not a notation summary, and it must reach the client even
+    // when no windowed summary exists in this process's memory.
     const complete: Status = {
       ...status,
       selectionReport: detectionSummary(lastSummary(projectId), detection),
+      moreClips: lastMoreClipsReport(projectId),
     }
     const file = pathStatus(projectId)
     fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -738,6 +752,7 @@ export type Steps = {
   applyTranscriptCorrections: typeof applyTranscriptCorrections
   runAnalysis: typeof runAnalysis
   runCandidates: typeof runCandidates
+  runMoreClips: typeof runMoreClips
 }
 
 const STEPS: Steps = {
@@ -747,6 +762,7 @@ const STEPS: Steps = {
   transcribe,
   applyTranscriptCorrections,
   runAnalysis,
+  runMoreClips,
   runCandidates,
 }
 
@@ -757,6 +773,12 @@ export type OptionsLaunch = {
   steps?: Partial<Steps>
   /** The physical-resource scheduler. This is the tests' entry point. */
   scheduler?: Scheduler
+  /**
+   * Set only by `POST /api/projects/:id/candidates/more`: branches
+   * `executeStep`'s `candidates` case to the sweep pass instead of the
+   * windowed one.
+   */
+  count?: 5 | 10
 }
 
 /**
@@ -857,7 +879,10 @@ export async function launch(
     // **Forgotten at launch**, not at the entry to detection: otherwise a
     // half-hour wait to reach `candidates` would publish the previous pass's
     // count meanwhile (`runCandidates` also does this cleanup on its own).
-    if (execution.plan.includes('candidates')) forgetSummary(projectId)
+    if (execution.plan.includes('candidates')) {
+      forgetSummary(projectId)
+      forgetMoreClipsReport(projectId)
+    }
     // Refines the placeholder above to the plan's actual first step, removing
     // the old key so the two don't coexist — `runStep` overwrites this one.
     const planStep = execution.plan[0] ?? targets[0] ?? 'candidates'
@@ -1128,6 +1153,7 @@ async function execute(
         // `transcript.json` was just replaced whole, so an earlier log's
         // offsets no longer point at anything (see `applyTranscriptCorrections`).
         freshTranscript,
+        options.count,
       )
       if (warning !== null) correctionWarning = warning
       if (step === 'candidates') execution.detection = 'done'
@@ -1320,6 +1346,8 @@ async function executeStep(
   flagSummary: () => void,
   signal: AbortSignal,
   freshTranscript: boolean,
+  /** Set only for a "+N clips" launch — see `OptionsLaunch.count`. */
+  count: 5 | 10 | undefined,
 ): Promise<string | null> {
   switch (step) {
     case 'proxy':
@@ -1535,7 +1563,11 @@ async function executeStep(
       // Sans lui, `status.json` ne le porte qu'une fois l'étape finie, et l'écran
       // affiche « rien à signaler » pendant les trente secondes où la perte se
       // constitue. (relevé par Codex et Copilot)
-      await steps.runCandidates(project.id, { db, signal, onSummary: flagSummary })
+      if (count !== undefined) {
+        await steps.runMoreClips(project.id, count, { db, signal, onSummary: flagSummary })
+      } else {
+        await steps.runCandidates(project.id, { db, signal, onSummary: flagSummary })
+      }
       return null
     }
 

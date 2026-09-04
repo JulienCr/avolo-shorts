@@ -10,7 +10,9 @@ import {
   speechSeconds,
   shortlistSize,
   snapToWords,
+  usableSegments,
   windowTextWithAnchors,
+  wholeTranscriptWithAnchors,
   type Transcript,
   type Window,
   type Word,
@@ -118,6 +120,50 @@ describe('windowTextWithAnchors', () => {
     }
     const windows = buildWindows(tx, 15)
     expect(windowTextWithAnchors(windows[0], tx)).toBe('[0.000] un [6.000] deux [10.000] trois')
+  })
+})
+
+describe('wholeTranscriptWithAnchors', () => {
+  const tx: Transcript = {
+    segments: [seg(0, 5, 'un'), seg(5, 10, 'deux'), seg(10, 15, 'trois'), seg(15, 20, 'quatre')],
+  }
+
+  it('sans rien de pris, anchore chaque segment comme windowTextWithAnchors', () => {
+    const text = wholeTranscriptWithAnchors(usableSegments(tx), [])
+    expect(text).toBe('[0.000] un [5.000] deux [10.000] trois [15.000] quatre')
+  })
+
+  it('entoure un segment pris de [PRIS] … [/PRIS]', () => {
+    const text = wholeTranscriptWithAnchors(usableSegments(tx), [{ start: 5, end: 10 }])
+    expect(text).toBe('[0.000] un [PRIS] [5.000] deux [/PRIS] [10.000] trois [15.000] quatre')
+  })
+
+  // The contract's rule: two consecutive taken segments form ONE block,
+  // never one [PRIS] per segment — a wall of alternating tags would bury
+  // the prose they annotate.
+  it('fusionne deux segments pris adjacents en un seul bloc', () => {
+    const text = wholeTranscriptWithAnchors(usableSegments(tx), [{ start: 5, end: 15 }])
+    expect(text).toBe('[0.000] un [PRIS] [5.000] deux [10.000] trois [/PRIS] [15.000] quatre')
+    expect(text.match(/\[PRIS\]/g)).toHaveLength(1)
+  })
+
+  // Marking addresses a whole segment, never a word in the middle: the
+  // anchor names a segment, and a mid-segment cut would point the model at
+  // a time that addresses nothing.
+  it("un chevauchement partiel prend le segment en entier, jamais la moitié", () => {
+    const text = wholeTranscriptWithAnchors(usableSegments(tx), [{ start: 7, end: 8 }])
+    expect(text).toBe('[0.000] un [PRIS] [5.000] deux [/PRIS] [10.000] trois [15.000] quatre')
+  })
+
+  it('un transcript entièrement pris ne rend qu’un seul bloc', () => {
+    const text = wholeTranscriptWithAnchors(usableSegments(tx), [{ start: 0, end: 20 }])
+    expect(text).toBe('[PRIS] [0.000] un [5.000] deux [10.000] trois [15.000] quatre [/PRIS]')
+  })
+
+  it('accepte une tranche partielle, pour la descente sur refus de contenu', () => {
+    const all = usableSegments(tx)
+    const text = wholeTranscriptWithAnchors(all.slice(0, 2), [])
+    expect(text).toBe('[0.000] un [5.000] deux')
   })
 })
 

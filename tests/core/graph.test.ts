@@ -230,7 +230,6 @@ describe('dependenciesOf', () => {
 })
 
 /**
- * PR E: execute the plan as the DAG it describes, not as a flat list.
  * `readySteps` knows nothing about resources or priority — the executor
  * applies those — its only job is which steps have no pending dependency
  * **within this plan**.

@@ -403,7 +403,7 @@ mesuré, vit donc à côté de `phaseProjet`.
 ### 2.4 L'attente : trois régimes, pas un écran de chargement
 
 **Le fait qui commande tout ici est un ordre d'exécution.** `CIBLES_INITIALES`
-(`run.ts`) vise les candidats **et** le proxy, et `planPourCibles` renvoie un
+(`run.ts`) vise les candidats **et** le proxy, et `planForTargets` renvoie un
 ordre topologique sur ce graphe — l'exécution admet ensuite toute étape prête
 par priorité (PR E, `readySteps`), pas la liste comme une séquence. La place des
 candidats devant le proxy dans ce plan, elle, ne bouge pas, et c'est d'elle
@@ -429,8 +429,9 @@ dépendent. (relevé par Aristarque)
 
 **Ce tableau décrit un projet seul, et sous l'exécution séquentielle d'alors.**
 Depuis la PR E, `proxy` n'attend plus la chaîne des candidats : il démarre dès
-que le CPU se libère (après `audio`/`transcript`), et tourne pendant que
-`correction` puis `candidates` avancent sur le réseau. L'**admission** des
+que le créneau local unique du projet se libère (`audio` ne réserve rien,
+`transcript` tient le GPU), et tourne pendant que `correction` puis
+`candidates` avancent sur le réseau. L'**admission** des
 candidats ne dépend donc jamais de la durée du proxy — c'est ce qui survit à un
 second projet (PR E, programmateur par ressource), avec le régime « triable
 mais pas montable ». Leur **achèvement** avant le proxy, en revanche, dépend des
@@ -2113,9 +2114,10 @@ durée totale : neuf minutes se traversent avec un panneau honnête, trente-cinq
 auraient exigé une vraie file, des notifications et un suivi hors écran. Depuis
 la PR E, l'argument tient sur la **concurrence par type de ressource** :
 `transcript` réserve le GPU, `proxy` réserve le CPU (`src/core/resources.ts`),
-donc un second projet lancé pendant que le premier encode son proxy n'attend
-que la transcription du premier — de l'ordre de la minute et demie sur
-l'émission de référence —, jamais les six minutes de proxy. `correction` et
+donc un second projet lancé pendant que le premier transcrit encore n'attend
+que cette transcription — de l'ordre de la minute et demie sur l'émission de
+référence —, jamais les six minutes de proxy qui la suivent chez le premier
+projet. `correction` et
 `candidates` (ressource `net`) n'entrent même pas dans cette file : ils ne
 contendent ni avec le CPU du proxy ni avec le GPU du transcript, du premier
 projet comme du second.

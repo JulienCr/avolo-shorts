@@ -682,18 +682,17 @@ describe('lancer', () => {
   })
 
   /**
-   * `GET /api/projects/:id` attend sa propre sonde (`readingPresence`) avant
-   * de lire `progression()`, précisément pour ne pas manquer un lancement qui
-   * aurait démarré pendant cette attente (voir ce fichier). Ce garde-fou
-   * suppose que `progression()` n'est jamais `null` dès qu'un projet est dans
-   * `inCurrent` — y compris avant que `launch()` ait fini de calculer son
-   * propre plan.
+   * `GET /api/projects/:id` awaits its own probe (`readingPresence`) before
+   * reading `progression()`, precisely so it never misses a launch that
+   * started during that same wait (see this file). That guard assumes
+   * `progression()` is never `null` as soon as a project is in `inCurrent` —
+   * even before `launch()` has finished computing its own plan.
    */
   it('progression() n’est jamais nul entre l’inscription et le plan calculé', async () => {
     poserProject()
     const promise = launch(PROJECT, ['proxy'], { db, steps: stepsFake() })
-    // Rien d'asynchrone n'a encore résolu : la portion synchrone de `launch()`
-    // (avant son premier `await`) a tourné, le reste non.
+    // Nothing async has resolved yet: only the synchronous prefix of
+    // `launch()` (before its first `await`) has run.
     expect(progression(PROJECT)).not.toBeNull()
     await promise
     await waitFin()
@@ -1042,9 +1041,9 @@ describe("l'étape correction", () => {
   })
 
   /**
-   * `error: null` est le sentinelle de succès de la pompe, et JavaScript
-   * autorise `throw null`. Sans normalisation, cette panne se lirait comme
-   * une réussite : `candidates` passerait en `done`, `error` resterait `null`.
+   * `error: null` is the pump's own success sentinel, and JavaScript allows
+   * `throw null`. Without normalizing it, this failure would read as a
+   * success: `candidates` would land in `done`, `error` would stay `null`.
    */
   it('lever littéralement `null` reste un échec, jamais un succès silencieux', async () => {
     poserProject()

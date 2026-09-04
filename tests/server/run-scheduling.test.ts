@@ -415,9 +415,9 @@ describe('`renders` reste hors du programmateur', () => {
 })
 
 /**
- * PR E : `execute()` walks the plan as the DAG it describes, not as a flat
- * list. `correction`/`candidates` on one side and `proxy`/`analysis` on the
- * other have no edge between them, so a network step from one chain can run
+ * `execute()` walks the plan as the DAG it describes, not as a flat list.
+ * `correction`/`candidates` on one side and `proxy`/`analysis` on the other
+ * have no edge between them, so a network step from one chain can run
  * alongside the local step the other chain holds — never two local steps at
  * once (`isLocal`, `src/core/resources.ts`).
  */
@@ -817,8 +817,11 @@ describe('un projet, deux chaînes du graphe', () => {
     expect(progression(A)).not.toBeNull()
 
     gateCandidates.resolve()
-    await wait(A)
+    // `candidates` must still be drained to completion — the drain guarantee
+    // under test — even though the stuck lock file fails the execution overall.
+    await wait(A).catch(() => {})
     expect(calls).toContain(`${A}:candidates:done`)
+    expect(lireStatus(A)?.error).toContain('échec simulé de releaseSlot')
   })
 
   it('une panne déjà enregistrée survit à un arrêt demandé après coup', async () => {

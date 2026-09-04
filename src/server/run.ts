@@ -854,9 +854,9 @@ export async function launch(
 
     const presence = await readingPresence(project)
     execution.plan = planForTargets(targets, presence, force)
-    // **L'oubli est posé au lancement**, pas à l'entrée du repérage : sinon
-    // une demi-heure jusqu'à `candidates` publierait le décompte de la passe
-    // précédente entre-temps (`runCandidates` refait ce nettoyage aussi).
+    // **Forgotten at launch**, not at the entry to detection: otherwise a
+    // half-hour wait to reach `candidates` would publish the previous pass's
+    // count meanwhile (`runCandidates` also does this cleanup on its own).
     if (execution.plan.includes('candidates')) forgetSummary(projectId)
     // Refines the placeholder above to the plan's actual first step, removing
     // the old key so the two don't coexist — `runStep` overwrites this one.
@@ -869,8 +869,7 @@ export async function launch(
     // failed much later on "no duration" — `lstat` + `ffprobe` repair both.
     const copyLocally = copiesSourceLocally(db)
     // One read for the whole execution: re-reading it at each step's entry
-    // would let a setting flipped mid-run contradict what planning already
-    // decided (review of PR #113).
+    // would let a setting flipped mid-run contradict what planning decided.
     const doitIngest = ingestionNecessary(project, execution.plan, copyLocally)
 
     // Un plan vide n'est pas une exécution : tout est déjà là, il n'y a rien à
@@ -1021,9 +1020,9 @@ async function execute(
   const resourceScheduler = options.scheduler ?? defaultScheduler()
   const { projectId } = execution
   let project = projectInitial
-  // **Portée par l'exécution, jamais par un throw** : `correction` avale une
-  // panne du modèle plutôt que d'arrêter l'analyse, et cette variable porte ce
-  // que `status.json` doit dire malgré tout — sinon la panne disparaît.
+  // **Scoped to the execution, never thrown**: `correction` swallows a model
+  // failure rather than stopping the analysis, and this variable carries what
+  // `status.json` must say anyway — or the failure disappears silently.
   let correctionWarning: string | null = null
   /** The step whose error, if any, is reported first — see the pump below. */
   let firstFailedStep: StepName | null = null
@@ -1101,6 +1100,7 @@ async function execute(
     console.log(`[${projectId}] ${step}…`)
 
     let hold: Hold | null = null
+    let outcome: { step: StepName; error: unknown }
     try {
       hold =
         resource === null
@@ -1131,25 +1131,26 @@ async function execute(
       )
       if (warning !== null) correctionWarning = warning
       if (step === 'candidates') execution.detection = 'done'
-      return { step, error: null }
+      outcome = { step, error: null }
     } catch (cause) {
       // A cut pass has not failed, it has not finished — both publish
       // `partial: true`, but one is an incident and the other a decision.
       if (step === 'candidates') execution.detection = signal.aborted ? 'running' : 'failed'
       // `error: null` is the pump's own "succeeded" sentinel; JS lets code
       // `throw null` (or `undefined`), which would otherwise read as one.
-      return { step, error: cause ?? new Error(`${step} a échoué sans cause explicite`) }
-    } finally {
-      // `hold()` can throw without losing the local token (scheduler.test.ts);
-      // this `finally` must absorb it, or the "never rejects" promise above
-      // rejects and wins `Promise.race` while a sibling step is still in flight.
-      try {
-        hold?.()
-      } catch (releaseCause) {
-        console.error(`[${projectId}] échec de la libération du jeton sur ${step} :`, releaseCause)
-      }
-      execution.current.delete(step)
+      outcome = { step, error: cause ?? new Error(`${step} a échoué sans cause explicite`) }
     }
+    // `hold()` can throw (a stuck file slot, kept for `releaseAll` to retry)
+    // without losing the local token. Caught rather than rethrown so this
+    // promise still never rejects, but folded into `outcome` on success.
+    try {
+      hold?.()
+    } catch (releaseCause) {
+      console.error(`[${projectId}] échec de la libération du jeton sur ${step} :`, releaseCause)
+      if (outcome.error === null) outcome = { step, error: releaseCause }
+    }
+    execution.current.delete(step)
+    return outcome
   }
 
   try {
@@ -1159,7 +1160,7 @@ async function execute(
       const initialStep = execution.plan[0] ?? execution.targets[0] ?? 'candidates'
       // `copyLocally` explicit, never re-read by `ingest`: the mount probe it
       // would trigger can take up to twenty seconds, and the value frozen at
-      // launch must govern the whole execution regardless (PR #113).
+      // launch must govern the whole execution regardless.
       const ingestion = await steps.ingest(project.sourcePath, {
         db,
         signal,
@@ -1272,9 +1273,9 @@ async function execute(
       writeStoppedStatus([])
       return
     }
-    // **Le message complet au journal, sa version épurée dans le fichier** :
-    // `runFfmpeg`/`statWithDelay`/`launchWorker` portent la commande entière,
-    // chemins absolus compris, utile au diagnostic mais pas à un rapport recopié.
+    // **The full message to the log, a scrubbed one to the file**:
+    // `runFfmpeg`/`statWithDelay`/`launchWorker` carry the whole command,
+    // absolute paths included — useful to diagnose, not to a copied report.
     console.error(`[${projectId}] échec sur ${firstFailedStep ?? execution.plan[0] ?? execution.targets[0] ?? '?'} :`, cause)
     writeStatus(
       projectId,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { mergeCandidates } from '@/core/candidates'
-import type { Clip, ClipStatus } from '@/core/edl'
+import { mergeCandidates, overlapSeconds, OVERLAP_TOLERANCE_SECONDS } from '@/core/candidates'
+import type { Clip, ClipStatus, Segment } from '@/core/edl'
 
 /**
  * Spec §5, « une nouvelle passe n'écrase jamais un travail humain ». Relancer le
@@ -102,4 +102,55 @@ describe('mergeCandidates', () => {
       expect(() => mergeCandidates([], [c('x', status)], 2)).toThrow()
     },
   )
+})
+
+const seg = (start: number, end: number): Segment => ({ start, end })
+
+describe('overlapSeconds', () => {
+  it('rend 0 pour deux clips disjoints', () => {
+    expect(overlapSeconds([seg(0, 10)], [seg(20, 30)])).toBe(0)
+  })
+
+  it('rend la part réellement partagée', () => {
+    expect(overlapSeconds([seg(0, 10)], [seg(5, 15)])).toBe(5)
+  })
+
+  // La décision non négociable du contrat : « on the union of segments,
+  // never on the span ». Un clip raccourci par le milieu a un empan bien
+  // plus long que ses segments, et le trou qu'il a laissé n'est pas pris.
+  it('ignore le trou laissé par un clip raccourci par le milieu', () => {
+    // Le clip a couvre 0-10 et 20-30 (le milieu 10-20 a été retiré) ; un
+    // clip b tombant pile dans ce trou ne doit rien recouper.
+    const a = [seg(0, 10), seg(20, 30)]
+    const b = [seg(12, 18)]
+    expect(overlapSeconds(a, b)).toBe(0)
+  })
+
+  it('fusionne les segments qui se touchent ou se chevauchent avant de comparer', () => {
+    // Deux segments adjacents de a (0-5 et 5-10) forment une seule étendue
+    // 0-10 ; sans fusion, un double comptage rendrait 10 au lieu de 5.
+    const a = [seg(0, 5), seg(5, 10)]
+    const b = [seg(5, 10)]
+    expect(overlapSeconds(a, b)).toBe(5)
+  })
+
+  it('est symétrique', () => {
+    const a = [seg(0, 10)]
+    const b = [seg(5, 20)]
+    expect(overlapSeconds(a, b)).toBe(overlapSeconds(b, a))
+  })
+
+  /**
+   * The discriminating test the sweep pass owes: a proposal overlapping an
+   * existing clip by more than `OVERLAP_TOLERANCE_SECONDS` must be told
+   * apart from one that overlaps it by less. Both fail on the parent
+   * commit — `overlapSeconds` does not exist there.
+   */
+  it('distingue un chevauchement au-dessus du seuil de tolérance de celui en dessous', () => {
+    const existing = [seg(0, 100)]
+    const overlapsMore = [seg(90, 120)]
+    const overlapsLess = [seg(99, 120)]
+    expect(overlapSeconds(overlapsMore, existing)).toBeGreaterThan(OVERLAP_TOLERANCE_SECONDS)
+    expect(overlapSeconds(overlapsLess, existing)).toBeLessThan(OVERLAP_TOLERANCE_SECONDS)
+  })
 })

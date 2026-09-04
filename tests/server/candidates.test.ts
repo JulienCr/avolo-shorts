@@ -21,6 +21,7 @@ import {
   lireTranscript,
   partCovered,
   runCandidates,
+  runMoreClips,
   type CallGemini,
   type ModeGemini,
 } from '@/server/steps/candidates'
@@ -1729,6 +1730,100 @@ describe("l'étape de repérage", () => {
         expect((error as Error).message).not.toContain(file)
         expect((error as Error).message).not.toContain(root)
       }
+    })
+  })
+
+  describe('runMoreClips', () => {
+    /** A `call` that always answers `mode: 'sweep'` with the same fixed shorts. */
+    function sweepCall(shorts: Record<string, unknown>[]): CallGemini {
+      return async (_prompt, mode) => {
+        if (mode !== 'sweep') throw new Error(`mode inattendu pour la passe « +N clips » : ${mode}`)
+        return response(JSON.stringify({ shorts }))
+      }
+    }
+
+    /** A short-form sweep proposal, only the fields a test actually varies. */
+    function proposal(start: number, end: number, title: string) {
+      return { start, end, predicted_score: 70, video_title_for_youtube_short: title }
+    }
+
+    it('rejette une proposition qui recoupe un clip existant de plus que la tolérance, garde celle d’en dessous', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      const [first] = getClips(db, ID)
+      putClip(db, { ...first, status: 'kept' })
+      const [{ start, end }] = first.segments
+
+      const shorts = [
+        proposal(start, end, 'trop proche'),
+        proposal(end - 1, end + 40, 'assez loin'),
+      ]
+      const clips = await runMoreClips(ID, 5, { db, call: sweepCall(shorts), sleep: async () => {} })
+
+      const titles = clips.filter((c) => c.status === 'candidate').map((c) => c.title)
+      expect(titles).not.toContain('trop proche')
+      expect(titles).toContain('assez loin')
+    })
+
+    it('un tour qui ne rend rien de neuf rend un bilan épuisé plutôt que d’échouer', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      const [first] = getClips(db, ID)
+      putClip(db, { ...first, status: 'kept' })
+
+      const clips = await runMoreClips(ID, 5, { db, call: sweepCall([]), sleep: async () => {} })
+      expect(clips.filter((c) => c.status === 'candidate')).toHaveLength(0)
+      // Le clip humain traverse la passe sans y être touché.
+      expect(clips.find((c) => c.id === first.id)?.status).toBe('kept')
+    })
+
+    it('un deuxième tour ne redemande que ce qui manque encore', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      const [first] = getClips(db, ID)
+      putClip(db, { ...first, status: 'kept' })
+
+      const rounds: string[] = []
+      let round = 0
+      const call: CallGemini = async (prompt, mode) => {
+        if (mode !== 'sweep') throw new Error(`mode inattendu : ${mode}`)
+        round += 1
+        rounds.push(prompt)
+        if (round === 1) {
+          return response(JSON.stringify({ shorts: [proposal(30, 33, 'premier tour')] }))
+        }
+        return response(JSON.stringify({ shorts: [] }))
+      }
+      await runMoreClips(ID, 5, { db, call, sleep: async () => {} })
+
+      expect(rounds).toHaveLength(2)
+      // Le premier tour vise le compte demandé ; le second, ce qu'il en reste.
+      expect(rounds[0]).toMatch(/return 5 to 7 clips/)
+      expect(rounds[1]).toMatch(/return 4 to 6 clips/)
+      // Et ce que le premier tour a trouvé est marqué pris pour le second.
+      expect(rounds[1]).toContain('[PRIS]')
+    })
+
+    it('plafonne au compte demandé même si le modèle en rend plus', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      const shorts = [
+        proposal(30, 33, 'un'),
+        proposal(60, 63, 'deux'),
+        proposal(90, 93, 'trois'),
+        proposal(120, 123, 'quatre'),
+        proposal(150, 153, 'cinq'),
+        proposal(180, 183, 'six'),
+        proposal(210, 213, 'sept'),
+      ]
+      const clips = await runMoreClips(ID, 5, { db, call: sweepCall(shorts), sleep: async () => {} })
+      expect(clips.filter((c) => c.status === 'candidate')).toHaveLength(5)
+    })
+
+    it('lève quand rien n’a répondu du tout, descente comprise', async () => {
+      await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
+      const blocked: CallGemini = async () => {
+        throw new GeminiBlockedError('refusé')
+      }
+      await expect(runMoreClips(ID, 5, { db, call: blocked, sleep: async () => {} })).rejects.toThrow(
+        GeminiBlockedError,
+      )
     })
   })
 })

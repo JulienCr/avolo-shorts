@@ -28,6 +28,8 @@
  * que le calcul cesse d'être pur.
  */
 
+import type { Segment } from '@/core/edl'
+
 export type Word = { word: string; start: number; end: number }
 export type TxSegment = { start: number; end: number; text: string; words: Word[] }
 export type Transcript = { segments: TxSegment[] }
@@ -58,20 +60,15 @@ function round3(seconds: number): number {
 }
 
 /**
- * Les segments non vides du transcript, dans l'ordre.
+ * The transcript's non-empty segments, in order.
  *
- * `segFrom`/`segTo` indexent **cette** liste, pas `tx.segments`. C'est pourquoi
- * la fonction est privée et pourquoi `buildWindows` et `windowTextWithAnchors`
- * en dérivent toutes deux la même : deux filtres différents feraient désigner
- * deux choses différentes par le même index, et la prose ressortirait décalée
- * d'un cran sans que rien ne le signale.
- *
- * Un segment sans prose est écarté : le transcript en porte (WhisperX émet des
- * segments vides sur les silences), et une fenêtre n'a rien à en faire. Aucune
- * garde ici contre un `tx` ou un `text` absents : le type est le contrat, et la
- * validation d'un JSON venu du disque appartient à la frontière qui le lit.
+ * `segFrom`/`segTo` index **this** list, not `tx.segments` — `buildWindows`
+ * and `windowTextWithAnchors` both derive the same one, so two different
+ * filters never point the same index at two different things. A wordless
+ * segment is dropped (WhisperX emits empty ones on silence); no guard
+ * against a missing `tx` or `text` — the type is the contract.
  */
-function usableSegments(tx: Transcript): TxSegment[] {
+export function usableSegments(tx: Transcript): TxSegment[] {
   return tx.segments.filter((s) => s.text.trim() !== '')
 }
 
@@ -247,6 +244,48 @@ export function windowTextWithAnchors(w: Window, tx: Transcript): string {
     .slice(w.segFrom, w.segTo + 1)
     .map((s) => `${anchor(s.start)} ${s.text}`)
     .join(' ')
+}
+
+/**
+ * Whether a segment shares any time with `taken` — the sweep's `[PRIS]`
+ * exclusion is per whole segment, never a partial cut inside one.
+ */
+function overlapsAny(segment: TxSegment, taken: readonly Segment[]): boolean {
+  return taken.some((t) => segment.start < t.end && segment.end > t.start)
+}
+
+/**
+ * A slice of usable segments, anchored like `windowTextWithAnchors`, with
+ * every run overlapping `taken` wrapped in one `[PRIS] … [/PRIS]` block
+ * instead of one tag per segment. A slice, not a `Window`: the sweep pass
+ * (`src/server/steps/candidates.ts`) re-slices this same list to descend on
+ * a content-filter refusal.
+ *
+ * @param taken Already-published ranges. The model may still read a
+ * `[PRIS]` block for context; it must not build a clip inside one.
+ */
+export function wholeTranscriptWithAnchors(
+  segments: readonly TxSegment[],
+  taken: readonly Segment[],
+): string {
+  const parts: string[] = []
+  let i = 0
+  while (i < segments.length) {
+    if (!overlapsAny(segments[i], taken)) {
+      parts.push(`${anchor(segments[i].start)} ${segments[i].text}`)
+      i += 1
+      continue
+    }
+    let j = i
+    while (j < segments.length && overlapsAny(segments[j], taken)) j += 1
+    const marked = segments
+      .slice(i, j)
+      .map((s) => `${anchor(s.start)} ${s.text}`)
+      .join(' ')
+    parts.push(`[PRIS] ${marked} [/PRIS]`)
+    i = j
+  }
+  return parts.join(' ')
 }
 
 /** `max(1, int(n or 1))` de la source : 0, NaN et les négatifs valent 1. */

@@ -1,4 +1,4 @@
-import type { Clip } from '@/core/edl'
+import type { Clip, Segment } from '@/core/edl'
 
 /**
  * La fusion des passes de repérage — « une nouvelle passe n'écrase jamais un
@@ -75,4 +75,51 @@ export function mergeCandidates(existing: Clip[], incoming: Clip[], pass: number
   }
 
   return [...humans, ...freshClips]
+}
+
+/**
+ * How much overlap the sweep pass (the "+N clips" pass) tolerates between a
+ * proposal and an already-published clip before rejecting it, in seconds.
+ * An edge margin, not a similarity threshold — see `overlapSeconds`.
+ */
+export const OVERLAP_TOLERANCE_SECONDS = 4
+
+/** `segments`, merged into their own non-overlapping, time-ordered union. */
+function mergedIntervals(segments: readonly Segment[]): Segment[] {
+  const sorted = segments
+    .map((s) => ({ start: Math.min(s.start, s.end), end: Math.max(s.start, s.end) }))
+    .filter((s) => s.end > s.start)
+    .sort((a, b) => a.start - b.start)
+  const merged: Segment[] = []
+  for (const s of sorted) {
+    const last = merged.at(-1)
+    if (last !== undefined && s.start <= last.end) last.end = Math.max(last.end, s.end)
+    else merged.push({ ...s })
+  }
+  return merged
+}
+
+/**
+ * Seconds genuinely shared by two clips' segments. Union, never span.
+ *
+ * A clip shortened in the middle has a span far longer than its segments,
+ * and the hole it made is not taken — comparing spans would reject a
+ * brand-new clip for merely falling into that hole. Each side is merged
+ * into its own union first, so segments that touch or overlap within one
+ * clip are not double-counted.
+ */
+export function overlapSeconds(a: readonly Segment[], b: readonly Segment[]): number {
+  const left = mergedIntervals(a)
+  const right = mergedIntervals(b)
+  let total = 0
+  let i = 0
+  let j = 0
+  while (i < left.length && j < right.length) {
+    const start = Math.max(left[i].start, right[j].start)
+    const end = Math.min(left[i].end, right[j].end)
+    if (end > start) total += end - start
+    if (left[i].end < right[j].end) i += 1
+    else j += 1
+  }
+  return total
 }

@@ -296,6 +296,31 @@ describe('detectionSummary', () => {
   it('ne marque pas partiel un repérage fini sous une exécution qui continue', () => {
     expect(detectionSummary(summary, 'done')?.partial).toBe(false)
   })
+
+  const more = { requested: 5, added: 3, exhausted: false }
+
+  it('rend le rapport « +N clips » à côté du bilan de notation', () => {
+    expect(detectionSummary(summary, 'done', more)?.moreClips).toEqual(more)
+  })
+
+  // A sweep-only project has no windowed summary in this process's memory —
+  // after a restart, or when it never ran a windowed pass here — but its own
+  // report must still reach the client.
+  it("rend le rapport « +N clips » même sans bilan de notation", () => {
+    expect(detectionSummary(null, 'done', more)).toEqual({
+      windows: 0,
+      scored: 0,
+      rejectedBatches: 0,
+      answeredBatches: 0,
+      coverage: 0,
+      partial: false,
+      moreClips: more,
+    })
+  })
+
+  it('reste null quand ni l’un ni l’autre bilan n’existe', () => {
+    expect(detectionSummary(null, 'done', null)).toBeNull()
+  })
 })
 
 describe('planForTargets', () => {

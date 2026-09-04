@@ -223,6 +223,110 @@ Return only:
 `
 }
 
+export type SweepPromptInput = {
+  language: string
+  videoDuration: number
+  /** The whole show, anchored and `[PRIS]`-marked — see `wholeTranscriptWithAnchors`. */
+  transcriptText: string
+  minClips: number
+  maxClips: number
+}
+
+/**
+ * The "+N clips" pass: the whole show in one call, instead of `detailPrompt`'s
+ * 90-second windows.
+ *
+ * Derived from `detailPrompt`: `CLIP RULES`, `STANDS ALONE`, `HOOK_PATTERNS`,
+ * `HOOK_BADGE_BRIEF` and `COPY RULES` are unchanged. What the absence of
+ * windows requires: the window-boundary rule is dropped, a `[PRIS]` rule is
+ * added, and `HOW MANY` no longer talks about working through candidate
+ * windows. No duration ceiling here either — see `detailPrompt`'s own note.
+ */
+export function sweepPrompt({
+  language,
+  videoDuration,
+  transcriptText,
+  minClips,
+  maxClips,
+}: SweepPromptInput): string {
+  return `
+You are a senior short-form video editor and viral copywriter.
+This show has already been triaged. Find MORE short clips in the material
+that has not been used yet.
+
+READING THE TRANSCRIPT — the text is interleaved with markers like
+[123.400]. Each one is the EXACT absolute time, in seconds from the start of
+the source video, at which the sentence that follows it begins. They are
+measured, not estimated. Use them:
+- Take \`start\` from the marker of the sentence the clip should open on.
+- Take \`end\` from the marker of the sentence AFTER the last one you want.
+- Never invent a time that is not derived from a marker. Do not interpolate
+  inside a sentence, and do not round a marker to a whole number.
+
+ALREADY PUBLISHED — stretches wrapped in [PRIS] … [/PRIS] already became a
+clip and must not be proposed again. You may still read them: a callback or
+a joke that pays off later can depend on them, even though the clip itself
+cannot start or end inside one.
+
+CLIP RULES:
+- Return only valid JSON.
+- Do not propose a clip that starts or ends inside a [PRIS] … [/PRIS] block.
+- THE 2-SECOND RULE: the clip MUST open on its strongest moment. If the first
+  2 seconds would not stop a cold viewer from scrolling, move the start or skip the clip.
+- Start slightly before the hook and end slightly after the payoff when possible.
+- Do not cut in the middle of a word or phrase.
+- No generic intros/outros unless they are the hook.
+- STANDS ALONE: the clip must make sense to someone who has seen nothing else.
+  If it opens on a pronoun, a "that", a "so anyway", or an answer whose question
+  was asked earlier, move the start back to where the idea begins or skip it.
+  A brilliant moment that needs the previous five minutes is not a clip.
+  Fix this by moving the START earlier, never by cutting the ending short: a
+  clip that loses its payoff to gain context has traded down.
+- HOW MANY: return ${minClips} to ${maxClips} clips. Read the ENTIRE transcript
+  — a callback or a running gag can pay off far from where it started, which a
+  short window would never see. Only fall short of ${minClips} when the
+  material outside [PRIS] blocks truly does not hold them, and never pad with
+  a clip you would not publish yourself.
+- DIVERSITY: never return two clips that make the same point, tell the same
+  story, or land the same joke. Pick the stronger one and drop the other. Two
+  clips on the same broad topic are fine as long as each lands its own moment.
+
+${HOOK_PATTERNS}
+
+${HOOK_BADGE_BRIEF}
+
+COPY RULES — ALL text fields (descriptions, title, hook) MUST be written in TRANSCRIPT_LANGUAGE (${language}):
+- Descriptions (TikTok + Instagram): 1-2 punchy sentences that tease the payoff
+  without spoiling it, then 3-5 topically relevant hashtags. No generic hashtag spam.
+- \`video_title_for_youtube_short\`: max 100 chars, curiosity-driven, no fake claims.
+- \`predicted_score\`: honest 0-100 estimate of viral potential. Use the whole
+  range — if every clip scores the same, you have not ranked them.
+- ORDER the \`shorts\` array by predicted performance, best first. Do NOT return
+  them in transcript order.
+
+TRANSCRIPT_LANGUAGE: ${language}
+VIDEO_DURATION_SECONDS: ${videoDuration}
+FULL_TRANSCRIPT:
+${transcriptText}
+
+Return only:
+{
+  "shorts": [
+    {
+      "start": <number>,
+      "end": <number>,
+      "predicted_score": <integer 0-100>,
+      "video_description_for_tiktok": "<description + hashtags>",
+      "video_description_for_instagram": "<description + hashtags>",
+      "video_title_for_youtube_short": "<title max 100 chars>",
+      "viral_hook_text": "<short overlay max 6 words>",
+      "viral_hook_badge": "<optional 1-3 word kicker, or empty string>"
+    }
+  ]
+}
+`
+}
+
 export type HookPromptInput = {
   /** La langue du transcript, telle que WhisperX l'a détectée. */
   language: string

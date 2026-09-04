@@ -20,7 +20,7 @@ export type { LlmProvider }
  * @remarks Réexporté sous `ModeGemini` par `src/server/steps/candidates.ts`,
  * dont la couture de test s'accroche à ce nom.
  */
-export type LlmMode = 'score' | 'detail' | 'hook' | 'correction'
+export type LlmMode = 'score' | 'detail' | 'sweep' | 'hook' | 'correction'
 
 /**
  * Un schéma JSON minimal, commun aux trois fournisseurs.

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { Clip } from '@/core/edl'
 import { normalizeHookBadge, normalizeHookText } from '@/core/hook'
-import { snapToWords, type Window, type Word } from '@/core/transcript'
+import { snapToWords, type TxSegment, type Window, type Word } from '@/core/transcript'
 
 /**
  * Ce que Gemini rend, transformé en ce que le reste du projet manipule.
@@ -360,6 +360,75 @@ export function parseDetailResponse(
         hookStyle: {},
         // Aucune surcharge de cadrage non plus : un clip fraîchement proposé
         // suit les défauts globaux tant que personne n'y a touché.
+        framingStyle: {},
+      },
+    })
+  }
+
+  if (proposed.length > 0 && readable === 0) {
+    throw new Error('Gemini response did not contain a "shorts" array with any readable entry.')
+  }
+  return clips
+}
+
+/**
+ * The sweep pass's proposals ("+N clips"), snapped to words like
+ * `parseDetailResponse`'s: same rejections, same `.catch` tolerance, same
+ * two throws. `source_window_id` is gone — there is no window to name.
+ *
+ * The invention guard is anchored on real segment starts instead of a
+ * submitted block: the whole transcript is one block here, which a
+ * containment test would satisfy almost everywhere and catch nothing.
+ */
+export function parseSweepResponse(
+  raw: unknown,
+  context: {
+    words: Word[]
+    videoDuration: number
+    projectId: string
+    /** The segments actually submitted in this call — see `wholeTranscriptWithAnchors`. */
+    segments: readonly TxSegment[]
+  },
+): DetailClip[] {
+  const { words, videoDuration, projectId, segments } = context
+  const proposed = list(raw, 'shorts')
+  if (proposed === null) {
+    throw new Error('Gemini response did not contain a "shorts" array.')
+  }
+  const clips: DetailClip[] = []
+  let readable = 0
+
+  for (const entry of proposed) {
+    const lu = SCHEMA_CLIP.safeParse(entry)
+    if (!lu.success) continue
+    readable += 1
+    const { start, end, predicted_score: score } = lu.data
+    const [snappedStart, fin] = snapToWords(start, end, words, videoDuration)
+    if (snappedStart < 0 || fin > videoDuration || fin <= snappedStart) continue
+    if (!segments.some((s) => snappedStart < s.end && fin > s.start)) continue
+
+    clips.push({
+      predictedScore: score === undefined ? 0 : Math.min(100, Math.max(0, Math.round(score))),
+      scored: score !== undefined,
+      clip: {
+        id: clipId(projectId, snappedStart, fin),
+        projectId,
+        segments: [{ start: snappedStart, end: fin }],
+        ratio: 'auto',
+        cropX: 0.5,
+        captions: true,
+        branding: true,
+        footer: true,
+        title: lu.data.video_title_for_youtube_short ?? '',
+        description:
+          lu.data.video_description_for_instagram ||
+          lu.data.video_description_for_tiktok ||
+          '',
+        status: 'candidate',
+        pass: 0,
+        hookText: normalizeHookText(lu.data.viral_hook_text ?? ''),
+        hookBadge: normalizeHookBadge(lu.data.viral_hook_badge ?? ''),
+        hookStyle: {},
         framingStyle: {},
       },
     })

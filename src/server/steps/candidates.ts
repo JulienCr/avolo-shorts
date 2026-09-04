@@ -2,12 +2,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
 import { z } from 'zod'
-import { mergeCandidates } from '@/core/candidates'
+import { mergeCandidates, overlapSeconds, OVERLAP_TOLERANCE_SECONDS } from '@/core/candidates'
 import { redactKeys } from '@/core/errors'
-import type { Clip } from '@/core/edl'
+import type { Clip, Segment } from '@/core/edl'
+import type { MoreClipsReport } from '@/lib/api'
 import {
   parseDetailResponse,
   parseScoreResponse,
+  parseSweepResponse,
   shortlistFromScores,
   type DetailClip,
   type ScoredWindow,
@@ -17,6 +19,7 @@ import {
   detailWindowsJson,
   scorePrompt,
   scoreWindowsJson,
+  sweepPrompt,
 } from '@/core/gemini/prompts'
 import {
   buildWindows,
@@ -24,7 +27,10 @@ import {
   mergeOverlappingWindows,
   speechSeconds,
   shortlistSize,
+  usableSegments,
+  wholeTranscriptWithAnchors,
   type Transcript,
+  type TxSegment,
   type Window,
   type Word,
 } from '@/core/transcript'
@@ -237,6 +243,42 @@ const SCHEMA_DETAIL: JsonSchema = {
 }
 
 /**
+ * `SCHEMA_DETAIL` without `source_window_id`: the sweep pass submits the
+ * whole show in one call, so there is no window to name.
+ */
+const SCHEMA_SWEEP: JsonSchema = {
+  type: 'object',
+  properties: {
+    shorts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          start: { type: 'number' },
+          end: { type: 'number' },
+          predicted_score: { type: 'integer' },
+          video_description_for_tiktok: { type: 'string' },
+          video_description_for_instagram: { type: 'string' },
+          video_title_for_youtube_short: { type: 'string' },
+          viral_hook_text: { type: 'string' },
+          viral_hook_badge: { type: 'string' },
+        },
+        required: [
+          'start',
+          'end',
+          'predicted_score',
+          'video_description_for_tiktok',
+          'video_description_for_instagram',
+          'video_title_for_youtube_short',
+          'viral_hook_text',
+        ],
+      },
+    },
+  },
+  required: ['shorts'],
+}
+
+/**
  * La configuration d'un appel, indépendante du fournisseur qui l'exécutera.
  *
  * **La notation est précise, le détail est créatif.** 0,2 pour noter — la tâche
@@ -256,6 +298,10 @@ function configuration(mode: ModeGemini): LlmCallConfig {
       return { schema: SCHEMA_NOTATION, temperature: 0.2, maxOutputTokens: OUTPUT_CAP }
     case 'detail':
       return { schema: SCHEMA_DETAIL, temperature: 0.9, maxOutputTokens: OUTPUT_CAP }
+    case 'sweep':
+      // Same temperature as `detail`: the same creative task, over the
+      // whole show instead of one window.
+      return { schema: SCHEMA_SWEEP, temperature: 0.9, maxOutputTokens: OUTPUT_CAP }
     case 'hook':
     case 'correction':
       throw new Error(
@@ -583,6 +629,19 @@ export function forgetSummary(projectId: string): void {
   summaries.delete(projectId)
 }
 
+/** The sweep pass's ("+N clips") own report — orthogonal to `summaries` above. */
+const moreClipsReports = new Map<string, MoreClipsReport>()
+
+/** The last "+N clips" report for this project, or `null` if none ran here. */
+export function lastMoreClipsReport(projectId: string): MoreClipsReport | null {
+  return moreClipsReports.get(projectId) ?? null
+}
+
+/** Same role as `forgetSummary`, for the sweep pass's own report. */
+export function forgetMoreClipsReport(projectId: string): void {
+  moreClipsReports.delete(projectId)
+}
+
 /**
  * Le repérage complet d'un projet, de bout en bout.
  *
@@ -613,6 +672,10 @@ export async function runCandidates(
   // ratait précisément l'échec le plus banal. Un nettoyage conditionné à ce que
   // rien n'ait échoué avant lui ne nettoie rien. (relevé par Copilot)
   summaries.delete(projectId)
+  // A fresh windowed pass replaces every still-`candidate` clip, so a sweep
+  // pass's own report — describing an earlier, now superseded run — goes
+  // stale with it.
+  moreClipsReports.delete(projectId)
 
   const db = options.db ?? getDb()
   const call = options.call ?? clientByDefault(db, options.signal)
@@ -1224,40 +1287,14 @@ async function detail(kept: Window[], ctx: ContextDetail): Promise<Clip[]> {
 }
 
 /**
- * Les propositions remises dans l'ordre de la performance prédite, la meilleure
- * d'abord.
+ * Proposals reordered by predicted score, best first.
  *
- * **Chaque réponse est ordonnée, mais pour elle seule.** Le prompt demande au
- * modèle de rendre ses clips du meilleur au moins bon ; quand le filtre force la
- * descente à découper, `descendre` concatène la branche gauche avant la droite
- * et cet ordre-là ne veut plus rien dire. Un clip faible d'une charge passait
- * devant un clip bien meilleur rendu par une charge suivante, et c'est lui que
- * le plafond gardait. (relevé par Codex)
+ * A content refusal can split `descend` into several calls; only each
+ * response's own order is meaningful, so concatenating branches would let a
+ * weak early clip outrank a stronger later one. Ties break on arrival order.
  *
- * **Ce que la coupe gardait exactement**, puisque le fil d'origine dit « les
- * régions les plus précoces du transcript » et que ce n'est pas tout à fait
- * cela : la descente découpe `retenues`, que `shortlistFromScores` ordonne par
- * note de fenêtre et non par position. La branche gauche est donc le haut du
- * panier de la **notation**, et la coupe rendait ce classement-là définitif sans
- * jamais consulter ce que la passe de détail venait de dire de chaque clip. Le
- * défaut est le même, sa cause est un cran plus haut.
- *
- * **La note du détail n'a pas le barème ancré de la notation** (voir
- * `scorePrompt`) : deux sous-requêtes ne s'étalonnent pas l'une sur l'autre, et
- * les comparer reste une approximation. C'en est une bien meilleure que l'ordre
- * d'arrivée, qui ne dit rien d'autre que « la notation avait mis cette fenêtre
- * plus haut », c'est-à-dire un jugement rendu sur 90 secondes de prose avant que
- * le moindre clip n'ait été délimité. (relevé par Copilot)
- *
- * Le classement s'applique **même sans plafond**, où il ne coûte rien : la base
- * fait autorité et `getClips` trie par passe puis par identifiant, donc seul
- * l'ordre de `candidates.json` s'en trouve changé. Le conditionner au réglage
- * ferait dépendre l'ordre du lot de la présence d'un plafond, pour rien.
- *
- * À égalité, l'ordre d'arrivée tranche — par un comparateur explicite plutôt que
- * par la stabilité du tri, comme dans `shortlistFromScores` et pour la même
- * raison. Une proposition non notée passe derrière une proposition notée zéro :
- * `predicted_score` est facultatif, et l'absence n'est pas une note.
+ * Runs unconditionally: the database is authoritative, so this only reorders
+ * `candidates.json`, never what survives.
  */
 function rankProposals(proposals: readonly DetailClip[]): Clip[] {
   return proposals
@@ -1399,4 +1436,185 @@ function writeArtifact(projectId: string, clips: Clip[]): void {
   const provisional = `${file}.${process.pid}.tmp`
   fs.writeFileSync(provisional, `${JSON.stringify(clips, null, 2)}\n`, 'utf8')
   fs.renameSync(provisional, file)
+}
+
+// ---------------------------------------------------------------------------
+// The "+N clips" sweep pass (`POST /api/projects/:id/candidates/more`).
+// ---------------------------------------------------------------------------
+
+export type MoreClipsOptions = {
+  db?: Database.Database
+  call?: CallGemini
+  sleep?: (ms: number) => Promise<void>
+  /** Called after each round, so `status.json` can show live progress. */
+  onSummary?: (report: MoreClipsReport) => void
+  signal?: AbortSignal
+}
+
+/** What `sweepDescend` reports in addition to the clips it found. */
+type SweepSlate = { rejected: number; succeeded: number }
+
+/** What the sweep pass needs at every depth of its own `descend`. */
+type ContextSweep = {
+  projectId: string
+  transcript: TranscriptLu
+  words: Word[]
+  duration: number
+  call: CallGemini
+  sleep: (ms: number) => Promise<void>
+  signal?: AbortSignal
+}
+
+/**
+ * The sweep pass's own `descend`: on a content-filter refusal, split the
+ * segment slice in two and recurse, exactly as the windowed detail pass
+ * does over its window list — same worst case, same reason a budget would
+ * either sit unreachable or be arbitrary (see `descend`'s own doc).
+ */
+async function sweepDescend(
+  segments: readonly TxSegment[],
+  target: { min: number; max: number },
+  ctx: ContextSweep,
+  taken: readonly Segment[],
+  slate: SweepSlate,
+): Promise<DetailClip[]> {
+  if (segments.length === 0) return []
+  const max = Math.max(1, target.max)
+  const min = Math.min(Math.max(1, target.min), max)
+
+  try {
+    const clips = await callWithRetry(
+      ctx.call,
+      sweepPrompt({
+        language: ctx.transcript.language,
+        videoDuration: ctx.duration,
+        transcriptText: wholeTranscriptWithAnchors(segments, taken),
+        minClips: min,
+        maxClips: max,
+      }),
+      'sweep',
+      {
+        sleep: ctx.sleep,
+        signal: ctx.signal,
+        label: 'la recherche de clips supplémentaires',
+        analyze: (raw) =>
+          parseSweepResponse(raw, {
+            words: ctx.words,
+            videoDuration: ctx.duration,
+            projectId: ctx.projectId,
+            segments,
+          }),
+      },
+    )
+    slate.succeeded += 1
+    return clips
+  } catch (error) {
+    if (!(error instanceof GeminiBlockedError)) throw error
+    if (segments.length === 1) {
+      slate.rejected += 1
+      return []
+    }
+    const middle = Math.ceil(segments.length / 2)
+    const share = (total: number): [number, number] => {
+      const toLeft = Math.round((total * middle) / segments.length)
+      return [toLeft, total - toLeft]
+    }
+    const [maxL, maxR] = share(max)
+    const [minL, minR] = share(min)
+    const left = await sweepDescend(segments.slice(0, middle), { min: minL, max: maxL }, ctx, taken, slate)
+    const right = await sweepDescend(segments.slice(middle), { min: minR, max: maxR }, ctx, taken, slate)
+    return [...left, ...right]
+  }
+}
+
+/**
+ * The "+N clips" pass: the whole transcript in one call, with already-taken
+ * stretches marked `[PRIS]`, instead of re-running the windowed pass — see
+ * `docs/lessons.md`. Up to `RECOVERY_MAX` rounds, each asking only for what
+ * is still missing and marking what it just found as taken too.
+ *
+ * Returning fewer than `count` is a correct outcome, reported rather than
+ * thrown; only a round with no response at all is fatal, and only when the
+ * whole pass never got one — see `sweepDescend`.
+ */
+export async function runMoreClips(
+  projectId: string,
+  count: 5 | 10,
+  options: MoreClipsOptions = {},
+): Promise<Clip[]> {
+  moreClipsReports.delete(projectId)
+
+  const db = options.db ?? getDb()
+  const call = options.call ?? clientByDefault(db, options.signal)
+  const sleep = options.sleep ?? wait
+
+  const project = getProject(db, projectId)
+  if (!project) throw new Error(`Projet inconnu : ${projectId}`)
+  if (project.durationSec === null) {
+    throw new Error(
+      `Le projet ${projectId} n'a pas de durée : l'ingestion (ffprobe) doit passer avant le repérage.`,
+    )
+  }
+  const duration = project.durationSec
+
+  const placement = placeSidecar(project.sourcePath, projectId)
+  const transcript = lireTranscript(placement.transcript)
+  const words: Word[] = transcript.segments.flatMap((s) => s.words)
+  const segments = usableSegments(transcript)
+  const ctx: ContextSweep = { projectId, transcript, words, duration, call, sleep, signal: options.signal }
+
+  const slate: SweepSlate = { rejected: 0, succeeded: 0 }
+  const accepted: DetailClip[] = []
+  let exhausted = false
+
+  for (let round = 1; round <= RECOVERY_MAX; round += 1) {
+    const deficit = count - accepted.length
+    if (deficit <= 0) break
+
+    // Read after every network call this pass has made, never before:
+    // `PATCH /api/clips/:id` stays open while this step runs, so a decision
+    // made mid-round must be visible to the round that follows it.
+    const humans = getClips(db, projectId).filter((c) => c.status !== 'candidate')
+    const taken: Clip[] = [...humans, ...accepted.map((a) => a.clip)]
+    const takenSegments = taken.flatMap((c) => c.segments)
+
+    const proposals = await sweepDescend(segments, { min: deficit, max: deficit + 2 }, ctx, takenSegments, slate)
+    const keptThisRound = proposals.filter((p) =>
+      taken.every((tc) => overlapSeconds(p.clip.segments, tc.segments) <= OVERLAP_TOLERANCE_SECONDS),
+    )
+    if (keptThisRound.length === 0) {
+      exhausted = true
+      break
+    }
+    accepted.push(...keptThisRound)
+    options.onSummary?.({ requested: count, added: Math.min(accepted.length, count), exhausted: false })
+  }
+
+  // Nothing answered, descent included: only there is it the material, not
+  // the ask — same reasoning as `detail`'s own verdict.
+  if (slate.succeeded === 0 && slate.rejected > 0) {
+    throw new GeminiBlockedError(
+      `Le fournisseur a refusé la recherche de clips supplémentaires pour cette vidéo, jusqu'au segment ` +
+        `seul (${slate.rejected} segment(s)). Les règles d'usage du fournisseur refusent ce matériel.`,
+    )
+  }
+
+  const seen = new Set<string>()
+  const unique = accepted.filter((p) => !seen.has(p.clip.id) && seen.add(p.clip.id))
+  const capped = rankProposals(unique).slice(0, count)
+
+  const report: MoreClipsReport = { requested: count, added: capped.length, exhausted }
+  moreClipsReports.set(projectId, report)
+  options.onSummary?.(report)
+
+  const existing = getClips(db, projectId)
+  const past = 1 + existing.reduce((top, c) => Math.max(top, c.pass), 0)
+  const clips = mergeCandidates(existing, capped, past)
+  eraseArtifact(projectId)
+  replaceClips(db, projectId, clips)
+  writeArtifact(projectId, clips)
+  console.log(
+    `+${count} clips ${projectId} : ${report.added} proposition(s) acceptée(s), exhausted=${report.exhausted}.`,
+  )
+  return clips
 }

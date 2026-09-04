@@ -8,11 +8,13 @@ import {
   hookPrompt,
   scorePrompt,
   scoreWindowsJson,
+  sweepPrompt,
 } from '@/core/gemini/prompts'
 import {
   parseDetailResponse,
   parseJsonResponse,
   parseScoreResponse,
+  parseSweepResponse,
   shortlistFromScores,
 } from '@/core/gemini/parse'
 import { buildWindows, type Transcript, type Window, type Word } from '@/core/transcript'
@@ -179,6 +181,55 @@ describe('detailPrompt', () => {
   it('interpole la langue aux deux endroits où elle apparaît', () => {
     const p = detailPrompt({ ...ENTRIES_DETAIL, language: 'français' })
     expect(p.match(/français/g) ?? []).toHaveLength(2)
+    expect(p).not.toContain('${')
+  })
+})
+
+describe('sweepPrompt', () => {
+  const ENTRIES_SWEEP = {
+    language: 'fr',
+    videoDuration: 3600,
+    transcriptText: '[0.000] bonjour [PRIS] [1.000] déjà pris [/PRIS] [2.000] la suite',
+    minClips: 5,
+    maxClips: 7,
+  }
+
+  it('porte les cibles de nombre de clips', () => {
+    expect(sweepPrompt(ENTRIES_SWEEP)).toContain('return 5 to 7 clips')
+  })
+
+  // Décision non négociable du contrat : jamais de plafond de durée, sur
+  // aucune passe. Même contrôle que detailPrompt, contre la même régression.
+  it('ne contient jamais de plafond de durée', () => {
+    const p = sweepPrompt(ENTRIES_SWEEP)
+    expect(p).not.toMatch(/\d+\s+(to|-)\s+\d+\s+seconds long/)
+    expect(p).not.toMatch(/seconds long/)
+  })
+
+  it('porte la règle des marqueurs [SECONDS], verbatim', () => {
+    const p = sweepPrompt(ENTRIES_SWEEP)
+    expect(p).toContain('do not round a marker to a whole number')
+  })
+
+  it('porte la consigne [PRIS] et interdit d’y construire un clip', () => {
+    const p = sweepPrompt(ENTRIES_SWEEP)
+    expect(p).toContain('[PRIS]')
+    expect(p).toContain('[/PRIS]')
+    expect(p).toMatch(/starts or ends inside a \[PRIS\]/)
+  })
+
+  it('ne parle plus de fenêtre candidate ni de rester dans ses bornes', () => {
+    const p = sweepPrompt(ENTRIES_SWEEP)
+    expect(p).not.toMatch(/candidate window/i)
+  })
+
+  it('porte le même HOOK PLAYBOOK que detailPrompt, mot pour mot', () => {
+    expect(sweepPrompt(ENTRIES_SWEEP)).toContain(HOOK_PATTERNS)
+  })
+
+  it('interpole le transcript annoté et la langue', () => {
+    const p = sweepPrompt(ENTRIES_SWEEP)
+    expect(p).toContain(ENTRIES_SWEEP.transcriptText)
     expect(p).not.toContain('${')
   })
 })
@@ -682,6 +733,46 @@ describe('viral_hook_badge', () => {
       shorts: [{ start: 12.0, end: 41.4, viral_hook_badge: 'un badge beaucoup trop long' }],
     })
     expect(clips[0].hookBadge).toBe('un badge beaucoup')
+  })
+})
+
+describe('parseSweepResponse', () => {
+  /** The first five segments only — as if this were one half of a `sweepDescend` split. */
+  const SUBMITTED = TRANSCRIPT.segments.slice(0, 5)
+
+  function swept(raw: unknown, segments = SUBMITTED) {
+    return parseSweepResponse(raw, { words: WORDS, videoDuration: 3600, projectId: PROJECT, segments })
+  }
+
+  it('garde un clip qui recoupe un segment réellement soumis', () => {
+    const clips = swept({ shorts: [{ start: 0.0, end: 3.5 }] })
+    expect(clips).toHaveLength(1)
+  })
+
+  /**
+   * The segment-anchored invention guard, which is what changes between
+   * `parseDetailResponse` and this one — a window-containment check would
+   * accept this, since the time is real speech and inside the video's
+   * overall span. Anchoring on the *submitted* segments instead catches it.
+   */
+  it("rejette un clip dont les bornes ne recoupent aucun segment soumis, même réel ailleurs", () => {
+    // Segment 10 exists in `WORDS` (the whole transcript), so `snapToWords`
+    // snaps onto real speech there — but it was never in `SUBMITTED`.
+    const start = TRANSCRIPT.segments[10].start
+    const end = TRANSCRIPT.segments[10].end
+    expect(swept({ shorts: [{ start, end }] })).toEqual([])
+  })
+
+  it('ne demande plus source_window_id : son absence ne coûte rien', () => {
+    const clips = swept({
+      shorts: [{ start: 0.0, end: 3.5, video_title_for_youtube_short: 'Titre' }],
+    })
+    expect(clips).toHaveLength(1)
+    expect(clips[0].clip.title).toBe('Titre')
+  })
+
+  it('lève quand la réponse ne porte pas de tableau "shorts"', () => {
+    expect(() => swept({})).toThrow(/did not contain a "shorts" array/)
   })
 })
 

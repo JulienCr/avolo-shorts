@@ -282,6 +282,26 @@ export type SelectionReport = {
    * à recalculer ici. (relevé par Copilot)
    */
   partial: boolean
+  /**
+   * The last "+N clips" sweep pass's own outcome, or absent — a project
+   * that never ran one has no report at all, which is what tells the UI to
+   * offer the buttons rather than hide them.
+   */
+  moreClips?: MoreClipsReport
+}
+
+/**
+ * What one "+N clips" sweep pass found: the whole transcript in a single
+ * call, instead of re-running the windowed pass — `docs/lessons.md` has the
+ * measurement behind the choice.
+ */
+export type MoreClipsReport = {
+  /** What the click asked for. */
+  requested: number
+  /** What actually survived the overlap filter and the merge. */
+  added: number
+  /** True when a round added nothing: the material is spent. */
+  exhausted: boolean
 }
 
 /**
@@ -864,6 +884,19 @@ export function runProject(
     target: targets,
     force,
   })
+}
+
+/**
+ * `POST /api/projects/:id/candidates/more` — ask the "+N clips" sweep pass
+ * for more material once triage is done. `plan` names what actually ran,
+ * same shape as `launch`'s own return — not `RunPlan.shot`, which this
+ * route never wrote.
+ */
+export function requestMoreClips(
+  projectId: string,
+  count: 5 | 10,
+): Promise<{ projectId: string; plan: StepName[] }> {
+  return post(`/api/projects/${encodeURIComponent(projectId)}/candidates/more`, { count })
 }
 
 /**

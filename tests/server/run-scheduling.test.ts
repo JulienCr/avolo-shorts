@@ -38,7 +38,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 /** A minimal project: source, known duration, and its audio already there by default. */
-function poserProject(id: string, o: { audio?: boolean; transcript?: boolean } = {}): void {
+function createProjectFixture(id: string, o: { audio?: boolean; transcript?: boolean } = {}): void {
   const source = path.join(root, 'replays', `${id}.mp4`)
   fs.mkdirSync(path.dirname(source), { recursive: true })
   fs.writeFileSync(source, '')
@@ -108,8 +108,8 @@ afterEach(async () => {
 
 describe('deux projets, un programmateur commun', () => {
   it('B n’avance pas tant que A tient le gpu, et démarre à sa libération', async () => {
-    poserProject(A)
-    poserProject(B)
+    createProjectFixture(A)
+    createProjectFixture(B)
     const gateA = deferred()
 
     await launch(A, ['transcript'], { db, scheduler: testScheduler, steps: stepsTranscript(A, gateA.promise) })
@@ -132,8 +132,8 @@ describe('deux projets, un programmateur commun', () => {
   })
 
   it('progression(B) porte l’attente, puis son extinction à l’octroi', async () => {
-    poserProject(A)
-    poserProject(B)
+    createProjectFixture(A)
+    createProjectFixture(B)
     const gateA = deferred()
     const gateB = deferred()
 
@@ -155,8 +155,8 @@ describe('deux projets, un programmateur commun', () => {
   })
 
   it('status.json porte l’attente au repérage, sans attendre la temporisation d’écriture', async () => {
-    poserProject(A)
-    poserProject(B)
+    createProjectFixture(A)
+    createProjectFixture(B)
     const gateA = deferred()
     const gateB = deferred()
 
@@ -177,9 +177,9 @@ describe('deux projets, un programmateur commun', () => {
   })
 
   it('stopRun sur une exécution en file l’arrête sans jamais acquérir, et le jeton passe au suivant', async () => {
-    poserProject(A)
-    poserProject(B)
-    poserProject(C)
+    createProjectFixture(A)
+    createProjectFixture(B)
+    createProjectFixture(C)
     const gateA = deferred()
     const gateC = deferred()
 
@@ -209,8 +209,8 @@ describe('deux projets, un programmateur commun', () => {
   })
 
   it('une étape qui échoue avec le jeton en main le relâche : le suivant est servi', async () => {
-    poserProject(A)
-    poserProject(B)
+    createProjectFixture(A)
+    createProjectFixture(B)
     const gateA = deferred()
     const stepsThrowing: Partial<Steps> = {
       transcribe: async () => {
@@ -238,8 +238,8 @@ describe('deux projets, un programmateur commun', () => {
 
 describe('`audio` ne réserve rien', () => {
   it('un jeton cpu tenu par un autre projet ne bloque pas `audio`', async () => {
-    poserProject(A)
-    poserProject(B, { audio: false })
+    createProjectFixture(A)
+    createProjectFixture(B, { audio: false })
     const gateA = deferred()
 
     await launch(A, ['proxy'], {
@@ -283,8 +283,8 @@ describe('`audio` ne réserve rien', () => {
 
 describe('la correction sur Ollama contend avec le transcript', () => {
   it('sur Ollama, elle attend le gpu que `transcript` occupe', async () => {
-    poserProject(A)
-    poserProject(B, { transcript: true })
+    createProjectFixture(A)
+    createProjectFixture(B, { transcript: true })
     applySettings(db, { ai: { correctionProvider: 'ollama' } })
     const gateA = deferred()
 
@@ -311,8 +311,8 @@ describe('la correction sur Ollama contend avec le transcript', () => {
   })
 
   it('sur le réseau, elle ne contend pas avec `transcript` sur le gpu', async () => {
-    poserProject(A)
-    poserProject(C, { transcript: true })
+    createProjectFixture(A)
+    createProjectFixture(C, { transcript: true })
     // Default provider, not Ollama: `correction` reserves `net`, not `gpu`.
     const gateA = deferred()
 

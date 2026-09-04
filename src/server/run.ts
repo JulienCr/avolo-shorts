@@ -1108,12 +1108,11 @@ async function execute(
               execution.waiting = { resource, startedAt: Date.now() }
               publish(execution, true)
             })
-      if (resource !== null) {
-        execution.waiting = null
-        publish(execution, true)
-      }
-
       try {
+        if (resource !== null) {
+          execution.waiting = null
+          publish(execution, true)
+        }
         const warning = await executeStep(
           step,
           project,

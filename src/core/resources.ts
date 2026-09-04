@@ -1,6 +1,7 @@
 /**
- * The physical-resource vocabulary a later scheduler will share across
- * projects. No semaphore here, only what a step consumes and its order.
+ * The physical-resource vocabulary the scheduler (`src/server/scheduler.ts`)
+ * shares across projects. No semaphore here, only what a step consumes and
+ * its order.
  */
 
 import type { LlmUsage } from '@/core/llm'

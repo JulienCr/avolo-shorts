@@ -426,6 +426,14 @@ dépendent. (relevé par Aristarque)
 | Proxy 960x540 | 6 min | **9:02, le montage s'ouvre** |
 | Analyse d'image | jamais chronométrée sur une émission entière | l'exécution continue |
 
+**Ce tableau décrit un projet seul.** Deux de ses propriétés survivent quand un
+second projet tourne en même temps (PR E, programmateur par ressource) : les
+candidats arrivent avant le proxy, et le régime « triable mais pas montable »
+existe malgré la contention. Les deux tiennent à l'**ordre** des étapes et à
+leur type de ressource (`gpu`/`cpu`/`net`), jamais à leur durée sur cette
+machine précise — voir 9.1 pour ce que ça change au chiffre de l'attente d'un
+second projet.
+
 Autrement dit : **un tiers de l'attente sépare le lancement de la première
 décision possible, et les deux tiers restants ne bloquent que le montage.** Sur
 l'émission la plus longue du corpus (2 h 50), les mêmes rapports donnent environ
@@ -2094,20 +2102,32 @@ proxy, 20 de transcription, mesuré ». La spec §6 donne le même ordre de gran
 moins, et 6 min de proxy sur 1 h 39.
 
 J'ai conçu contre la mesure, pas contre l'estimation, et je le signale plutôt que
-de le passer sous silence : la conclusion d'ergonomie ne change pas (on ne reste
-pas devant un écran pendant neuf minutes non plus), mais l'ampleur des moyens, si.
-À trente-cinq minutes, il faudrait une file d'attente, des notifications et un
-suivi hors écran. À neuf minutes dont trois avant la première décision, un panneau
-honnête suffit.
+de le passer sous silence.
+
+**La file d'attente reste écartée, mais plus pour la raison d'origine.** Avant
+la PR E (exécution en graphe, `src/server/run.ts`), l'argument tenait sur la
+durée totale : neuf minutes se traversent avec un panneau honnête, trente-cinq
+auraient exigé une vraie file, des notifications et un suivi hors écran. Depuis
+la PR E, l'argument tient sur la **concurrence par type de ressource** :
+`transcript` réserve le GPU, `proxy` réserve le CPU (`src/core/resources.ts`),
+donc un second projet lancé pendant que le premier encode son proxy n'attend
+que la transcription du premier — de l'ordre de la minute et demie sur
+l'émission de référence —, jamais les six minutes de proxy. La priorité par
+étape (`priorityFor`) maintient en outre la première décision près de 3:02
+même sous contention : `candidates` et `correction` passent devant `proxy`
+dans la file du programmateur.
+
+**Ce délai pour un second projet n'est pas mesuré.** Personne n'a chronométré
+deux analyses lancées à quelques minutes d'écart sur cette machine ; l'argument
+tient sur la lecture du code — ressources typées, tri par priorité —, pas sur
+un relevé, et il ne faut pas le lire comme un chiffre.
 
 Si le chiffre de 35 minutes vient d'une mesure que je n'ai pas trouvée, ce sont
 **les nombres** de la section 2.4 qui changent, pas sa structure : les trois
 régimes viennent de l'**ordre** des étapes que `CIBLES_INITIALES` déclenche
 (`run.ts`), pas de leur durée. Les candidats arrivent avant le proxy
 quelle que soit la vitesse de WhisperX, donc « triable mais pas montable » existe
-dans les deux mondes. Ce qui change est l'ampleur des moyens : à trente-cinq
-minutes il faut une file d'attente, des notifications et un suivi hors écran ; à
-neuf, un panneau honnête suffit.
+dans les deux mondes.
 
 C'est aussi ce qui rend l'arbitrage tenable : on peut trancher plus tard sans
 refaire la conception, seulement l'outillage de l'attente. Sinon, c'est la spec §6

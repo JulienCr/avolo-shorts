@@ -862,8 +862,8 @@ export async function launch(
     execution.current.set(execution.plan[0] ?? targets[0] ?? 'candidates', { progress: 0, waiting: null })
 
     // Ingestion is decided ahead, not inside the execution: a re-registered
-    // project can have an empty plan *and* an unknown duration; `lstat` +
-    // `ffprobe` on the local copy repair that without touching the Drive.
+    // project left `0:00` forever without this, and the first `run --force`
+    // failed much later on "no duration" — `lstat` + `ffprobe` repair both.
     const copyLocally = copiesSourceLocally(db)
     // One read for the whole execution: re-reading it at each step's entry
     // would let a setting flipped mid-run contradict what planning already
@@ -1141,9 +1141,9 @@ async function execute(
       // Ingestion has no step name: keep the first one to do, whose progress
       // stays at zero until the copy is finished.
       const initialStep = execution.plan[0] ?? execution.targets[0] ?? 'candidates'
-      // `copyLocally` explicit, never re-read by `ingest`: the value frozen
-      // at launch must govern the whole execution, not waver if the setting
-      // changes while the mount is being probed (PR #113).
+      // `copyLocally` explicit, never re-read by `ingest`: the mount probe it
+      // would trigger can take up to twenty seconds, and the value frozen at
+      // launch must govern the whole execution regardless (PR #113).
       const ingestion = await steps.ingest(project.sourcePath, {
         db,
         signal,
@@ -1236,8 +1236,9 @@ async function execute(
     )
     console.log(`[${projectId}] terminé : ${execution.plan.join(' → ')}`)
   } catch (cause) {
-    // Abort is read from the signal, never from the received error — it
-    // varies by step — so `wait()` never rejects a deliberately stopped run.
+    // Abort is read from the signal, never from the received error: it is a
+    // `StopRequestedError`, `pipeline`'s `AbortError`, or a third-party
+    // library refusing a stream closed under it — `wait()` never rejects for any of them.
     if (signal.aborted) {
       writeStoppedStatus([])
       return

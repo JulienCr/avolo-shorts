@@ -1570,30 +1570,35 @@ export async function runMoreClips(
     const deficit = count - accepted.length
     if (deficit <= 0) break
 
-    // Read after every network call this pass has made, never before:
-    // `PATCH /api/clips/:id` stays open while this step runs, so a decision
-    // made mid-round must be visible to the round that follows it.
-    const humans = getClips(db, projectId).filter((c) => c.status !== 'candidate')
-    const taken: Clip[] = [...humans, ...accepted.map((a) => a.clip)]
-    const takenSegments = taken.flatMap((c) => c.segments)
+    const before = getClips(db, projectId).filter((c) => c.status !== 'candidate')
+    const takenSegments = [...before, ...accepted.map((a) => a.clip)].flatMap((c) => c.segments)
 
     const proposals = await sweepDescend(segments, { min: deficit, max: deficit + 2 }, ctx, takenSegments, slate)
-    const keptThisRound = proposals.filter((p) =>
-      taken.every((tc) => overlapSeconds(p.clip.segments, tc.segments) <= OVERLAP_TOLERANCE_SECONDS),
+
+    // Read after this round's own network call, never before it: `PATCH
+    // /api/clips/:id` stays open while this step runs, so a decision made
+    // mid-call must still be visible to the filter this same round applies.
+    const humans = getClips(db, projectId).filter((c) => c.status !== 'candidate')
+    const pool: Clip[] = [...humans, ...accepted.map((a) => a.clip)]
+
+    // Best-scored first, each survivor joining `pool` before the next is
+    // tested — two proposals overlapping each other, not just a prior
+    // round's clip, would otherwise both pass.
+    const ranked = [...proposals].sort(
+      (a, b) => Number(b.scored) - Number(a.scored) || b.predictedScore - a.predictedScore,
     )
+    const keptThisRound: DetailClip[] = []
+    for (const p of ranked) {
+      if (pool.every((tc) => overlapSeconds(p.clip.segments, tc.segments) <= OVERLAP_TOLERANCE_SECONDS)) {
+        keptThisRound.push(p)
+        pool.push(p.clip)
+      }
+    }
     if (keptThisRound.length === 0) {
       exhausted = true
       break
     }
-    // Dedupe against what earlier rounds already accepted before the deficit
-    // is recomputed: a repeated id would otherwise inflate `accepted.length`
-    // and stop recovery short of `count`.
-    const seenIds = new Set(accepted.map((a) => a.clip.id))
-    for (const proposal of keptThisRound) {
-      if (seenIds.has(proposal.clip.id)) continue
-      seenIds.add(proposal.clip.id)
-      accepted.push(proposal)
-    }
+    accepted.push(...keptThisRound)
 
     const progress: MoreClipsReport = { requested: count, added: Math.min(accepted.length, count), exhausted: false }
     moreClipsReports.set(projectId, progress)

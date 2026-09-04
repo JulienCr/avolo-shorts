@@ -1856,16 +1856,16 @@ describe("l'étape de repérage", () => {
     it('déduplique un même id avant de calculer le déficit du tour suivant', async () => {
       await runCandidates(ID, { db, call: template([]), sleep: async () => {} })
       let round = 0
-      // Round 1 answers with five copies of the same bounds — one real clip.
-      // Counting them as five would satisfy the deficit and stop recovery
-      // after this single round, delivering one clip instead of five.
+      // Round 1 answers five copies of the same bounds — one real clip, long
+      // enough that a full self-overlap clears OVERLAP_TOLERANCE_SECONDS.
+      // Counting them as five would satisfy the deficit after this round.
       const call: CallGemini = async (_prompt, mode) => {
         if (mode !== 'sweep') throw new Error(`mode inattendu : ${mode}`)
         round += 1
         const shorts =
           round === 1
-            ? Array(5).fill(proposal(30, 33, 'doublon'))
-            : [proposal(60, 63, 'b'), proposal(90, 93, 'c'), proposal(120, 123, 'd'), proposal(150, 153, 'e')]
+            ? Array(5).fill(proposal(30, 40, 'doublon'))
+            : [proposal(60, 70, 'b'), proposal(90, 100, 'c'), proposal(120, 130, 'd'), proposal(150, 160, 'e')]
         return response(JSON.stringify({ shorts }))
       }
 
@@ -1885,7 +1885,7 @@ describe("l'étape de repérage", () => {
       }
 
       const seenAfterFirstCall: (number | null)[] = []
-      await runMoreClips(ID, 3, {
+      await runMoreClips(ID, 5, {
         db,
         call,
         sleep: async () => {},

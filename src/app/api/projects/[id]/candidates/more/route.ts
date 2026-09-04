@@ -1,8 +1,11 @@
+import fs from 'node:fs'
+
 import { z } from 'zod'
 
-import { getClips, getDb } from '@/server/db'
+import { getClips, getDb, getProject } from '@/server/db'
 import { body, json, requestInvalid, route } from '@/server/http'
-import { launch } from '@/server/run'
+import { candidatesPath } from '@/server/paths'
+import { launch, UnknownProjectError } from '@/server/run'
 
 /**
  * `POST /api/projects/:id/candidates/more` — the sweep pass: N more clips
@@ -22,10 +25,16 @@ export const POST = route(
   async (request: Request, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params
     const { count } = await body(request, REQUEST)
-    // `mergeCandidates` keeps only non-`candidate` clips as untouchable —
-    // running the sweep while some are still untriaged would silently drop
-    // them, breaking the "existing clips are untouchable" guarantee.
     const db = getDb()
+    // Ahead of the two checks below, or an unknown id also reads as
+    // "nothing to sweep" and returns their 400 instead of a 404.
+    if (getProject(db, id) === undefined) throw new UnknownProjectError(id)
+    // A project may never have run the windowed pass at all.
+    if (!fs.existsSync(candidatesPath(id))) {
+      throw requestInvalid(`Le projet ${id} n'a pas encore de premier repérage.`)
+    }
+    // `mergeCandidates` keeps only non-`candidate` clips: untriaged ones
+    // would be silently dropped, breaking "existing clips are untouchable".
     if (getClips(db, id).some((clip) => clip.status === 'candidate')) {
       throw requestInvalid(`Le projet ${id} a encore des clips non triés : la passe « +N clips » les supprimerait.`)
     }

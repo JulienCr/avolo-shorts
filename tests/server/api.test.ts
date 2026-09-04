@@ -1844,6 +1844,16 @@ describe('POST /api/projects/:id/candidates/more', () => {
     expect((await moreRoute({ count: 5 })).status).toBe(400)
   })
 
+  // Zéro clip ne prouve pas un tri terminé : ça peut aussi être un projet qui
+  // n'a jamais eu de premier repérage — la passe « +N clips » n'est pas la
+  // passe fenêtrée initiale.
+  it('rend 400 sur un projet qui n’a jamais eu de premier repérage', async () => {
+    poserTranscript()
+    poserCorrection()
+
+    expect((await moreRoute({ count: 5 })).status).toBe(400)
+  })
+
   it('rend 404 sur un projet inconnu', async () => {
     expect((await moreRoute({ count: 5 }, 'jamais-vu')).status).toBe(404)
   })
@@ -1851,11 +1861,12 @@ describe('POST /api/projects/:id/candidates/more', () => {
   it('rend 409 quand une exécution tourne déjà sur ce projet', async () => {
     poserTranscript()
     poserCorrection()
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
     let release = (): void => {}
     const inCurrent = new Promise<Clip[]>((resolve) => {
       release = () => resolveEmpty(resolve)
     })
-    await launch(PROJECT, ['candidates'], { steps: { runCandidates: () => inCurrent } })
+    await launch(PROJECT, ['candidates'], { force: ['candidates'], steps: { runCandidates: () => inCurrent } })
     try {
       expect((await moreRoute({ count: 5 })).status).toBe(409)
     } finally {

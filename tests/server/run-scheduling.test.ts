@@ -778,9 +778,8 @@ describe('un projet, deux chaînes du graphe', () => {
     const gateCandidates = deferred()
 
     // `hold()` can throw (a failed `releaseSlot`) without losing the local
-    // token — see `tests/server/scheduler.test.ts`. `runStep`'s `finally`
-    // must absorb it, or the promise it returns rejects and wins
-    // `Promise.race` while `candidates` is still gated below.
+    // token: `runStep`'s `finally` must absorb it, or the promise it returns
+    // rejects and wins `Promise.race` while `candidates` is still gated below.
     const throwing: Scheduler = {
       ...testScheduler,
       acquire: async (resource, priority, signal, onQueued) => {

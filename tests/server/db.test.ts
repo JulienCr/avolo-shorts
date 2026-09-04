@@ -1093,9 +1093,9 @@ describe('les clips', () => {
     expect(getClips(db, PROJECT.id)).toEqual([])
   })
 
-  // L'id suit la chronologie du replay (préfixe projet + bornes horodatées) ;
-  // `pass` n'est que le numéro de la passe de repérage qui l'a trouvé. Trier
-  // par id fait alterner les deux passes ; trier par (pass, id) les grouperait.
+  // The id follows the replay's chronology (project prefix + timestamped
+  // bounds); `pass` is only the detection-pass number that found it. Sorting
+  // by id interleaves the two passes; sorting by (pass, id) would group them.
   it('trient par id, pas par passe de repérage', () => {
     putClip(db, clip('c_005000000-005100000', { pass: 2 }))
     putClip(db, clip('c_004000000-004100000', { pass: 1 }))

@@ -149,10 +149,9 @@ CREATE TABLE IF NOT EXISTS clips (
   footer      INTEGER NOT NULL DEFAULT 1
 );
 
--- Composite, dans l'ordre exact de \`getClips\` : filtre sur \`projectId\`, tri
--- sur \`pass, id\`. Un index sur la seule colonne \`projectId\` laissait SQLite
--- trier en mémoire. Le volume est négligeable et le restera, mais l'index coûte
--- le même geste à écrire. (relevé par Aristarque)
+-- Serves the projectId filter in getClips. Ordering by id is sorted in
+-- memory rather than by this index (pass, id doesn't match id alone), which
+-- is negligible at this volume (tens to low hundreds of clips per project).
 --
 -- Nommé \`clips_by_project\` : c'était le seul objet de schéma en français
 -- (\`clips_par_projet\`), et \`migrer\` ci-dessous le renomme sur une base qui le

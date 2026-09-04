@@ -62,8 +62,7 @@ function candidate(n: number, status: ClipStatus = 'candidate'): CandidateClip {
 
 // `LoopEnd` monte `MoreClips`, qui lit `useProject` par TanStack Query : sans
 // ce fournisseur, chaque harnais qui atteint la fin de la boucle plante sur
-// « No QueryClient set ». `retry: false` évite d'attendre les tentatives sur
-// le `fetch` relatif que ces tests ne stubbent pas.
+// « No QueryClient set ».
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 })

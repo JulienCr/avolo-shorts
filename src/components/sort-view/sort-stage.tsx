@@ -24,17 +24,10 @@ import {
 /**
  * The dedicated sort view's screen: one clip's video, two buttons, a count.
  *
- * **A second presentation of `useSortLoop`, not a second loop.** The grid
- * (`ReviewFeed`) mounts one card per visible clip; this mounts one video for
- * whichever clip is `current`. Both drive the same frozen queue, the same
- * decide/move/undo, because `useSortLoop` is layout-agnostic by design.
- *
- * **`attemptFocus` never races the clip it targets.** The grid needs the
- * *new* current card's DOM node to exist before it can focus it — issue #323
- * — because each card is its own node. Here there is exactly one node for
- * the whole screen, independent of which clip is current: focusing it is
- * never conditional on a clip having mounted, so the race issue #323
- * describes cannot occur on this surface.
+ * A second presentation of `useSortLoop`, not a second loop — the grid
+ * (`ReviewFeed`) mounts one card per visible clip, this mounts one video for
+ * `current`. `attemptFocus` targets a single stage container independent of
+ * which clip is current, so issue #323's per-card mounting race never applies.
  */
 export function SortStage({
   projectId,
@@ -70,27 +63,21 @@ export function SortStage({
 
   const currentClip = visible.find((c) => c.id === current) ?? null
 
-  // **A marker only when the queue actually mixes passes.** A queue made of
-  // a single pass would mark every clip, and a marker every item carries is
-  // not a marker — it is a background.
+  // A marker every item carries is not a marker — only when passes mix.
   const passes = new Set(visible.map((c) => c.pass))
   const earliestPass = Math.min(...passes)
   const showsPassMarker = passes.size > 1 && currentClip !== null && currentClip.pass > earliestPass
 
-  // **Seek and play on every clip change, never inside the `timeupdate`
-  // handler below.** `clipBounds` is the extent this candidate covers;
-  // `playbackAction` (the same pure helper `ClipPlayer` uses) is what skips
-  // a removed passage instead of playing straight through it.
+  // Seeks and plays on every clip change; `clipBounds`/`playbackAction` are
+  // the same pure helpers `ClipPlayer` uses to skip a removed passage.
   useEffect(() => {
     const el = video.current
     const bounds = currentClip === null ? null : clipBounds(currentClip.segments)
     if (el === null || bounds === null) return
     el.currentTime = bounds.start
-    // **Unmuted first, muted on `NotAllowedError`.** A click on the review
-    // grid's card carries the gesture into this screen; a direct link to
-    // `/sort` has none, and the browser refuses unmuted autoplay without
-    // one. Falling back to muted keeps the video always playing — a silent
-    // failure to play is the outcome this guards against, not the sound.
+    // Unmuted first; a direct link to `/sort` carries no user gesture, and
+    // the browser then rejects unmuted autoplay — fall back to muted rather
+    // than leaving the video silently paused.
     el.play().catch(() => {
       setMuted(true)
       void el.play()

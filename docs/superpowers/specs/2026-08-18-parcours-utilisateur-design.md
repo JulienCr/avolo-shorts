@@ -1564,6 +1564,10 @@ mêmes au clavier.
 | Tri | `X` | écarter, et avancer d'une carte |
 | Tri | `Entrée` | ouvrir le clip |
 | Tri | `U` | défaire la dernière décision |
+| Tri vidéo | `J` / `K` ou flèches | clip suivant, précédent |
+| Tri vidéo | `P` | garder, et avancer d'un clip |
+| Tri vidéo | `X` | écarter, et avancer d'un clip |
+| Tri vidéo | `U` | défaire la dernière décision, et revenir sur son clip |
 | Clip | `Espace` | lecture, pause |
 | Clip | `Ctrl+Z` / `Ctrl+Shift+Z` | annuler, rétablir |
 | Clip | `Suppr` | retirer la sélection |

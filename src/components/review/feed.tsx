@@ -44,27 +44,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 /**
- * Le fil de tri : vingt-cinq à trente cartes, deux décisions par carte, chacune
- * réversible.
- *
- * **C'est une boucle, et une boucle a ses instruments** (spec §2.5). Trois
- * propriétés portent tout le reste, et chacune se paie à chaque itération :
- *
- * - **le clavier**, parce que sur trente items l'aller-retour vers la souris
- *   devient le coût dominant. `P` et `X` **avancent** — décider sans avancer
- *   oblige à un geste sur deux — et `U` revient sur la décision précédente
- *   **et sur sa carte**, sinon on corrige à l'aveugle ;
- * - **rien ne bouge sous la main.** Une carte décidée reste à sa place, marquée.
- *   Écarter faisait disparaître la carte et refluer toute la grille : la
- *   suivante n'était plus ni sous l'œil ni sous le curseur. Le compactage se
- *   fait **au changement de vue**, jamais au moment du clic ;
- * - **le reste à faire, pas le chemin parcouru.** « 12 à trier » se lit d'un
- *   coup d'œil et reste vrai quand on change d'avis ; un pourcentage ne survit
- *   pas à un retour en arrière, faute d'un dénominateur connu avant la fin.
+ * Le fil de tri : vingt-cinq à trente cartes, deux décisions par carte,
+ * chacune réversible. Le clavier, l'immobilité de la carte décidée et le
+ * compteur du reste à faire portent cette boucle — voir spec §2.5.
  *
  * Il ne va pas chercher ses données : la page les lui passe. C'est ce qui le
- * rend montable dans un test sans serveur ni cache, et c'est là que vivent les
- * trois comportements dont une régression serait silencieuse.
+ * rend montable dans un test sans serveur ni cache, et c'est là que vivent
+ * les comportements dont une régression serait silencieuse.
  */
 export function ReviewFeed({
   projectId,

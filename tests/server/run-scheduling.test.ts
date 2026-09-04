@@ -27,13 +27,22 @@ let root: string
 let db: Database.Database
 let calls: string[]
 let testScheduler: Scheduler
+let openGates: Array<() => void>
 
-/** A promise opened from the outside, to drive a step by hand. */
+/**
+ * A promise opened from the outside, to drive a step by hand.
+ *
+ * @remarks Registers its `resolve` in `openGates` so `afterEach` can release
+ * it even if the test failed an assertion before calling it — otherwise
+ * `stopRun`/`wait` below hangs on a witness still awaiting this gate, and a
+ * real assertion failure is masked by an opaque timeout.
+ */
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void
   const promise = new Promise<void>((res) => {
     resolve = res
   })
+  openGates.push(resolve)
   return { promise, resolve }
 }
 
@@ -96,10 +105,12 @@ beforeEach(() => {
   // Not relevant here: only step scheduling is under test, not ingestion.
   applySettings(db, { ingestion: { copySourceLocally: false } })
   calls = []
+  openGates = []
   testScheduler = createScheduler({ capacities: CAPACITIES, lockDir: null })
 })
 
 afterEach(async () => {
+  for (const resolve of openGates) resolve()
   for (const id of [A, B, C]) stopRun(id)
   await Promise.all([A, B, C].map((id) => wait(id)))
   db.close()

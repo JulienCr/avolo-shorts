@@ -4,6 +4,7 @@ import { ChevronRight, Film, LoaderCircle, Play, RotateCcw, TriangleAlert, Unplu
 import Link from 'next/link'
 import { useState } from 'react'
 
+import { RESOURCE_NOUN } from '@/components/review/progress'
 import { formatDateSource, formatOctets } from '@/components/sources/texts'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
@@ -233,6 +234,7 @@ function StateLine({ entry, creating }: { entry: Entry; creating: boolean }) {
     // — la région live de la grille parle aux changements d'étape seulement.
     const percent = Math.round(Math.min(1, Math.max(0, project.running.progress)) * 100)
     const label = LABELS_STEPS[project.running.step]
+    const waiting = project.running.waiting
     return (
       <Progress
         value={percent}
@@ -241,8 +243,10 @@ function StateLine({ entry, creating }: { entry: Entry; creating: boolean }) {
         className="w-full gap-x-2 gap-y-0.5"
       >
         <span className="text-xs font-normal text-muted-foreground">{label}</span>
+        {/* Seul le pourcentage cède sa place à l'attente : la barre reste, et
+            c'est ce qui garde `CARD_HEIGHT` constant (issue #56). */}
         <span className="ml-auto text-xs font-normal text-muted-foreground tabular-nums">
-          {percent} %
+          {waiting !== null ? `En attente — ${RESOURCE_NOUN[waiting.resource]}` : `${percent} %`}
         </span>
       </Progress>
     )

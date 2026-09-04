@@ -14,8 +14,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import type { StepName } from '@/core/graph'
 import { phaseProject, type ShowSize } from '@/core/phase'
+import type { Wait } from '@/core/resources'
 import { layoutProgress } from '@/components/review/template'
 import { AnnouncementDStep, StripProgress, PanelProgress } from '@/components/review/progress'
+
+type Running = { step: StepName; progress: number; waiting: Wait | null }
 
 afterEach(cleanup)
 
@@ -32,7 +35,13 @@ function reading(made: StepName[]): Record<StepName, boolean> {
   return Object.fromEntries(all.map((n) => [n, made.includes(n)])) as Record<StepName, boolean>
 }
 
-const inCurrent = { step: 'transcript' as StepName, progress: 0.42 }
+const inCurrent: Running = { step: 'transcript', progress: 0.42, waiting: null }
+
+const waitingGpu: Running = {
+  step: 'transcript',
+  progress: 0,
+  waiting: { resource: 'gpu', waitedMs: 4 * 60_000 },
+}
 
 describe('layoutProgress', () => {
   it('remplace la grille seulement quand la grille serait vide', () => {
@@ -80,15 +89,17 @@ const CQLP: ShowSize = { durationSec: 5_940, sizeBytes: 4_300_000_000, windows: 
 describe('PanelProgress', () => {
   function mount(
     made: StepName[],
-    running: { step: StepName; progress: number } | null = inCurrent,
+    running: Running | null = inCurrent,
     error: string | null = null,
     size = CQLP,
     everRan = true,
+    runningAll?: Running[],
   ) {
     return render(
       <PanelProgress
         steps={reading(made)}
         running={running}
+        runningAll={runningAll}
         error={error}
         everRan={everRan}
         size={size}
@@ -198,7 +209,7 @@ describe('PanelProgress', () => {
   })
 
   it('annonce le montage une fois les propositions là', () => {
-    mount(['audio', 'transcript', 'candidates'], { step: 'proxy', progress: 0.1 })
+    mount(['audio', 'transcript', 'candidates'], { step: 'proxy', progress: 0.1, waiting: null })
     expect(screen.getByTestId('next').textContent).toMatch(/montage|proxy/i)
   })
 
@@ -232,6 +243,39 @@ describe('PanelProgress', () => {
     // inventer une donnée.
     mount(['audio'])
     expect(screen.getByTestId('elapsed').textContent).toMatch(/écran/i)
+  })
+
+  it('dit ce qu’attend l’étape en tête quand elle n’a pas démarré', () => {
+    mount(['audio'], waitingGpu)
+    expect(screen.getByText('L’analyse attend la carte graphique.')).toBeTruthy()
+  })
+
+  it('ne dit rien de l’attente quand l’étape en tête tourne', () => {
+    mount(['audio'], inCurrent)
+    expect(screen.getByText('L’analyse est en cours.')).toBeTruthy()
+  })
+
+  it('marque l’étape en attente sans le sablier de la barre en cours', () => {
+    mount(['audio'], waitingGpu)
+    const step = screen.getByTestId('step-transcript')
+    expect(step.getAttribute('data-status')).toBe('queued')
+    expect(step.querySelector('.animate-spin')).toBeNull()
+    expect(step.textContent).toMatch(/en attente de la carte graphique depuis 4 min/)
+  })
+
+  it('garde le coût estimé affiché pendant l’attente', () => {
+    // Deliberate choice: hiding the cost next to a queued step would make the
+    // line jump once the step actually starts.
+    mount(['audio'], waitingGpu)
+    expect(screen.getByTestId('step-transcript').textContent).toMatch(/environ/)
+  })
+
+  it('affiche les deux étapes de `runningAll` comme en cours', () => {
+    const local = { step: 'transcript' as StepName, progress: 0.3, waiting: null }
+    const net = { step: 'candidates' as StepName, progress: 0, waiting: null }
+    mount(['audio'], local, null, CQLP, true, [local, net])
+    expect(screen.getByTestId('step-transcript').getAttribute('data-status')).toBe('running')
+    expect(screen.getByTestId('step-candidates').getAttribute('data-status')).toBe('running')
   })
 })
 
@@ -275,6 +319,13 @@ describe('AnnouncementDStep', () => {
     // progression qu'une exécution morte, mais rien n'a jamais tourné.
     render(<AnnouncementDStep running={null} steps={reading([])} connu everRan={false} />)
     expect(screen.getByTestId('announcement').textContent).toMatch(/n’a pas encore commencé/i)
+  })
+
+  it('annonce l’attente d’une ressource, en toutes lettres', () => {
+    render(<AnnouncementDStep running={waitingGpu} steps={reading(['audio'])} connu />)
+    expect(screen.getByTestId('announcement').textContent).toMatch(
+      /Transcription.*en attente de la carte graphique/i,
+    )
   })
 })
 

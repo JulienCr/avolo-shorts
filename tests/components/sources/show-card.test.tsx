@@ -91,6 +91,25 @@ describe('les cinq états', () => {
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('42')
   })
 
+  it('dit l’attente d’une ressource à la place du pourcentage, la barre restant là', () => {
+    renderCard(
+      entry(
+        { projectId: PROJECT.id },
+        {
+          running: {
+            step: 'transcript',
+            progress: 0,
+            waiting: { resource: 'gpu', waitedMs: 0 },
+          },
+        },
+      ),
+    )
+    expect(card().getAttribute('data-state')).toBe('analyzing')
+    expect(screen.getByText('En attente — carte graphique')).toBeTruthy()
+    expect(screen.queryByText('0 %')).toBeNull()
+    expect(screen.getByRole('progressbar')).toBeTruthy()
+  })
+
   it('mène déjà au projet sur une source dont le projet n’est pas encore dans la liste', () => {
     // Les deux requêtes ne se rafraîchissent pas ensemble : `markSourceAnalyzed`
     // inscrit le `projectId` dès la réponse de création, la liste des projets
@@ -176,6 +195,16 @@ describe('la hauteur', () => {
       entry({ projectId: PROJECT.id }, { stopped: true }),
       entry({ projectId: PROJECT.id }, { error: 'tombé' }),
       entry({ projectId: PROJECT.id }, {}),
+      entry(
+        { projectId: PROJECT.id },
+        {
+          running: {
+            step: 'transcript',
+            progress: 0,
+            waiting: { resource: 'gpu', waitedMs: 0 },
+          },
+        },
+      ),
     ]
 
     for (const item of cells) {
@@ -183,6 +212,32 @@ describe('la hauteur', () => {
       expect(card().className).toContain(CARD_HEIGHT)
       unmount()
     }
+  })
+
+  it('porte la même classe de hauteur entre une carte en attente et une carte en cours', () => {
+    // Issue #56: a card growing a bar on the next poll must not shift the
+    // grid under the cursor, here as in the five other states — both cards
+    // share the same fixed class.
+    const running = entry(
+      { projectId: PROJECT.id },
+      { running: { step: 'transcript', progress: 0.3, waiting: null } },
+    )
+    const { unmount: unmountRunning } = renderCard(running)
+    expect(card().className).toContain(CARD_HEIGHT)
+    unmountRunning()
+
+    const queued = entry(
+      { projectId: PROJECT.id },
+      {
+        running: {
+          step: 'transcript',
+          progress: 0,
+          waiting: { resource: 'gpu', waitedMs: 0 },
+        },
+      },
+    )
+    renderCard(queued)
+    expect(card().className).toContain(CARD_HEIGHT)
   })
 })
 

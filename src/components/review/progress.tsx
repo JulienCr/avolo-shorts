@@ -1,14 +1,41 @@
 'use client'
 
-import { Check, CircleDashed, LoaderCircle } from 'lucide-react'
+import { Check, CircleDashed, Hourglass, LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { StepName } from '@/core/graph'
 import { stepDurationRange, STEPS, LABELS_STEPS, type ShowSize } from '@/core/phase'
+import type { Resource, Wait } from '@/core/resources'
 import { formatDuration, formatDurationRange } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
+
+type Running = { step: StepName; progress: number; waiting: Wait | null }
+
+/** The resource named in a sentence, with its article: « la carte graphique ». */
+export const RESOURCE_LABEL: Record<Resource, string> = {
+  gpu: 'la carte graphique',
+  cpu: 'le processeur',
+  net: 'le réseau',
+}
+
+/** The resource named on its own, for a badge: « carte graphique ». */
+export const RESOURCE_NOUN: Record<Resource, string> = {
+  gpu: 'carte graphique',
+  cpu: 'processeur',
+  net: 'réseau',
+}
+
+/**
+ * How long a step has been waiting, in whole minutes.
+ *
+ * @param waitedMs - Measured elapsed wait, never predicted.
+ */
+function formatWait(waitedMs: number): string {
+  const minutes = Math.floor(waitedMs / 60_000)
+  return minutes < 1 ? 'depuis moins d’une minute' : `depuis ${minutes} min`
+}
 
 /**
  * L'avancement de l'analyse, sous ses deux formes.
@@ -33,6 +60,7 @@ import { Progress } from '@/components/ui/progress'
 export function PanelProgress({
   steps,
   running,
+  runningAll,
   error,
   everRan,
   size,
@@ -44,7 +72,13 @@ export function PanelProgress({
   // `running` — le panneau lit donc directement les deux champs dont la phase
   // elle-même est faite, sans se donner une seconde source de vérité.
   steps: Record<StepName, boolean>
-  running: { step: StepName; progress: number } | null
+  running: Running | null
+  /**
+   * Every step in flight (at most two: one local, one network).
+   *
+   * @default running !== null ? [running] : []
+   */
+  runningAll?: Running[]
   /** Le message du serveur, ou `null`. Déjà épuré de ses chemins absolus. */
   error: string | null
   /** Distingue `'new'` d'`'interrupted'` (spec §12) ; ne change que le titre. */
@@ -74,12 +108,16 @@ export function PanelProgress({
   // laisser d'erreur, et il y a un redémarrage à chaque édition en
   // développement.
   const toResume = running === null
+  const all = runningAll ?? (running !== null ? [running] : [])
+  const leadingWait = running?.waiting ?? null
 
   return (
     <section className="mx-auto w-full max-w-2xl rounded-xl border px-6 py-8">
       <h1 className="text-base font-semibold tracking-tight">
         {running !== null
-          ? 'L’analyse est en cours.'
+          ? leadingWait !== null
+            ? `L’analyse attend ${RESOURCE_LABEL[leadingWait.resource]}.`
+            : 'L’analyse est en cours.'
           : error !== null
             ? 'La dernière analyse a échoué.'
             : everRan
@@ -98,7 +136,8 @@ export function PanelProgress({
 
       <ol className="mt-6 flex flex-col gap-1.5">
         {STEPS.map(({ name, label }) => {
-          const state = stateDStep(name, steps, running)
+          const entry = all.find((r) => r.step === name) ?? null
+          const state = stateDStep(name, steps, entry)
           // La fourchette de **cette** émission, jamais une constante. Chaîne
           // vide quand l'étape n'a jamais été chronométrée, ou que l'émission
           // n'a pas encore livré sa durée.
@@ -121,9 +160,13 @@ export function PanelProgress({
                   donnait les noms et les coûts sans dire ce qui est fait.
                   (relevé par Copilot) */}
               <span className="sr-only">{LABELS_STATE[state]}</span>
-              {state === 'running' && running !== null && (
-                <span className="font-mono text-xs tabular-nums">
-                  {percent(running.progress)} %
+              {state === 'running' && entry !== null && (
+                <span className="font-mono text-xs tabular-nums">{percent(entry.progress)} %</span>
+              )}
+              {state === 'queued' && entry?.waiting != null && (
+                <span className="text-xs text-muted-foreground">
+                  en attente de {RESOURCE_LABEL[entry.waiting.resource]}{' '}
+                  {formatWait(entry.waiting.waitedMs)}
                 </span>
               )}
               {/* Le coût de cette émission-ci, jamais une estimation du
@@ -202,7 +245,7 @@ export function AnnouncementDStep({
   connu,
   everRan = true,
 }: {
-  running: { step: StepName } | null
+  running: { step: StepName; waiting?: Wait | null } | null
   steps: Record<StepName, boolean>
   /**
    * L'état du projet a-t-il répondu ?
@@ -217,12 +260,15 @@ export function AnnouncementDStep({
   /** Défaut `true`, comme dans `phaseProject` — voir spec §12. */
   everRan?: boolean
 }) {
+  const waiting = running?.waiting ?? null
   return (
     <p data-testid="announcement" aria-live="polite" className="sr-only">
       {!connu
         ? ''
         : running !== null
-          ? `${LABELS_STEPS[running.step]} en cours.`
+          ? waiting !== null
+            ? `${LABELS_STEPS[running.step]} : en attente de ${RESOURCE_LABEL[waiting.resource]}.`
+            : `${LABELS_STEPS[running.step]} en cours.`
           : STEPS.every(({ name }) => steps[name] === true)
             ? 'L’analyse est terminée.'
             : everRan
@@ -258,20 +304,21 @@ export function StripProgress({ running }: { running: { step: StepName; progress
   )
 }
 
-type StateDStep = 'done' | 'running' | 'upcoming'
+type StateDStep = 'done' | 'running' | 'queued' | 'upcoming'
 
 const LABELS_STATE: Record<StateDStep, string> = {
   done: 'terminée',
   running: 'en cours',
+  queued: 'en attente',
   upcoming: 'à venir',
 }
 
 function stateDStep(
   name: StepName,
   steps: Record<StepName, boolean>,
-  running: { step: StepName } | null,
+  entry: { step: StepName; waiting: Wait | null } | null,
 ): StateDStep {
-  if (running?.step === name) return 'running'
+  if (entry?.step === name) return entry.waiting !== null ? 'queued' : 'running'
   // `=== true` et non la vérité de la valeur : le relevé arrive du réseau, et
   // une étape que le client ne connaît pas encore y vaut `undefined`.
   return steps[name] === true ? 'done' : 'upcoming'
@@ -280,6 +327,9 @@ function stateDStep(
 function Marker({ state }: { state: StateDStep }) {
   if (state === 'done') return <Check className="size-3.5 shrink-0 text-stage-foreground" aria-hidden />
   if (state === 'running') return <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden />
+  // Jamais le sablier de la barre en cours : un sablier dit que le travail
+  // attend, pas qu'il avance.
+  if (state === 'queued') return <Hourglass className="size-3.5 shrink-0 opacity-70" aria-hidden />
   return <CircleDashed className="size-3.5 shrink-0 opacity-50" aria-hidden />
 }
 

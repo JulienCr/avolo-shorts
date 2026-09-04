@@ -134,9 +134,9 @@ describe('useShortcutsReview', () => {
     // `Ctrl+P` ouvre la boîte d'impression : voler cette touche-là ferait
     // perdre un geste du navigateur pour rien.
 
-    // **La frappe part d'une carte, pas de `document`.** Sur `document`, la
-    // garde des cibles l'aurait déjà écartée, laissant le test vert même sans
-    // la garde des modificateurs.
+    // **La frappe part d'une carte, pas de `document`.** La garde des cibles
+    // rend `true` pour tout ce qui n'est pas un `HTMLElement` : sur `document`,
+    // elle écarterait déjà la frappe, laissant le test vert sans rien prouver.
     const actions = actionsMute()
     render(<Harness actions={actions} />)
     const user = userEvent.setup()

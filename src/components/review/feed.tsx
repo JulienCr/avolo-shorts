@@ -51,7 +51,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
  * propriétés portent tout le reste, et chacune se paie à chaque itération :
  *
  * - **le clavier**, parce que sur trente items l'aller-retour vers la souris
- *   devient le coût dominant. `G` et `E` **avancent** — décider sans avancer
+ *   devient le coût dominant. `P` et `X` **avancent** — décider sans avancer
  *   oblige à un geste sur deux — et `U` revient sur la décision précédente
  *   **et sur sa carte**, sinon on corrige à l'aveugle ;
  * - **rien ne bouge sous la main.** Une carte décidée reste à sa place, marquée.

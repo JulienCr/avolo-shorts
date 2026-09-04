@@ -1813,7 +1813,7 @@ Le minimum utile, par ordre de valeur :
 2. **`enregistrement.ts`**, une fois sorti de la page : les trois défauts trouvés
    en revue (quitter dans les 600 ms, la boucle d'échec, le « enregistré » qui
    ment) sont des tests, pas des commentaires.
-3. **La boucle de tri, en test de composant** : `G` avance, `U` revient sur la
+3. **La boucle de tri, en test de composant** : `P` avance, `U` revient sur la
    carte précédente, une carte décidée ne bouge pas. Ce sont les trois
    comportements dont une régression serait silencieuse.
 

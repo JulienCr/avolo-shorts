@@ -93,7 +93,9 @@ describe('PanelProgress', () => {
     error: string | null = null,
     size = CQLP,
     everRan = true,
-    runningAll?: Running[],
+    // Mirrors the server: `running` is `runningAll[0]`, so the default is the
+    // singleton the panel sees whenever one step is in flight.
+    runningAll: Running[] = running !== null ? [running] : [],
   ) {
     return render(
       <PanelProgress
@@ -268,6 +270,34 @@ describe('PanelProgress', () => {
     // line jump once the step actually starts.
     mount(['audio'], waitingGpu)
     expect(screen.getByTestId('step-transcript').textContent).toMatch(/environ/)
+  })
+
+  it('contracte l’article sur le processeur, le cas le plus courant', () => {
+    // Only `gpu` reads correctly after « de », and only `gpu` was tested —
+    // `cpu` and `net` produced « de le processeur » and « de le réseau ».
+    const waitingCpu: Running = { step: 'proxy', progress: 0, waiting: { resource: 'cpu', waitedMs: 0 } }
+    mount(['audio', 'transcript'], waitingCpu)
+    expect(screen.getByText('L’analyse attend le processeur.')).toBeTruthy()
+    expect(screen.getByTestId('step-proxy').textContent).toMatch(/en attente du processeur/)
+    expect(screen.getByTestId('step-proxy').textContent).not.toMatch(/de le processeur/)
+  })
+
+  it('dit l’attente dans le nom accessible de la barre, pas « en cours »', () => {
+    // A screen reader on the bar must not hear the opposite of what the
+    // heading and the live region say.
+    mount(['audio'], waitingGpu)
+    const bar = screen.getByRole('progressbar', { name: /transcription/i })
+    expect(bar.getAttribute('aria-label')).toMatch(/en attente de la carte graphique/)
+    expect(bar.getAttribute('aria-label')).not.toMatch(/en cours/)
+  })
+
+  it('marque en attente une étape de `runningAll` qui n’est pas en tête', () => {
+    const local: Running = { step: 'transcript', progress: 0.3, waiting: null }
+    const queued: Running = { step: 'candidates', progress: 0, waiting: { resource: 'net', waitedMs: 0 } }
+    mount(['audio'], local, null, CQLP, true, [local, queued])
+    expect(screen.getByTestId('step-transcript').getAttribute('data-status')).toBe('running')
+    expect(screen.getByTestId('step-candidates').getAttribute('data-status')).toBe('queued')
+    expect(screen.getByTestId('step-candidates').textContent).toMatch(/en attente du réseau/)
   })
 
   it('affiche les deux étapes de `runningAll` comme en cours', () => {

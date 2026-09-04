@@ -198,7 +198,10 @@ export function ProjectScreen({ id }: { id: string }) {
             chose à annoncer. */}
         <AnnouncementDStep
           running={running}
-          runningAll={runningAll}
+          // Only the panel lists every step. In `strip` the bar shows the
+          // leading one alone, so a plural announcement would voice what no
+          // pixel carries.
+          runningAll={layout === 'panel' ? runningAll : undefined}
           steps={steps}
           connu={project.isSuccess}
           everRan={everRan}

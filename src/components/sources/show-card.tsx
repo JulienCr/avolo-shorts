@@ -1,10 +1,10 @@
 'use client'
 
-import { ChevronRight, Film, LoaderCircle, Play, RotateCcw, TriangleAlert, Unplug } from 'lucide-react'
+import { ChevronRight, Film, Hourglass, LoaderCircle, Play, RotateCcw, TriangleAlert, Unplug } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
 
-import { RESOURCE_NOUN } from '@/components/review/progress'
+import { RESOURCE_NOUN, RESOURCE_SHORT } from '@/components/review/progress'
 import { formatDateSource, formatOctets } from '@/components/sources/texts'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
@@ -245,11 +245,21 @@ function StateLine({ entry, creating }: { entry: Entry; creating: boolean }) {
         aria-valuetext={waiting != null ? `en attente — ${RESOURCE_NOUN[waiting.resource]}` : undefined}
         className="w-full gap-x-2 gap-y-0.5"
       >
-        <span className="text-xs font-normal text-muted-foreground">{label}</span>
+        {/* Truncated, not wrapped: at 640px the line holds 97px, and
+            « Analyse d'image » plus its value already exceeded that before the
+            wait had a label at all. */}
+        <span className="min-w-0 truncate text-xs font-normal text-muted-foreground">{label}</span>
         {/* Only the percentage yields to the wait: the bar stays, and that is
             what keeps `CARD_HEIGHT` constant (issue #56). */}
-        <span className="ml-auto text-xs font-normal text-muted-foreground tabular-nums">
-          {waiting != null ? `En attente — ${RESOURCE_NOUN[waiting.resource]}` : `${percent} %`}
+        <span className="ml-auto flex shrink-0 items-center gap-1 text-xs font-normal text-muted-foreground tabular-nums">
+          {waiting != null ? (
+            <>
+              <Hourglass className="size-3 opacity-70" aria-hidden />
+              {RESOURCE_SHORT[waiting.resource]}
+            </>
+          ) : (
+            `${percent} %`
+          )}
         </span>
       </Progress>
     )

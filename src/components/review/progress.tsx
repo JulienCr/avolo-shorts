@@ -28,6 +28,13 @@ export const RESOURCE_OF: Record<Resource, string> = {
   net: 'du réseau',
 }
 
+/** The resource in the narrowest form, for a library card: « CPU ». */
+export const RESOURCE_SHORT: Record<Resource, string> = {
+  gpu: 'GPU',
+  cpu: 'CPU',
+  net: 'réseau',
+}
+
 /** The resource named on its own, for a badge: « carte graphique ». */
 export const RESOURCE_NOUN: Record<Resource, string> = {
   gpu: 'carte graphique',

@@ -91,6 +91,15 @@ describe('les cinq états', () => {
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('42')
   })
 
+  it('tronque le nom de l’étape plutôt que de renvoyer la valeur à la ligne', () => {
+    // « Analyse d'image » plus « 99 % » exceeded the 97px line before this PR
+    // existed; truncation is what keeps the value on the first line.
+    renderCard(
+      entry({ projectId: PROJECT.id }, { running: { step: 'analysis', progress: 0.99, waiting: null } }),
+    )
+    expect(screen.getByText('Analyse d’image').className).toMatch(/truncate/)
+  })
+
   it('dit l’attente d’une ressource à la place du pourcentage, la barre restant là', () => {
     renderCard(
       entry(
@@ -105,7 +114,13 @@ describe('les cinq états', () => {
       ),
     )
     expect(card().getAttribute('data-state')).toBe('analyzing')
-    expect(screen.getByText('En attente — carte graphique')).toBeTruthy()
+    // Abbreviated on the card: at 640px the state line holds 97px, and the
+    // full phrase needed 140. The bar's accessible name keeps it in full.
+    expect(screen.getByText('GPU')).toBeTruthy()
+    expect(screen.queryByText(/En attente — carte graphique/)).toBeNull()
+    expect(screen.getByRole('progressbar').getAttribute('aria-label')).toMatch(
+      /en attente — carte graphique/,
+    )
     expect(screen.queryByText('0 %')).toBeNull()
     expect(screen.getByRole('progressbar')).toBeTruthy()
   })

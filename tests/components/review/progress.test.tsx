@@ -14,8 +14,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import type { StepName } from '@/core/graph'
 import { phaseProject, type ShowSize } from '@/core/phase'
+import type { Wait } from '@/core/resources'
 import { layoutProgress } from '@/components/review/template'
 import { AnnouncementDStep, StripProgress, PanelProgress } from '@/components/review/progress'
+
+type Running = { step: StepName; progress: number; waiting: Wait | null }
 
 afterEach(cleanup)
 
@@ -32,7 +35,13 @@ function reading(made: StepName[]): Record<StepName, boolean> {
   return Object.fromEntries(all.map((n) => [n, made.includes(n)])) as Record<StepName, boolean>
 }
 
-const inCurrent = { step: 'transcript' as StepName, progress: 0.42 }
+const inCurrent: Running = { step: 'transcript', progress: 0.42, waiting: null }
+
+const waitingGpu: Running = {
+  step: 'transcript',
+  progress: 0,
+  waiting: { resource: 'gpu', waitedMs: 4 * 60_000 },
+}
 
 describe('layoutProgress', () => {
   it('remplace la grille seulement quand la grille serait vide', () => {
@@ -80,15 +89,19 @@ const CQLP: ShowSize = { durationSec: 5_940, sizeBytes: 4_300_000_000, windows: 
 describe('PanelProgress', () => {
   function mount(
     made: StepName[],
-    running: { step: StepName; progress: number } | null = inCurrent,
+    running: Running | null = inCurrent,
     error: string | null = null,
     size = CQLP,
     everRan = true,
+    // Mirrors the server: `running` is `runningAll[0]`, so the default is the
+    // singleton the panel sees whenever one step is in flight.
+    runningAll: Running[] = running !== null ? [running] : [],
   ) {
     return render(
       <PanelProgress
         steps={reading(made)}
         running={running}
+        runningAll={runningAll}
         error={error}
         everRan={everRan}
         size={size}
@@ -198,7 +211,7 @@ describe('PanelProgress', () => {
   })
 
   it('annonce le montage une fois les propositions là', () => {
-    mount(['audio', 'transcript', 'candidates'], { step: 'proxy', progress: 0.1 })
+    mount(['audio', 'transcript', 'candidates'], { step: 'proxy', progress: 0.1, waiting: null })
     expect(screen.getByTestId('next').textContent).toMatch(/montage|proxy/i)
   })
 
@@ -232,6 +245,85 @@ describe('PanelProgress', () => {
     // inventer une donnée.
     mount(['audio'])
     expect(screen.getByTestId('elapsed').textContent).toMatch(/écran/i)
+  })
+
+  it('dit ce qu’attend l’étape en tête quand elle n’a pas démarré', () => {
+    mount(['audio'], waitingGpu)
+    expect(screen.getByText('L’analyse attend la carte graphique.')).toBeTruthy()
+  })
+
+  it('ne dit rien de l’attente quand l’étape en tête tourne', () => {
+    mount(['audio'], inCurrent)
+    expect(screen.getByText('L’analyse est en cours.')).toBeTruthy()
+  })
+
+  it('marque l’étape en attente sans le sablier de la barre en cours', () => {
+    mount(['audio'], waitingGpu)
+    const step = screen.getByTestId('step-transcript')
+    expect(step.getAttribute('data-status')).toBe('queued')
+    expect(step.querySelector('.animate-spin')).toBeNull()
+    // Naming the icon, not merely its absence of animation: the upcoming
+    // marker would satisfy that on its own.
+    expect(step.querySelector('.lucide-hourglass')).not.toBeNull()
+    expect(step.textContent).toMatch(/en attente de la carte graphique depuis 4 min/)
+  })
+
+  it('garde le coût estimé affiché pendant l’attente', () => {
+    // Deliberate choice: hiding the cost next to a queued step would make the
+    // line jump once the step actually starts.
+    mount(['audio'], waitingGpu)
+    expect(screen.getByTestId('step-transcript').textContent).toMatch(/environ/)
+  })
+
+  it('ne redit pas « en attente » avant la phrase qui le dit déjà', () => {
+    mount(['audio'], waitingGpu)
+    const text = screen.getByTestId('step-transcript').textContent ?? ''
+    expect(text.match(/en attente/g)?.length).toBe(1)
+  })
+
+  it('ne laisse pas la barre relire le pourcentage qu’elle vient de remplacer', () => {
+    // The bar stays determinate, so without `aria-valuetext` a screen reader
+    // appends « 0 % » to a label that says the step has not started.
+    mount(['audio'], waitingGpu)
+    const bar = screen.getByRole('progressbar', { name: /transcription/i })
+    expect(bar.getAttribute('aria-valuetext')).toMatch(/en attente de la carte graphique/)
+    expect(bar.getAttribute('aria-label')).not.toMatch(/en attente/)
+  })
+
+  it('contracte l’article sur le processeur, le cas le plus courant', () => {
+    // Only `gpu` reads correctly after « de », and only `gpu` was tested —
+    // `cpu` and `net` produced « de le processeur » and « de le réseau ».
+    const waitingCpu: Running = { step: 'proxy', progress: 0, waiting: { resource: 'cpu', waitedMs: 0 } }
+    mount(['audio', 'transcript'], waitingCpu)
+    expect(screen.getByText('L’analyse attend le processeur.')).toBeTruthy()
+    expect(screen.getByTestId('step-proxy').textContent).toMatch(/en attente du processeur/)
+    expect(screen.getByTestId('step-proxy').textContent).not.toMatch(/de le processeur/)
+  })
+
+  it('partage le nom et la valeur de la barre, sans dire l’attente deux fois', () => {
+    // A progressbar is read as name then value. The wait belongs to one of
+    // them: saying it in both makes a screen reader repeat it.
+    mount(['audio'], waitingGpu)
+    const bar = screen.getByRole('progressbar', { name: /transcription/i })
+    expect(bar.getAttribute('aria-label')).toBe('Transcription')
+    expect(bar.getAttribute('aria-valuetext')).toMatch(/en attente de la carte graphique/)
+  })
+
+  it('marque en attente une étape de `runningAll` qui n’est pas en tête', () => {
+    const local: Running = { step: 'transcript', progress: 0.3, waiting: null }
+    const queued: Running = { step: 'candidates', progress: 0, waiting: { resource: 'net', waitedMs: 0 } }
+    mount(['audio'], local, null, CQLP, true, [local, queued])
+    expect(screen.getByTestId('step-transcript').getAttribute('data-status')).toBe('running')
+    expect(screen.getByTestId('step-candidates').getAttribute('data-status')).toBe('queued')
+    expect(screen.getByTestId('step-candidates').textContent).toMatch(/en attente du réseau/)
+  })
+
+  it('affiche les deux étapes de `runningAll` comme en cours', () => {
+    const local = { step: 'transcript' as StepName, progress: 0.3, waiting: null }
+    const net = { step: 'candidates' as StepName, progress: 0, waiting: null }
+    mount(['audio'], local, null, CQLP, true, [local, net])
+    expect(screen.getByTestId('step-transcript').getAttribute('data-status')).toBe('running')
+    expect(screen.getByTestId('step-candidates').getAttribute('data-status')).toBe('running')
   })
 })
 
@@ -275,6 +367,24 @@ describe('AnnouncementDStep', () => {
     // progression qu'une exécution morte, mais rien n'a jamais tourné.
     render(<AnnouncementDStep running={null} steps={reading([])} connu everRan={false} />)
     expect(screen.getByTestId('announcement').textContent).toMatch(/n’a pas encore commencé/i)
+  })
+
+  it('annonce l’attente d’une ressource, en toutes lettres', () => {
+    render(<AnnouncementDStep running={waitingGpu} steps={reading(['audio'])} connu />)
+    expect(screen.getByTestId('announcement').textContent).toMatch(
+      /Transcription.*en attente de la carte graphique/i,
+    )
+  })
+
+  it('annonce la seconde étape qui entre en file, pas seulement celle de tête', () => {
+    // The panel lists both steps, so a second one queueing is a change worth
+    // saying — the leading step never changed.
+    const local = { step: 'transcript' as StepName, waiting: null }
+    const queued = { step: 'candidates' as StepName, waiting: { resource: 'net' as const, waitedMs: 0 } }
+    render(
+      <AnnouncementDStep running={local} runningAll={[local, queued]} steps={reading(['audio'])} connu />,
+    )
+    expect(screen.getByTestId('announcement').textContent).toMatch(/Repérage.*en attente du réseau/i)
   })
 })
 

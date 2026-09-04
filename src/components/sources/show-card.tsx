@@ -1,9 +1,10 @@
 'use client'
 
-import { ChevronRight, Film, LoaderCircle, Play, RotateCcw, TriangleAlert, Unplug } from 'lucide-react'
+import { ChevronRight, Film, Hourglass, LoaderCircle, Play, RotateCcw, TriangleAlert, Unplug } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
 
+import { RESOURCE_NOUN, RESOURCE_SHORT } from '@/components/review/progress'
 import { formatDateSource, formatOctets } from '@/components/sources/texts'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
@@ -233,16 +234,32 @@ function StateLine({ entry, creating }: { entry: Entry; creating: boolean }) {
     // — la région live de la grille parle aux changements d'étape seulement.
     const percent = Math.round(Math.min(1, Math.max(0, project.running.progress)) * 100)
     const label = LABELS_STEPS[project.running.step]
+    const waiting = project.running.waiting
     return (
       <Progress
         value={percent}
         locale="fr-FR"
-        aria-label={`${label} en cours`}
+        // Name then value, never both: the name keeps the step, the value
+        // replaces the percentage `aria-valuenow` would otherwise say.
+        aria-label={waiting != null ? label : `${label} en cours`}
+        aria-valuetext={waiting != null ? `en attente — ${RESOURCE_NOUN[waiting.resource]}` : undefined}
         className="w-full gap-x-2 gap-y-0.5"
       >
-        <span className="text-xs font-normal text-muted-foreground">{label}</span>
-        <span className="ml-auto text-xs font-normal text-muted-foreground tabular-nums">
-          {percent} %
+        {/* Truncated, not wrapped: at 640px the line holds 97px, and
+            « Analyse d'image » plus its value already exceeded that before the
+            wait had a label at all. */}
+        <span className="min-w-0 truncate text-xs font-normal text-muted-foreground">{label}</span>
+        {/* Only the percentage yields to the wait: the bar stays, and that is
+            what keeps `CARD_HEIGHT` constant (issue #56). */}
+        <span className="ml-auto flex shrink-0 items-center gap-1 text-xs font-normal text-muted-foreground tabular-nums">
+          {waiting != null ? (
+            <>
+              <Hourglass className="size-3 opacity-70" aria-hidden />
+              {RESOURCE_SHORT[waiting.resource]}
+            </>
+          ) : (
+            `${percent} %`
+          )}
         </span>
       </Progress>
     )

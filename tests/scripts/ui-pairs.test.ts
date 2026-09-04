@@ -33,6 +33,16 @@ describe('SCREEN_PAIRS', () => {
   })
 })
 
+describe('SCREEN_PAIRS — les écrans sans garde', () => {
+  it('accepte `library` et `project` comme noms d’écran, sans paire à vérifier', () => {
+    // `pnpm ui-shot --screen library` fails on an unknown name, so dropping a
+    // key would break the command with no test to catch it.
+    expect(Object.keys(SCREEN_PAIRS).sort()).toEqual(['clip', 'library', 'project'])
+    expect(SCREEN_PAIRS.library).toEqual([])
+    expect(SCREEN_PAIRS.project).toEqual([])
+  })
+})
+
 describe('decidePortGuard', () => {
   it('accepte quand le cwd du process écoutant est la racine du dépôt', () => {
     const decision = decidePortGuard({ procCwd: '/home/julien/dev/avolo-shorts', repoRoot: '/home/julien/dev/avolo-shorts', force: false })

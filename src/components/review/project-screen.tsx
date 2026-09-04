@@ -116,6 +116,7 @@ export function ProjectScreen({ id }: { id: string }) {
   }
   const steps = project.data?.steps ?? ({} as Record<StepName, boolean>)
   const running = project.data?.running ?? null
+  const runningAll = project.data?.runningAll ?? []
   // **Au repos seulement.** Pendant qu'une exécution tourne, l'échec affiché
   // serait celui d'avant — et c'est le serveur qui le garantit déjà en rendant
   // `error: null` tant que `running` n'est pas nul.
@@ -197,6 +198,10 @@ export function ProjectScreen({ id }: { id: string }) {
             chose à annoncer. */}
         <AnnouncementDStep
           running={running}
+          // Only the panel lists every step. In `strip` the bar shows the
+          // leading one alone, so a plural announcement would voice what no
+          // pixel carries.
+          runningAll={layout === 'panel' ? runningAll : undefined}
           steps={steps}
           connu={project.isSuccess}
           everRan={everRan}
@@ -291,6 +296,7 @@ export function ProjectScreen({ id }: { id: string }) {
             <PanelProgress
               steps={steps}
               running={running}
+              runningAll={runningAll}
               error={error}
               everRan={everRan}
               size={size}

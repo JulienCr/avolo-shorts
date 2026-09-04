@@ -1,50 +1,89 @@
 'use client'
 
-import { Check, CircleDashed, LoaderCircle } from 'lucide-react'
+import { Check, CircleDashed, Hourglass, LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { StepName } from '@/core/graph'
 import { stepDurationRange, STEPS, LABELS_STEPS, type ShowSize } from '@/core/phase'
+import type { Resource, Wait } from '@/core/resources'
+import type { ProjectStatus } from '@/lib/api'
 import { formatDuration, formatDurationRange } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
 
+type Running = NonNullable<ProjectStatus['running']>
+
+/** The resource named in a sentence, with its article: « la carte graphique ». */
+export const RESOURCE_LABEL: Record<Resource, string> = {
+  gpu: 'la carte graphique',
+  cpu: 'le processeur',
+  net: 'le réseau',
+}
+
+/** The resource after « en attente », contracted: « du processeur ». */
+export const RESOURCE_OF: Record<Resource, string> = {
+  gpu: 'de la carte graphique',
+  cpu: 'du processeur',
+  net: 'du réseau',
+}
+
+/** The resource in the narrowest form, for a library card: « CPU ». */
+export const RESOURCE_SHORT: Record<Resource, string> = {
+  gpu: 'GPU',
+  cpu: 'CPU',
+  net: 'réseau',
+}
+
+/** The resource named on its own, for a badge: « carte graphique ». */
+export const RESOURCE_NOUN: Record<Resource, string> = {
+  gpu: 'carte graphique',
+  cpu: 'processeur',
+  net: 'réseau',
+}
+
 /**
- * L'avancement de l'analyse, sous ses deux formes.
+ * How long a step has been waiting, in whole minutes.
  *
- * **Le panneau porte quatre choses et pas une de plus** (spec §3.2) : l'étape en
- * cours et sa progression, la liste ordonnée des étapes avec celles déjà faites,
- * le temps écoulé, et une phrase qui dit ce qui devient possible ensuite.
+ * @param waitedMs - Measured elapsed wait, never predicted.
+ */
+function formatWait(waitedMs: number): string {
+  // Same guard as `percent`: a non-finite value would print « depuis NaN min ».
+  const minutes = Number.isFinite(waitedMs) ? Math.floor(waitedMs / 60_000) : 0
+  return minutes < 1 ? 'depuis moins d’une minute' : `depuis ${minutes} min`
+}
+
+/**
+ * The analysis progress, in its two forms — spec §3.2 for what it may carry.
  *
- * **Le temps restant n'est jamais affiché, et le coût annoncé est celui de
- * cette émission-ci.** Le panneau donnait cinq durées mesurées une seule fois
- * sur une émission d'1 h 40, à l'identique pour une capsule de vingt minutes :
- * `stepDurationRange` les rapporte à la taille de l'émission, et les rend en
- * fourchettes — « environ 2–3 min », jamais « 2 min 17 s restantes ». La
- * précision d'une seconde affirmerait ce qu'une mesure unique, sur une machine à
- * 40-80 % de variance, ne porte pas.
+ * It enumerates no step name: it iterates `STEPS`, so adding a step to the
+ * graph is one line of data and forgetting one breaks the type-check instead
+ * of rendering « undefined en cours » (issue #39).
  *
- * **Il n'énumère aucun nom d'étape** : il itère `STEPS`, qui vit à côté de
- * `phaseProject`. Ajouter une étape au graphe est alors une ligne de données, et
- * en oublier une casse le type-check plutôt que d'afficher « undefined en
- * cours » (issue #39).
+ * Never a remaining time: the announced cost is a range sized to this show,
+ * because a single measurement on a machine at 40-80 % variance carries none.
  */
 export function PanelProgress({
   steps,
   running,
+  runningAll,
   error,
   everRan,
   size,
   resume,
   shutdown,
 }: {
-  // Pas de `phase` : elle serait redondante. `interrompu` et `failure` ne se
-  // distinguent que par la présence d'`error`, et `wait` que par celle de
-  // `running` — le panneau lit donc directement les deux champs dont la phase
-  // elle-même est faite, sans se donner une seconde source de vérité.
+  // No `phase` here: it would be a second source of truth over the two fields
+  // it is itself made of, `error` and `running`.
   steps: Record<StepName, boolean>
-  running: { step: StepName; progress: number } | null
+  running: Running | null
+  /**
+   * Every step in flight, at most two: one local and one network step.
+   *
+   * Required rather than defaulted: a caller that forgets it would silently
+   * render every step but the leading one as upcoming.
+   */
+  runningAll: Running[]
   /** Le message du serveur, ou `null`. Déjà épuré de ses chemins absolus. */
   error: string | null
   /** Distingue `'new'` d'`'interrupted'` (spec §12) ; ne change que le titre. */
@@ -69,17 +108,19 @@ export function PanelProgress({
   shutdown?: ReactNode
 }) {
   const tracked = useTimeTracked(running !== null)
-  // Une exécution morte ou échouée est la seule impasse réelle de l'interface :
-  // `progression()` lit une `Map` du processus Next, qu'un redémarrage vide sans
-  // laisser d'erreur, et il y a un redémarrage à chaque édition en
-  // développement.
+  // `progression()` reads a Map of the Next process, which a restart empties
+  // without leaving an error — and development restarts on every edit.
   const toResume = running === null
+  const all = runningAll
+  const leadingWait = running?.waiting ?? null
 
   return (
     <section className="mx-auto w-full max-w-2xl rounded-xl border px-6 py-8">
       <h1 className="text-base font-semibold tracking-tight">
         {running !== null
-          ? 'L’analyse est en cours.'
+          ? leadingWait !== null
+            ? `L’analyse attend ${RESOURCE_LABEL[leadingWait.resource]}.`
+            : 'L’analyse est en cours.'
           : error !== null
             ? 'La dernière analyse a échoué.'
             : everRan
@@ -91,14 +132,25 @@ export function PanelProgress({
         <div className="mt-4">
           <Progress
             value={percent(running.progress)}
-            aria-label={`${LABELS_STEPS[running.step]} en cours`}
+            // A progressbar is read as name then value, so the wait belongs to
+            // one of them and not both: the name keeps the step, the value
+            // replaces the percentage `aria-valuenow` would otherwise say.
+            aria-label={
+              leadingWait !== null
+                ? LABELS_STEPS[running.step]
+                : `${LABELS_STEPS[running.step]} en cours`
+            }
+            aria-valuetext={
+              leadingWait !== null ? `en attente ${RESOURCE_OF[leadingWait.resource]}` : undefined
+            }
           />
         </div>
       )}
 
       <ol className="mt-6 flex flex-col gap-1.5">
         {STEPS.map(({ name, label }) => {
-          const state = stateDStep(name, steps, running)
+          const entry = all.find((r) => r.step === name) ?? null
+          const state = stateDStep(name, steps, entry)
           // La fourchette de **cette** émission, jamais une constante. Chaîne
           // vide quand l'étape n'a jamais été chronométrée, ou que l'émission
           // n'a pas encore livré sa durée.
@@ -120,10 +172,16 @@ export function PanelProgress({
                   tests et la couleur ne s'entend pas : sans ce mot, la liste
                   donnait les noms et les coûts sans dire ce qui est fait.
                   (relevé par Copilot) */}
-              <span className="sr-only">{LABELS_STATE[state]}</span>
-              {state === 'running' && running !== null && (
-                <span className="font-mono text-xs tabular-nums">
-                  {percent(running.progress)} %
+              {/* `queued` says it in full just below — state, resource and
+                  elapsed wait — so the generic word would be heard twice. */}
+              {state !== 'queued' && <span className="sr-only">{LABELS_STATE[state]}</span>}
+              {state === 'running' && entry !== null && (
+                <span className="font-mono text-xs tabular-nums">{percent(entry.progress)} %</span>
+              )}
+              {state === 'queued' && entry?.waiting != null && (
+                <span className="text-xs text-muted-foreground">
+                  en attente {RESOURCE_OF[entry.waiting.resource]}{' '}
+                  {formatWait(entry.waiting.waitedMs)}
                 </span>
               )}
               {/* Le coût de cette émission-ci, jamais une estimation du
@@ -175,34 +233,25 @@ export function PanelProgress({
 }
 
 /**
- * Ce qui se dit à voix haute d'une analyse en cours.
+ * What a running analysis says out loud: step changes, a step entering the
+ * queue, and the end — never progress, since the screen polls every two
+ * seconds.
  *
- * **Elle n'annonce que les changements d'étape, et la fin.** L'écran interroge
- * l'état toutes les deux secondes : une région live posée sur le pourcentage
- * produirait une annonce toutes les deux secondes pendant neuf minutes. Le
- * `progressbar`, lui, met `aria-valuenow` à jour en silence. `STEPS` en compte
- * cinq : six annonces sur toute l'analyse, la fin comprise.
- *
- * **Elle se pose au-dessus de la disposition, jamais dans le panneau.** Le
- * panneau disparaît au moment précis où le repérage rend ses propositions — la
- * grille le remplace —, donc une région qui vivrait dedans serait démontée
- * pendant le seul changement qui vaille d'être annoncé. Une région live n'annonce
- * que ce qui change **pendant qu'elle est là**.
- *
- * **Le texte s'ajuste pendant le rendu, pas dans un effet.** Comparer l'étape
- * précédente dans un `useEffect` pour poser un message d'état est le réflexe, et
- * il est interdit ici (`react-hooks/set-state-in-effect`) — pour une bonne
- * raison : React ne réécrit le nœud de texte que si son contenu a changé, donc
- * un rendu direct annonce déjà exactement les changements, sans second état à
- * tenir d'accord.
+ * It sits above the layout, never inside the panel, which is unmounted at the
+ * one moment worth announcing. And the text is computed during render, never
+ * in an effect: `react-hooks/set-state-in-effect` forbids the reflex, and a
+ * direct render already announces exactly what changed.
  */
 export function AnnouncementDStep({
   running,
+  runningAll,
   steps,
   connu,
   everRan = true,
 }: {
-  running: { step: StepName } | null
+  running: { step: StepName; waiting?: Wait | null } | null
+  /** Every step in flight, so a second one entering the queue is announced. */
+  runningAll?: readonly { step: StepName; waiting?: Wait | null }[]
   steps: Record<StepName, boolean>
   /**
    * L'état du projet a-t-il répondu ?
@@ -217,12 +266,18 @@ export function AnnouncementDStep({
   /** Défaut `true`, comme dans `phaseProject` — voir spec §12. */
   everRan?: boolean
 }) {
+  // The queued step, not necessarily the leading one: the panel lists both,
+  // so a second step entering the queue is a change worth announcing.
+  const inFlight = runningAll ?? (running !== null ? [running] : [])
+  const queued = inFlight.find((r) => r.waiting != null) ?? null
   return (
     <p data-testid="announcement" aria-live="polite" className="sr-only">
       {!connu
         ? ''
         : running !== null
-          ? `${LABELS_STEPS[running.step]} en cours.`
+          ? queued?.waiting != null
+            ? `${LABELS_STEPS[queued.step]} : en attente ${RESOURCE_OF[queued.waiting.resource]}.`
+            : `${LABELS_STEPS[running.step]} en cours.`
           : STEPS.every(({ name }) => steps[name] === true)
             ? 'L’analyse est terminée.'
             : everRan
@@ -258,20 +313,21 @@ export function StripProgress({ running }: { running: { step: StepName; progress
   )
 }
 
-type StateDStep = 'done' | 'running' | 'upcoming'
+type StateDStep = 'done' | 'running' | 'queued' | 'upcoming'
 
 const LABELS_STATE: Record<StateDStep, string> = {
   done: 'terminée',
   running: 'en cours',
+  queued: 'en attente',
   upcoming: 'à venir',
 }
 
 function stateDStep(
   name: StepName,
   steps: Record<StepName, boolean>,
-  running: { step: StepName } | null,
+  entry: { step: StepName; waiting: Wait | null } | null,
 ): StateDStep {
-  if (running?.step === name) return 'running'
+  if (entry?.step === name) return entry.waiting !== null ? 'queued' : 'running'
   // `=== true` et non la vérité de la valeur : le relevé arrive du réseau, et
   // une étape que le client ne connaît pas encore y vaut `undefined`.
   return steps[name] === true ? 'done' : 'upcoming'
@@ -280,6 +336,9 @@ function stateDStep(
 function Marker({ state }: { state: StateDStep }) {
   if (state === 'done') return <Check className="size-3.5 shrink-0 text-stage-foreground" aria-hidden />
   if (state === 'running') return <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden />
+  // Never the running bar's spinner: an hourglass says the work is waiting,
+  // not that it is moving.
+  if (state === 'queued') return <Hourglass className="size-3.5 shrink-0 opacity-70" aria-hidden />
   return <CircleDashed className="size-3.5 shrink-0 opacity-50" aria-hidden />
 }
 

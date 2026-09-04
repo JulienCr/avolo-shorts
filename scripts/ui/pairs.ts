@@ -51,8 +51,14 @@ export const CLIP_SCREEN_PAIRS: readonly OverlapPair[] = [
   },
 ]
 
+/** Valid `--screen` names with no overlap guard yet: nothing to check here. */
+export const LIBRARY_SCREEN_PAIRS: readonly OverlapPair[] = []
+export const PROJECT_SCREEN_PAIRS: readonly OverlapPair[] = []
+
 export const SCREEN_PAIRS: Readonly<Record<string, readonly OverlapPair[]>> = {
   clip: CLIP_SCREEN_PAIRS,
+  library: LIBRARY_SCREEN_PAIRS,
+  project: PROJECT_SCREEN_PAIRS,
 }
 
 /** Le recouvrement vertical de deux rectangles `DOMRect`-like — jamais négatif. */

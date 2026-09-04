@@ -2,7 +2,9 @@
 
 import { useState } from 'react'
 
+import { RESOURCE_OF } from '@/components/review/progress'
 import { LABELS_STEPS } from '@/core/phase'
+import type { Resource } from '@/core/resources'
 import type { ProjectListItem, StepName } from '@/lib/api'
 
 /**
@@ -41,10 +43,13 @@ import type { ProjectListItem, StepName } from '@/lib/api'
  * Ce module a suivi la disparition de la section « Projets » : il vivait dans
  * `liste-projets.tsx`, et c'est la bibliothèque unifiée qui le monte désormais.
  */
+/** A project's current step, and the resource holding it back — `null` while it runs. */
+type Phase = { step: StepName; resource: Resource | null }
+
 type Memory = {
   /** Ce qui a produit l'annonce en cours : l'étape et l'échec de chaque projet. */
   signature: string
-  steps: Map<string, StepName>
+  steps: Map<string, Phase>
   message: string
 }
 
@@ -70,14 +75,18 @@ function finDAnalysis(project: ProjectListItem): string {
 }
 
 /**
- * Ce dont l'annonce dépend, et rien d'autre : l'étape en cours de chaque projet,
- * le fait qu'il ait échoué et le fait qu'il ait été arrêté. La progression n'y
- * est pas — c'est ce qui fait qu'un tour de sondage sur un pourcentage qui
- * avance ne dit rien.
+ * What the announcement depends on, and nothing else: each project's current
+ * step, the resource it waits on, whether it failed and whether it was stopped.
+ * Neither the progress nor `waitedMs` is here — that is what keeps a polling
+ * round on a rising percentage, or on a growing wait, silent.
  */
 function sign(projects: readonly ProjectListItem[] | undefined): string {
   return (projects ?? [])
-    .map((p) => `${p.id}\u0000${p.running?.step ?? ''}\u0000${p.error !== null}\u0000${p.stopped}`)
+    .map(
+      (p) =>
+        `${p.id}\u0000${p.running?.step ?? ''}\u0000${p.running?.waiting?.resource ?? ''}` +
+        `\u0000${p.error !== null}\u0000${p.stopped}`,
+    )
     .join('\u0001')
 }
 
@@ -87,17 +96,29 @@ function announce(
   projects: readonly ProjectListItem[] | undefined,
   signature: string,
 ): Memory {
-  const steps = new Map<string, StepName>()
+  const steps = new Map<string, Phase>()
   for (const p of projects ?? []) {
-    if (p.running !== null) steps.set(p.id, p.running.step)
+    if (p.running !== null) {
+      steps.set(p.id, { step: p.running.step, resource: p.running.waiting?.resource ?? null })
+    }
   }
 
   const messages: string[] = []
   for (const p of projects ?? []) {
     const before = memory.steps.get(p.id)
     const now = steps.get(p.id)
-    if (now !== undefined && now !== before) {
-      messages.push(`${p.title} : ${LABELS_STEPS[now]}.`)
+    // Entering the queue counts as a step change, not a second rule. Leaving
+    // it has no dedicated message: the resource then drops to `null`, the
+    // comparison changes, and the usual message announces the start.
+    if (
+      now !== undefined &&
+      (before === undefined || before.step !== now.step || before.resource !== now.resource)
+    ) {
+      messages.push(
+        now.resource !== null
+          ? `${p.title} : en attente ${RESOURCE_OF[now.resource]}.`
+          : `${p.title} : ${LABELS_STEPS[now.step]}.`,
+      )
     } else if (now === undefined && before !== undefined) {
       // **Trois fins, pas deux.** Un arrêt demandé laisse `error` à `null` — ce
       // n'est pas une panne —, si bien que la région live annonçait « analyse

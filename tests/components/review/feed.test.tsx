@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 
 /**
- * La boucle de tri : les trois comportements dont une régression serait
- * silencieuse (spec §5.5).
+ * The sort loop: the three behaviours a regression would leave silent
+ * (spec §5.5).
  *
- * `G` avance, `U` revient sur la carte précédente, et une carte décidée ne bouge
- * pas. Aucun des trois ne se voit dans un test pur — ce sont des faits de focus
- * et d'ordre à l'écran —, et les trois se paient trente fois par émission.
+ * `P` advances, `U` reverts the previous card, and a decided card does not
+ * move. None of the three shows up in a pure unit test — they are facts of
+ * focus and on-screen order — and each is paid thirty times per show.
  */
 
 import { cleanup, render, screen, within } from '@testing-library/react'
@@ -145,13 +145,13 @@ function orderDisplayed(): string[] {
 }
 
 describe('la boucle de tri, au clavier', () => {
-  it('« G » garde la carte et avance sur la suivante', async () => {
+  it('« P » garde la carte et avance sur la suivante', async () => {
     // Décider sans avancer oblige à un geste sur deux. C'est ce qui fait passer
     // le tri de dix minutes à trois.
     render(<Harness start={[candidate(1), candidate(2), candidate(3)]} />)
     const user = await focus('Extrait 1')
 
-    await user.keyboard('g')
+    await user.keyboard('p')
 
     expect(
       within(card('Extrait 1')).getByRole('button', { name: /gardé/i }).getAttribute('aria-pressed'),
@@ -159,11 +159,11 @@ describe('la boucle de tri, au clavier', () => {
     expect(document.activeElement).toBe(card('Extrait 2'))
   })
 
-  it('« E » écarte et avance de même', async () => {
+  it('« X » écarte et avance de même', async () => {
     render(<Harness start={[candidate(1), candidate(2), candidate(3)]} />)
     const user = await focus('Extrait 1')
 
-    await user.keyboard('e')
+    await user.keyboard('x')
 
     expect(within(card('Extrait 1')).getByRole('button', { name: /^écarté$/i })).toBeTruthy()
     expect(document.activeElement).toBe(card('Extrait 2'))
@@ -175,7 +175,7 @@ describe('la boucle de tri, au clavier', () => {
     render(<Harness start={[candidate(1), candidate(2), candidate(3)]} />)
     const user = await focus('Extrait 1')
 
-    await user.keyboard('gg')
+    await user.keyboard('pp')
     expect(document.activeElement).toBe(card('Extrait 3'))
 
     await user.keyboard('u')
@@ -188,7 +188,7 @@ describe('la boucle de tri, au clavier', () => {
     render(<Harness start={[candidate(1), candidate(2), candidate(3)]} />)
     const user = await focus('Extrait 1')
 
-    await user.keyboard('geu')
+    await user.keyboard('pxu')
     expect(within(card('Extrait 2')).getByRole('button', { name: /^écarter$/i })).toBeTruthy()
 
     await user.keyboard('u')
@@ -226,7 +226,7 @@ describe('la boucle de tri, au clavier', () => {
     render(<Harness start={[candidate(1, 'exported')]} viewInitial="gardes" />)
     const user = await focus('Extrait 1')
 
-    await user.keyboard('e')
+    await user.keyboard('x')
     expect(within(card('Extrait 1')).getByRole('button', { name: /^écarté$/i })).toBeTruthy()
 
     await user.keyboard('u')
@@ -252,7 +252,7 @@ describe('la boucle de tri, au clavier', () => {
     // là où la carte est.
     render(<Harness start={[candidate(1), candidate(2)]} />)
     const user = await focus('Extrait 1')
-    await user.keyboard('e')
+    await user.keyboard('x')
 
     await user.click(screen.getByRole('tab', { name: /gardés/i }))
     // **Le focus quitte l'onglet**, sinon la garde des raccourcis avale la
@@ -284,11 +284,11 @@ describe('la boucle de tri, au clavier', () => {
     expect(document.activeElement).toBe(card('Extrait 2'))
   })
 
-  it('tient la dernière carte quand « G » n’a plus où avancer', async () => {
+  it('tient la dernière carte quand « P » n’a plus où avancer', async () => {
     render(<Harness start={[candidate(1), candidate(2)]} />)
     const user = await focus('Extrait 2')
 
-    await user.keyboard('g')
+    await user.keyboard('p')
 
     expect(document.activeElement).toBe(card('Extrait 2'))
   })
@@ -297,7 +297,7 @@ describe('la boucle de tri, au clavier', () => {
     render(<Harness start={[candidate(1)]} />)
     const user = await focus('Extrait 1')
 
-    await user.keyboard('g')
+    await user.keyboard('p')
 
     // La dernière décision fait tomber le compteur à zéro : la fin de boucle
     // s'ajoute, mais la carte reste en place — sinon `U` n'aurait plus de carte
@@ -345,7 +345,7 @@ describe('rien ne bouge sous la main', () => {
     render(<Harness start={[candidate(1), candidate(2), candidate(3)]} />)
     const user = await focus('Extrait 1')
 
-    await user.keyboard('e')
+    await user.keyboard('x')
 
     expect(orderDisplayed()).toEqual(['Extrait 1', 'Extrait 2', 'Extrait 3'])
   })
@@ -353,7 +353,7 @@ describe('rien ne bouge sous la main', () => {
   it('compacte au changement de vue, pas au moment du clic', async () => {
     render(<Harness start={[candidate(1), candidate(2), candidate(3)]} />)
     const user = await focus('Extrait 1')
-    await user.keyboard('e')
+    await user.keyboard('x')
 
     await user.click(screen.getByRole('tab', { name: /écartés/i }))
     expect(orderDisplayed()).toEqual(['Extrait 1'])
@@ -379,7 +379,7 @@ describe('rien ne bouge sous la main', () => {
     // qu'on venait de décider — sous la main, et hors de portée de `U`.
     const { rerender } = render(<Vivant list={[candidate(1), candidate(2)]} />)
     const user = await focus('Extrait 1')
-    await user.keyboard('e')
+    await user.keyboard('x')
 
     rerender(<Vivant list={[candidate(1), candidate(2), candidate(3)]} />)
 
@@ -523,7 +523,7 @@ describe('ce que la carte annonce', () => {
     render(<Harness start={[candidate(1)]} />)
     const user = await focus('Extrait 1')
 
-    await user.keyboard('e')
+    await user.keyboard('x')
 
     const button = within(card('Extrait 1')).getByRole('button', { name: /^écarté$/i })
     expect(button.getAttribute('aria-pressed')).toBe('true')
@@ -611,7 +611,7 @@ describe('les comptes', () => {
     render(<Harness start={[candidate(1), candidate(2), candidate(3)]} />)
     const user = await focus('Extrait 1')
 
-    await user.keyboard('g')
+    await user.keyboard('p')
     expect(screen.getByTestId('counts').textContent).toContain('1 clip gardé')
 
     await user.keyboard('u')
@@ -628,7 +628,7 @@ describe('les comptes', () => {
     render(<Harness start={[candidate(1), candidate(2)]} />)
     const user = await focus('Extrait 1')
 
-    await user.keyboard('e')
+    await user.keyboard('x')
     expect(screen.getByRole('tab', { name: /écartés/i }).textContent).toContain('1')
   })
 })
@@ -821,7 +821,7 @@ describe('la sélection en masse pour la publication (retour d’usage §2.4)', 
     render(<Harness start={[candidate(1), candidate(2)]} />)
     const user = await focus('Extrait 1')
     await user.click(screen.getByRole('checkbox', { name: /Extrait 1/ }))
-    await user.keyboard('g')
+    await user.keyboard('p')
 
     expect(within(card('Extrait 1')).getByRole('button', { name: /gardé/i })).toHaveProperty(
       'ariaPressed',

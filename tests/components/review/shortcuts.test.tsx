@@ -44,11 +44,10 @@ describe('processAlreadyKey', () => {
   })
 
   it('écarte le contenu d’une boîte de dialogue', () => {
-    // Le popup de Base UI porte `role="dialog"` et `tabIndex={-1}` : cliquer son
-    // texte en fait l'élément actif. Sans lui dans la garde, `G` déciderait une
-    // carte qu'on ne voit pas — et l'écran invite précisément à ce geste, en
-    // affichant « G — garder » dans une boîte qu'on vient d'ouvrir.
-    const popup = mount('<div role="dialog"><p>G — garder</p></div>')
+    // Base UI's popup carries `role="dialog"` and `tabIndex={-1}`: clicking its
+    // text makes it the active element. Without this guard entry, `P` would
+    // decide a card it cannot see, sitting behind the dialog.
+    const popup = mount('<div role="dialog"><p>P — garder</p></div>')
     expect(processAlreadyKey(popup)).toBe(true)
     expect(processAlreadyKey(popup.firstElementChild)).toBe(true)
     expect(processAlreadyKey(mount('<div role="alertdialog"></div>'))).toBe(true)
@@ -120,7 +119,7 @@ describe('useShortcutsReview', () => {
     const user = userEvent.setup()
 
     await user.click(screen.getByTestId('card'))
-    await user.keyboard('jk{ArrowDown}{ArrowUp}ge{Enter}u?')
+    await user.keyboard('jk{ArrowDown}{ArrowUp}px{Enter}u?')
 
     expect(actions.suivant).toHaveBeenCalledTimes(2)
     expect(actions.precedent).toHaveBeenCalledTimes(2)
@@ -131,26 +130,37 @@ describe('useShortcutsReview', () => {
     expect(actions.aide).toHaveBeenCalledTimes(1)
   })
 
-  it('rend la main dès qu’un modificateur est enfoncé', async () => {
-    // `Ctrl+E` ouvre la barre d'adresse, `Cmd+G` cherche à nouveau : voler ces
-    // touches-là ferait perdre un geste du navigateur pour rien.
-    //
-    // **La frappe part d'une carte, pas de `document`.** Dispatché sur
-    // `document`, l'événement était déjà écarté par la garde des cibles — qui
-    // rend `true` sur tout ce qui n'est pas un `HTMLElement` —, donc le test
-    // restait vert même en retirant la garde des modificateurs.
+  it('ignore les anciennes touches « G »/« E », sans alias', async () => {
     const actions = actionsMute()
     render(<Harness actions={actions} />)
     const user = userEvent.setup()
 
     await user.click(screen.getByTestId('card'))
-    await user.keyboard('{Control>}e{/Control}')
+    await user.keyboard('ge')
+
+    expect(actions.garder).not.toHaveBeenCalled()
     expect(actions.ecarter).not.toHaveBeenCalled()
+  })
+
+  it('rend la main dès qu’un modificateur est enfoncé', async () => {
+    // `Ctrl+P` opens the print dialog: stealing that key would cost a browser
+    // gesture for nothing.
+
+    // **The keystroke starts from a card, not from `document`.** The target
+    // guard returns `true` on anything that isn't an `HTMLElement`, so on
+    // `document` it would pass vacuously and prove nothing.
+    const actions = actionsMute()
+    render(<Harness actions={actions} />)
+    const user = userEvent.setup()
+
+    await user.click(screen.getByTestId('card'))
+    await user.keyboard('{Control>}p{/Control}')
+    expect(actions.garder).not.toHaveBeenCalled()
 
     // Et la même touche sans modificateur passe : c'est ce qui prouve que la
     // frappe atteignait bien le gestionnaire.
-    await user.keyboard('e')
-    expect(actions.ecarter).toHaveBeenCalledTimes(1)
+    await user.keyboard('p')
+    expect(actions.garder).toHaveBeenCalledTimes(1)
   })
 
   it('ne vole aucune frappe à un bouton qui a le focus', async () => {

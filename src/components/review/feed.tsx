@@ -44,27 +44,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 /**
- * Le fil de tri : vingt-cinq à trente cartes, deux décisions par carte, chacune
- * réversible.
+ * The sort feed: twenty-five to thirty cards, two decisions per card, each
+ * reversible. Keyboard shortcuts, the decided card staying put, and the
+ * remaining-count carry this loop — see spec §2.5.
  *
- * **C'est une boucle, et une boucle a ses instruments** (spec §2.5). Trois
- * propriétés portent tout le reste, et chacune se paie à chaque itération :
- *
- * - **le clavier**, parce que sur trente items l'aller-retour vers la souris
- *   devient le coût dominant. `G` et `E` **avancent** — décider sans avancer
- *   oblige à un geste sur deux — et `U` revient sur la décision précédente
- *   **et sur sa carte**, sinon on corrige à l'aveugle ;
- * - **rien ne bouge sous la main.** Une carte décidée reste à sa place, marquée.
- *   Écarter faisait disparaître la carte et refluer toute la grille : la
- *   suivante n'était plus ni sous l'œil ni sous le curseur. Le compactage se
- *   fait **au changement de vue**, jamais au moment du clic ;
- * - **le reste à faire, pas le chemin parcouru.** « 12 à trier » se lit d'un
- *   coup d'œil et reste vrai quand on change d'avis ; un pourcentage ne survit
- *   pas à un retour en arrière, faute d'un dénominateur connu avant la fin.
- *
- * Il ne va pas chercher ses données : la page les lui passe. C'est ce qui le
- * rend montable dans un test sans serveur ni cache, et c'est là que vivent les
- * trois comportements dont une régression serait silencieuse.
+ * It does not fetch its own data: the page hands it clips. That is what makes
+ * it mountable in a test without a server or a cache, and where the
+ * behaviours a regression would leave silent actually live.
  */
 export function ReviewFeed({
   projectId,
@@ -742,8 +728,8 @@ function HelpKeyboard({
 const SHORTCUTS: readonly [string, string][] = [
   ['J / K', 'carte suivante, précédente'],
   ['Flèches', 'idem'],
-  ['G', 'garder, et avancer d’une carte'],
-  ['E', 'écarter, et avancer d’une carte'],
+  ['P', 'garder, et avancer d’une carte'],
+  ['X', 'écarter, et avancer d’une carte'],
   ['Entrée', 'ouvrir le clip'],
   ['U', 'défaire la dernière décision, et revenir sur sa carte'],
   ['?', 'cette liste'],

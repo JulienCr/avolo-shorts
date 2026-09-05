@@ -104,8 +104,10 @@ export function linkSort(scope: SortScope): string {
  * reads.
  */
 export function scopeFromSearchParams(searchParams: URLSearchParams): SortScope | null {
+  // `URLSearchParams.get()` already decodes — unlike a route segment, which
+  // is why `routeId` isn't reused here: applying it would decode twice.
   const projectId = searchParams.get('project')
-  return projectId === null ? null : { kind: 'project', projectId: routeId(projectId) }
+  return projectId === null ? null : { kind: 'project', projectId }
 }
 
 /**

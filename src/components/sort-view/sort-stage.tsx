@@ -77,8 +77,12 @@ export function SortStage({
     el.currentTime = bounds.start
     // Unmuted first; a direct link to `/sort` carries no user gesture, and
     // the browser then rejects unmuted autoplay — fall back to muted rather
-    // than leaving the video silently paused.
-    el.play().catch(() => {
+    // than leaving the video silently paused. `el.muted` is set synchronously
+    // because `setMuted` only schedules the next render: retrying `play()`
+    // immediately would still see an unmuted element and be rejected again.
+    el.play().catch((error: unknown) => {
+      if (!(error instanceof DOMException) || error.name !== 'NotAllowedError') return
+      el.muted = true
       setMuted(true)
       void el.play()
     })
@@ -103,74 +107,79 @@ export function SortStage({
     help: () => setHelp(true),
   })
 
-  if (done) {
-    return (
-      <LoopEnd projectId={projectId} clips={clips} durationKept={count(clips).durationKept} next={next} />
-    )
-  }
-
   return (
+    // Mounted whether `done` or not: `undo()` can call `attemptFocus`
+    // synchronously on the frame where the last clip is un-decided, before
+    // React has re-rendered past `LoopEnd` — an unmounted container here
+    // would drop that focus silently, the same race as issue #323.
     <div
       ref={stage}
       tabIndex={-1}
       className="flex h-full min-h-0 flex-1 flex-col items-center gap-3 outline-none"
     >
-      <p className="text-sm text-muted-foreground">
-        <span data-testid="remaining" className="font-mono tabular-nums">
-          {remaining}
-        </span>{' '}
-        à trier
-      </p>
-
-      {currentClip === null ? (
-        <p className="text-sm text-muted-foreground">Rien à trier pour le moment.</p>
+      {done ? (
+        <LoopEnd projectId={projectId} clips={clips} durationKept={count(clips).durationKept} next={next} />
       ) : (
         <>
-          {/* `absolute inset-0`, not a flex/percentage size: a `<video>`'s
-              aspect ratio otherwise fights the flex layout sizing its
-              container, ballooning the whole page. Out of flow, it can't. */}
-          <div className="relative w-full min-h-0 flex-1 overflow-hidden rounded-xl bg-zinc-950">
-            {proxyUrl !== null && (
-              <video
-                ref={video}
-                src={proxyUrl}
-                muted={muted}
-                playsInline
-                onTimeUpdate={onTimeUpdate}
-                onSeeked={onTimeUpdate}
-                className="absolute inset-0 size-full object-contain"
-              />
-            )}
-            {muted && (
-              <Badge
-                variant="outline"
-                className="absolute top-2 right-2 gap-1 bg-black/55 text-white backdrop-blur-sm"
-              >
-                <VolumeX className="size-3" aria-hidden />
-                <button type="button" onClick={() => setMuted(false)} className="underline">
-                  son coupé
-                </button>
-              </Badge>
-            )}
-            {showsPassMarker && (
-              <Badge data-testid="pass-marker" variant="outline" className="absolute top-2 left-2 bg-black/55 text-white backdrop-blur-sm">
-                nouvelle passe
-              </Badge>
-            )}
-          </div>
-
-          <p data-testid="stage-title" className="text-base font-medium">
-            {currentClip.title || currentClip.id}
+          <p className="text-sm text-muted-foreground">
+            <span data-testid="remaining" className="font-mono tabular-nums">
+              {remaining}
+            </span>{' '}
+            à trier
           </p>
 
-          <div className="flex items-center gap-3 pb-2">
-            <Button size="lg" onClick={() => decide('kept')}>
-              Garder
-            </Button>
-            <Button size="lg" variant="outline" onClick={() => decide('discarded')}>
-              Écarter
-            </Button>
-          </div>
+          {currentClip === null ? (
+            <p className="text-sm text-muted-foreground">Rien à trier pour le moment.</p>
+          ) : (
+            <>
+              {/* `absolute inset-0`, not a flex/percentage size: a `<video>`'s
+                  aspect ratio otherwise fights the flex layout sizing its
+                  container, ballooning the whole page. Out of flow, it can't. */}
+              <div className="relative w-full min-h-0 flex-1 overflow-hidden rounded-xl bg-zinc-950">
+                {proxyUrl !== null && (
+                  <video
+                    ref={video}
+                    src={proxyUrl}
+                    muted={muted}
+                    controls
+                    playsInline
+                    onTimeUpdate={onTimeUpdate}
+                    onSeeked={onTimeUpdate}
+                    className="absolute inset-0 size-full object-contain"
+                  />
+                )}
+                {muted && (
+                  <Badge
+                    variant="outline"
+                    className="absolute top-2 right-2 gap-1 bg-black/55 text-white backdrop-blur-sm"
+                  >
+                    <VolumeX className="size-3" aria-hidden />
+                    <button type="button" onClick={() => setMuted(false)} className="underline">
+                      son coupé
+                    </button>
+                  </Badge>
+                )}
+                {showsPassMarker && (
+                  <Badge data-testid="pass-marker" variant="outline" className="absolute top-2 left-2 bg-black/55 text-white backdrop-blur-sm">
+                    nouvelle passe
+                  </Badge>
+                )}
+              </div>
+
+              <p data-testid="stage-title" className="text-base font-medium">
+                {currentClip.title || currentClip.id}
+              </p>
+
+              <div className="flex items-center gap-3 pb-2">
+                <Button size="lg" onClick={() => decide('kept')}>
+                  Garder
+                </Button>
+                <Button size="lg" variant="outline" onClick={() => decide('discarded')}>
+                  Écarter
+                </Button>
+              </div>
+            </>
+          )}
         </>
       )}
 
@@ -180,7 +189,7 @@ export function SortStage({
 }
 
 const SHORTCUTS: readonly [string, string][] = [
-  ['J / K', 'clip suivant, précédent'],
+  ['J / K / ←/→/↑/↓', 'clip suivant, précédent'],
   ['P', 'garder, et avancer d’un clip'],
   ['X', 'écarter, et avancer d’un clip'],
   ['U', 'défaire la dernière décision, et revenir sur son clip'],

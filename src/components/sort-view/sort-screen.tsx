@@ -7,6 +7,7 @@ import type { StepName } from '@/core/graph'
 import { phaseProject } from '@/core/phase'
 import { linkProject, next, type SortScope } from '@/lib/navigation'
 import { useCandidates, usePatchClip, useProject } from '@/lib/queries'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AppBar } from '@/components/navigation/app-bar'
 import { SortStage } from '@/components/sort-view/sort-stage'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -52,20 +53,45 @@ export function SortScreen({ scope }: { scope: SortScope }) {
         </Link>
       </AppBar>
       <main className="flex flex-1 flex-col px-4 py-5">
-        {!project.isSuccess && !candidates.isSuccess ? (
+        {project.isError || candidates.isError ? (
+          <LoadError />
+        ) : !project.isSuccess || !candidates.isSuccess ? (
           <Skeleton className="aspect-video w-full max-w-3xl self-center rounded-xl" />
         ) : !proxyReady ? (
           <NoProxy projectId={projectId} />
         ) : (
-          <SortStage
-            projectId={projectId}
-            clips={clips}
-            proxyUrl={`/api/projects/${encodeURIComponent(projectId)}/proxy`}
-            next={issue}
-            onStatus={(clipId, status) => patch.mutate({ clipId, projectId, patch: { status } })}
-          />
+          <>
+            <SortStage
+              projectId={projectId}
+              clips={clips}
+              proxyUrl={`/api/projects/${encodeURIComponent(projectId)}/proxy`}
+              next={issue}
+              onStatus={(clipId, status) => patch.mutate({ clipId, projectId, patch: { status } })}
+            />
+            {/* Une écriture optimiste qui échoue remet le clip comme il
+                était — même mot qu'à la grille (`ProjectScreen`), sinon la
+                décision a juste l'air de ne pas avoir été prise. */}
+            {patch.isError && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  L’enregistrement a échoué. Le clip est revenu à son état précédent.
+                </AlertDescription>
+              </Alert>
+            )}
+          </>
         )}
       </main>
+    </div>
+  )
+}
+
+function LoadError() {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+      <Film className="size-6 text-muted-foreground/50" aria-hidden />
+      <p className="text-sm text-muted-foreground">
+        Le chargement a échoué. Réessayez, ou revenez à la grille.
+      </p>
     </div>
   )
 }

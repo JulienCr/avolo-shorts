@@ -28,6 +28,8 @@ function actions() {
     escape: vi.fn(),
     poserBound: vi.fn(),
     find: vi.fn(),
+    keep: vi.fn(),
+    discard: vi.fn(),
     help: vi.fn(),
     aSelection: true,
   }
@@ -134,6 +136,16 @@ describe('useShortcuts', () => {
     fireEvent.keyDown(document.body, { key: 'Delete' })
     expect(a.remove).not.toHaveBeenCalled()
   })
+
+  it('garde sur `P`, écarte sur `X`', () => {
+    const a = actions()
+    render(<Harness {...a} />)
+    fireEvent.keyDown(document.body, { key: 'p' })
+    fireEvent.keyDown(document.body, { key: 'x' })
+    expect(a.keep).toHaveBeenCalledTimes(1)
+    expect(a.discard).toHaveBeenCalledTimes(1)
+  })
+
 })
 
 describe('volerait', () => {

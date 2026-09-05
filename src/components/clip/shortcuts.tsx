@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 
 import {
   Dialog,
@@ -11,15 +11,12 @@ import {
 } from '@/components/ui/dialog'
 
 /**
- * Les raccourcis de l'écran de clip, et la garde qui les empêche de voler une
- * frappe.
+ * The clip screen's shortcuts, and the guard that keeps them from stealing a
+ * keystroke.
  *
- * Douze touches (spec §4.1), **toutes directes en AZERTY** : `I` et `O` sont la
- * convention des bancs de montage pour les points d'entrée et de sortie, et un
- * raccourci à deux mains n'économise rien sur un geste répété trente fois.
- * `Ctrl+F` remplace celui du navigateur, que la virtualisation neutralise de
- * toute façon — le transcript rendu ne porte qu'une trentaine de phrases sur
- * plusieurs centaines.
+ * Fourteen keys (spec §4.1), all direct on AZERTY. `Ctrl+F` replaces the
+ * browser's own, which virtualization neutralizes anyway — the rendered
+ * transcript carries only a few dozen sentences out of several hundred.
  */
 
 /** Ce qui saisit du texte : ces éléments prennent **toutes** les touches. */
@@ -93,24 +90,33 @@ export type ActionsShortcuts = {
   escape: () => void
   poserBound: (edge: 'start' | 'end') => void
   find: () => void
+  /** `P`. The decision and its toggle live in `toggleStatus` (`@/lib/clip-status`). */
+  keep: () => void
+  /** `X`. Same remark as `keep`. */
+  discard: () => void
   help: () => void
   aSelection: boolean
 }
 
-export function useShortcuts({
-  playbackOrPause,
-  cancel,
-  restore,
-  remove,
-  escape,
-  poserBound,
-  find,
-  help,
-  aSelection,
-}: ActionsShortcuts) {
+/**
+ * The actions behind a ref, the listener attached once — same reason as
+ * `useShortcutsReview` (`@/components/review/shortcuts`): the functions
+ * change on every render, and listing them as effect dependencies would
+ * tear down and reattach the listener on every keystroke.
+ */
+export function useShortcuts(actions: ActionsShortcuts) {
+  const last = useRef(actions)
+  useEffect(() => {
+    last.current = actions
+  })
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (wouldSteal(e.target, e.key)) return
+      const {
+        playbackOrPause, cancel, restore, remove, escape,
+        poserBound, find, keep, discard, help, aSelection,
+      } = last.current
       const command = e.ctrlKey || e.metaKey
       const key = e.key.toLowerCase()
 
@@ -150,6 +156,12 @@ export function useShortcuts({
       } else if (key === 'o') {
         e.preventDefault()
         poserBound('end')
+      } else if (key === 'p') {
+        e.preventDefault()
+        keep()
+      } else if (key === 'x') {
+        e.preventDefault()
+        discard()
       } else if (e.key === '?') {
         e.preventDefault()
         help()
@@ -158,14 +170,14 @@ export function useShortcuts({
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [playbackOrPause, cancel, restore, remove, escape, poserBound, find, help, aSelection])
+  }, [])
 }
 
 /**
  * Les raccourcis, écrits quelque part.
  *
- * `?` existe parce que le reste existe : douze raccourcis qui ne se découvrent
- * que dans un attribut `title` sont douze raccourcis que personne n'utilise. La
+ * `?` existe parce que le reste existe : quatorze raccourcis qui ne se découvrent
+ * que dans un attribut `title` sont quatorze raccourcis que personne n'utilise. La
  * primitive `dialog` porte le piège de focus, la fermeture par `Échap` et le
  * retour du focus au déclencheur — les trois choses qu'une boîte écrite à la
  * main rate.
@@ -178,6 +190,8 @@ const TABLE: { key: string; effect: string }[] = [
   { key: 'Échap', effect: 'Vider la sélection' },
   { key: 'I', effect: 'Commencer le clip sur le mot sélectionné' },
   { key: 'O', effect: 'Terminer le clip sur le mot sélectionné' },
+  { key: 'P', effect: 'Garder le clip' },
+  { key: 'X', effect: 'Écarter le clip' },
   { key: 'Ctrl+F', effect: 'Chercher dans le transcript' },
   { key: '←  →', effect: 'Mot précédent, suivant (dans le transcript)' },
   { key: 'Entrée', effect: 'Placer la lecture sur le mot, ou le remonter' },

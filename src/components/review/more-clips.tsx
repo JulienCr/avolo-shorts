@@ -8,12 +8,12 @@ import { Button } from '@/components/ui/button'
 const REASON_IN_CURRENT = 'Une exécution est déjà en cours ; les nouvelles propositions arriveront à sa fin.'
 
 /**
- * Le pont vers la seconde passe de repérage — le seul chemin pour l'atteindre.
+ * The bridge to the second sweep pass — the only way to reach it.
  *
- * **Trois états, lus sur `ProjectStatus` seul** : `moreClips.exhausted` dit que
- * le replay est épuisé, `running` dit qu'une exécution tourne déjà (la sienne
- * ou celle d'un autre onglet), et l'absence des deux rend les boutons. Aucun
- * état n'est déduit d'ailleurs — pas de la liste des clips, pas de la boucle.
+ * **Three states, read from `ProjectStatus` alone**: `moreClips.exhausted`
+ * says the replay is spent, `running` says an execution is already in flight
+ * (this tab's or another one's), and the absence of both renders the buttons.
+ * No state is inferred from anything else — not the clip list, not the loop.
  */
 export function MoreClips({ projectId }: { projectId: string }) {
   const project = useProject(projectId)
@@ -59,9 +59,9 @@ export function MoreClips({ projectId }: { projectId: string }) {
 }
 
 /**
- * L'échec d'une demande de +N. Un 409 est une course perdue, pas une panne
- * (même raisonnement que `RetryFailure` dans `retry.tsx`) ; les deux 400 et le
- * 404 rendent tels quels le message du serveur — c'est déjà la bonne phrase.
+ * A failed +N request. A 409 is a lost race, not a breakdown (same reasoning
+ * as `RetryFailure` in `retry.tsx`); the two 400s and the 404 render the
+ * server's message as-is — it is already the right sentence.
  */
 function MoreClipsFailure({ error }: { error: Error | null }) {
   if (error === null) return null

@@ -52,7 +52,8 @@ import {
   schedulePublication,
   unschedulePublication,
 } from '@/lib/api'
-// Import à part, même règle, pour la même raison.
+// Separate import, same rule as above: this file is shared with another PR
+// in flight, so additions go at the end without reordering what's there.
 import { requestMoreClips } from '@/lib/api'
 import { clipBounds } from '@/lib/editing'
 import type { TranscriptLine } from '@/lib/editing'
@@ -1136,13 +1137,13 @@ export function useUnschedulePublication() {
 }
 
 /**
- * Demande une passe de repérage supplémentaire — +5 ou +10 clips — une fois le
- * tri fini. Modelée sur `useRetry` (`:632`).
+ * Ask for a further sweep pass — +5 or +10 clips — once triage is done.
+ * Modeled on `useRetry` (`:632`), including its onSuccess/onSettled split.
  *
- * **`onSettled` invalide l'état du projet quoi qu'il arrive, y compris sur un
- * 409.** C'est le moment exact où l'écran doit aller chercher l'exécution que
- * la route vient de refuser de doubler ; sans cette invalidation le cache
- * reste sur `running: null` et `refetchInterval` (`:128`) ne repart jamais.
+ * **`onSettled` invalidates the project state whatever happens, including on
+ * a 409.** That is the exact moment the screen must go fetch the execution
+ * the route just refused to double; without it the cache stays on
+ * `running: null` and `refetchInterval` (`:128`) never restarts.
  */
 export function useRequestMoreClips() {
   const client = useQueryClient()
@@ -1150,9 +1151,13 @@ export function useRequestMoreClips() {
   return useMutation({
     mutationFn: ({ projectId, count }: { projectId: string; count: 5 | 10 }) =>
       requestMoreClips(projectId, count),
+    onSuccess(_shot, { projectId }) {
+      // Candidates only on success: a rejected +N launched nothing, so there
+      // is nothing new to fetch — reloading would pay for an unchanged state.
+      void client.invalidateQueries({ queryKey: keys.candidats(projectId) })
+    },
     onSettled(_shot, _error, { projectId }) {
       void client.invalidateQueries({ queryKey: keys.projet(projectId) })
-      void client.invalidateQueries({ queryKey: keys.candidats(projectId) })
     },
   })
 }

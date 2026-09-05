@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 
 /**
- * Le pont vers la seconde passe de repérage.
+ * The bridge to the second sweep pass.
  *
- * `moreClips` est `null` sur un projet qui n'a jamais tourné la passe — c'est ce
- * qui doit rendre les deux boutons — et `exhausted: true` doit les retirer, sans
- * qu'on ait besoin d'y jamais cliquer pour le prouver.
+ * `moreClips` is `null` on a project that never ran the pass — that is what
+ * must render the two buttons — and `exhausted: true` must remove them,
+ * without ever needing to click one to prove it.
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'

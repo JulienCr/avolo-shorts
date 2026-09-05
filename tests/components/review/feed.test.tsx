@@ -60,9 +60,9 @@ function candidate(n: number, status: ClipStatus = 'candidate'): CandidateClip {
   }
 }
 
-// `LoopEnd` monte `MoreClips`, qui lit `useProject` par TanStack Query : sans
-// ce fournisseur, chaque harnais qui atteint la fin de la boucle plante sur
-// « No QueryClient set ».
+// `LoopEnd` mounts `MoreClips`, which reads `useProject` via TanStack Query:
+// without this provider, every harness that reaches the end of the loop
+// crashes on "No QueryClient set".
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 })

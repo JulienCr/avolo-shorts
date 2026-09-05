@@ -250,3 +250,22 @@ export function clipNext<T extends { id: string; status: ClipStatus }>(
   // retoucher le montage est un parcours normal.
   return clips.slice(current + 1).find((c) => isGuard(c.status)) ?? null
 }
+
+/**
+ * Le symétrique de `clipNext` : trouve `currentId` dans la liste **entière**,
+ * pas dans la liste déjà filtrée sur `isGuard` — un clip qu'on vient d'écarter
+ * garde sa position, et le clip gardé qui le précède reste atteignable.
+ */
+export function clipPrevious<T extends { id: string; status: ClipStatus }>(
+  clips: readonly T[],
+  currentId: string,
+): T | null {
+  const current = clips.findIndex((c) => c.id === currentId)
+  if (current < 0) return null
+  return (
+    clips
+      .slice(0, current)
+      .reverse()
+      .find((c) => isGuard(c.status)) ?? null
+  )
+}

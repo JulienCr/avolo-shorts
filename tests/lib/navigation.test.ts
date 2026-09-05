@@ -3,7 +3,17 @@ import { describe, expect, it } from 'vitest'
 import type { ClipStatus } from '@/core/edl'
 import type { StepName } from '@/core/graph'
 import { phaseProject, type Phase } from '@/core/phase'
-import { path, clipNext, linkClip, linkProject, planningLink, routeId, settingsLink, next } from '@/lib/navigation'
+import {
+  path,
+  clipNext,
+  clipPrevious,
+  linkClip,
+  linkProject,
+  planningLink,
+  routeId,
+  settingsLink,
+  next,
+} from '@/lib/navigation'
 
 const project = { id: 'p1', title: 'La scène Avolo du 15 juin' }
 
@@ -329,5 +339,32 @@ describe('clipNext', () => {
       { id: 'b', status: 'kept' as ClipStatus, title: 'Deux' },
     ]
     expect(clipNext(clips, 'a')).toBe(clips[1])
+  })
+})
+
+describe('clipPrevious', () => {
+  function list(...clips: [string, ClipStatus][]) {
+    return clips.map(([id, status]) => ({ id, status }))
+  }
+
+  it('rend le clip gardé précédent', () => {
+    const clips = list(['a', 'kept'], ['b', 'discarded'], ['c', 'kept'])
+    expect(clipPrevious(clips, 'c')?.id).toBe('a')
+  })
+
+  it('reste atteignable depuis un clip qu’on vient d’écarter', () => {
+    // La mise à jour optimiste retire aussitôt le clip courant de la liste
+    // filtrée sur `isGuard` : chercher sa position dans la liste entière est
+    // ce qui garde le clip gardé précédent joignable (PR #321).
+    const clips = list(['a', 'kept'], ['b', 'kept'])
+    expect(clipPrevious(clips, 'b')?.id).toBe('a')
+  })
+
+  it('rend null sur le premier gardé', () => {
+    expect(clipPrevious(list(['a', 'kept'], ['b', 'kept']), 'a')).toBeNull()
+  })
+
+  it('rend null quand le clip courant n’est pas dans la liste', () => {
+    expect(clipPrevious(list(['a', 'kept'], ['b', 'kept']), 'z')).toBeNull()
   })
 })

@@ -47,7 +47,7 @@ import { ApiError, HOOK_DEFAULTS } from '@/lib/api'
 import { LABELS_STATUS, isDiscarded, isGuard, toggleStatus, type Decision } from '@/lib/clip-status'
 import { indexTranscript, lineInitial, toMontageTime } from '@/lib/editing'
 import { differences, useAutosave } from '@/lib/autosave'
-import { clipNext, linkClip } from '@/lib/navigation'
+import { clipNext, clipPrevious, linkClip } from '@/lib/navigation'
 import {
   useExporter,
   usePatchClip,
@@ -410,7 +410,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
 
   const guards = (candidates.data ?? []).filter((c) => isGuard(c.status))
   const rank = guards.findIndex((c) => c.id === clip.id)
-  const previous = rank > 0 ? guards[rank - 1] : null
+  // Cherché dans la liste entière, pas dans `guards` : écarter le clip
+  // courant le retire de `guards` avant ce rendu, et le clip gardé qui le
+  // précède doit rester atteignable — comme `clipNext` le fait déjà.
+  const previous = clipPrevious(candidates.data ?? [], clip.id)
   const next = clipNext(candidates.data ?? [], clip.id)
 
   // Le geste terminal unique vit ici, pas dans `ExportsView` : sinon le

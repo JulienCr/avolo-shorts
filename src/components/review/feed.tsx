@@ -1,7 +1,8 @@
 'use client'
 
-import { Keyboard, Send, TriangleAlert } from 'lucide-react'
-import { useRef, useState, type ReactNode } from 'react'
+import { Keyboard, ListVideo, Send, TriangleAlert } from 'lucide-react'
+import Link from 'next/link'
+import { useId, useRef, useState, type ReactNode } from 'react'
 
 import {
   clipEligibilityFromStatus,
@@ -14,7 +15,7 @@ import type { ClipStatus } from '@/core/edl'
 import { count } from '@/core/phase'
 import type { SelectionReport, CandidateClip } from '@/lib/api'
 import { formatDuration } from '@/lib/format'
-import type { Next } from '@/lib/navigation'
+import { linkSort, type Next } from '@/lib/navigation'
 import { CandidateCard } from '@/components/review/candidate-card'
 import { LoopEnd } from '@/components/review/loop-end'
 import { agreement, detectionWord, VIEWS, type View } from '@/components/review/template'
@@ -24,7 +25,7 @@ import { useReviewSession, writeSessionReview } from '@/components/review/sessio
 import { PublishDialog, type PublishClipTarget } from '@/components/publication/publish-dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
@@ -350,20 +351,24 @@ export function ReviewFeed({
           part. Un seul panneau suffit — celui de la vue active, dont le contenu
           change avec elle. */}
       <Tabs value={view} onValueChange={(value) => onView(value as View)}>
-        <TabsList>
-          {VIEWS.map(({ value, label }) => (
-            <TabsTrigger key={value} value={value}>
-              {label}
-              <Badge variant="outline" className="ml-1 font-mono text-xs tabular-nums">
-                {value === 'atrier'
-                  ? counts.aSort
-                  : value === 'gardes'
-                    ? counts.guards
-                    : counts.discarded}
-              </Badge>
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <div className="flex items-center justify-between gap-3">
+          <TabsList>
+            {VIEWS.map(({ value, label }) => (
+              <TabsTrigger key={value} value={value}>
+                {label}
+                <Badge variant="outline" className="ml-1 font-mono text-xs tabular-nums">
+                  {value === 'atrier'
+                    ? counts.aSort
+                    : value === 'gardes'
+                      ? counts.guards
+                      : counts.discarded}
+                </Badge>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          <ButtonSort projectId={projectId} proxyReady={proxyReady} />
+        </div>
 
         <TabsContent value={view} className="flex flex-col gap-4">
           {clips.length === 0 && (
@@ -490,6 +495,48 @@ const LABELS_EMPTY: Record<View, { title: string; detail: string }> = {
     detail: 'Les clips gardés se montent depuis leur carte.',
   },
   ecartes: { title: 'Aucun clip écarté.', detail: 'Rien n’a encore été mis de côté.' },
+}
+
+/**
+ * L'entrée vers le tri plein écran, sur la même ligne que les onglets.
+ *
+ * **Désactivé sans le proxy, jamais absent** : la vue de tri joue chaque clip,
+ * elle n'a rien à montrer tant que l'encodage n'a pas produit ce fichier. Même
+ * garde qu'`aria-disabled` sur « Monter » (`candidate-card.tsx`) — la raison
+ * reste lisible au clavier plutôt que masquée dans une bulle d'aide.
+ */
+function ButtonSort({ projectId, proxyReady }: { projectId: string; proxyReady: boolean }) {
+  const reason = useId()
+
+  if (!proxyReady) {
+    return (
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          aria-disabled="true"
+          aria-describedby={reason}
+          onClick={(event) => event.preventDefault()}
+        >
+          <ListVideo aria-hidden />
+          Trier
+        </Button>
+        <p id={reason} data-testid="reason-sort" className="text-xs text-muted-foreground">
+          Le tri plein écran s’ouvrira avec le proxy, en cours d’encodage.
+        </p>
+      </div>
+    )
+  }
+
+  // Un lien, pas un bouton stylé en lien — même raison que `Mount` dans
+  // `candidate-card.tsx` : `Button render={<Link/>}` de Base UI pose
+  // `role="button"` sur l'ancre dès qu'elle n'est pas un `<button>` natif.
+  return (
+    <Link href={linkSort({ kind: 'project', projectId })} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+      <ListVideo aria-hidden />
+      Trier
+    </Link>
+  )
 }
 
 function Empty({ title, detail }: { title: string; detail: string }) {

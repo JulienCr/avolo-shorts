@@ -695,8 +695,8 @@ describe('la fin de la boucle', () => {
   })
 
   it('mène aux clips gardés, une vraie navigation de vue plutôt qu’un lien vers soi', () => {
-    // Sur `{ complet, trie }`, `suite` vise désormais `?vue=gardes` : ce
-    // n'est plus un lien vers l'écran où l'on est déjà, donc il se rend.
+    // The sorted outcome now targets `?vue=gardes`, no longer the screen
+    // already on screen — so it renders instead of being suppressed.
     render(<Harness start={[candidate(1, 'kept'), candidate(2, 'discarded')]} />)
 
     const link = screen.getByRole('link', { name: /passer au montage/i })

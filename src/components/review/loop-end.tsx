@@ -101,7 +101,7 @@ function editingProgress(mounts: number, guards: number): string {
 /**
  * What comes after the loop, rendered as a paragraph, a link, or nothing.
  *
- * @remarks See the PR body for why these are the only three shapes.
+ * @remarks See PR #331's body for why these are the only three shapes.
  */
 function Issue({ next, projectId }: { next: Next; projectId: string }) {
   if (next.kind === 'waiting') {

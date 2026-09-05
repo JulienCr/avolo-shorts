@@ -497,14 +497,7 @@ const LABELS_EMPTY: Record<View, { title: string; detail: string }> = {
   ecartes: { title: 'Aucun clip écarté.', detail: 'Rien n’a encore été mis de côté.' },
 }
 
-/**
- * L'entrée vers le tri plein écran, sur la même ligne que les onglets.
- *
- * **Désactivé sans le proxy, jamais absent** : la vue de tri joue chaque clip,
- * elle n'a rien à montrer tant que l'encodage n'a pas produit ce fichier. Même
- * garde qu'`aria-disabled` sur « Monter » (`candidate-card.tsx`) — la raison
- * reste lisible au clavier plutôt que masquée dans une bulle d'aide.
- */
+/** The entry point to the full-screen sort view, on the tab row. */
 function ButtonSort({ projectId, proxyReady }: { projectId: string; proxyReady: boolean }) {
   const reason = useId()
 
@@ -528,9 +521,9 @@ function ButtonSort({ projectId, proxyReady }: { projectId: string; proxyReady: 
     )
   }
 
-  // Un lien, pas un bouton stylé en lien — même raison que `Mount` dans
-  // `candidate-card.tsx` : `Button render={<Link/>}` de Base UI pose
-  // `role="button"` sur l'ancre dès qu'elle n'est pas un `<button>` natif.
+  // A link, not a button styled as one — `Button render={<Link/>}` from Base
+  // UI puts `role="button"` on the anchor, breaking it as a link (same as
+  // `Mount` in `candidate-card.tsx`).
   return (
     <Link href={linkSort({ kind: 'project', projectId })} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
       <ListVideo aria-hidden />

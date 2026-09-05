@@ -53,7 +53,7 @@ export function MoreClips({ projectId }: { projectId: string }) {
           {REASON_IN_CURRENT}
         </p>
       )}
-      <MoreClipsFailure error={moreClips.error} />
+      <MoreClipsFailure error={moreClips.error} inCurrent={inCurrent} />
     </div>
   )
 }
@@ -62,10 +62,14 @@ export function MoreClips({ projectId }: { projectId: string }) {
  * A failed +N request. A 409 is a lost race, not a breakdown (same reasoning
  * as `RetryFailure` in `retry.tsx`); the two 400s and the 404 render the
  * server's message as-is — it is already the right sentence.
+ *
+ * @param inCurrent Whether the project still shows a running execution — a
+ * 409 recorded before it ended would otherwise claim one is still in flight.
  */
-function MoreClipsFailure({ error }: { error: Error | null }) {
+function MoreClipsFailure({ error, inCurrent }: { error: Error | null; inCurrent: boolean }) {
   if (error === null) return null
   const conflict = error instanceof ApiError && error.status === 409
+  if (conflict && !inCurrent) return null
   return (
     <Alert variant="destructive" className="max-w-sm">
       <AlertDescription>

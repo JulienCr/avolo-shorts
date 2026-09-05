@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ProjectStatus } from '@/lib/api'
 import { MoreClips } from '@/components/review/more-clips'
+import { keys } from '@/lib/queries'
 
 function status(overrides: Partial<ProjectStatus> = {}): ProjectStatus {
   return {
@@ -41,6 +42,17 @@ function envelope({ children }: { children: ReactNode }) {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+}
+
+/** Same wrapper as `envelope`, with the client exposed for a manual refetch. */
+function envelopeWithClient() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  )
+  return { client, wrapper }
 }
 
 afterEach(() => {
@@ -71,12 +83,11 @@ describe('MoreClips', () => {
   })
 
   it('bloque les boutons pendant qu’une exécution tourne, avec sa raison à côté', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        response(status({ running: { step: 'candidates', progress: 0, waiting: null } })),
-      ),
-    )
+    const call = vi.fn(async (url: string) => {
+      if (url.includes('/candidates/more')) return response({ projectId: 'p1', plan: ['candidates'] })
+      return response(status({ running: { step: 'candidates', progress: 0, waiting: null } }))
+    })
+    vi.stubGlobal('fetch', call)
     render(<MoreClips projectId="p1" />, { wrapper: envelope })
 
     const button = await screen.findByRole('button', { name: '+5' })
@@ -84,6 +95,8 @@ describe('MoreClips', () => {
     expect(screen.getByTestId('reason-more-clips').textContent).toMatch(/en cours/i)
 
     await userEvent.setup().click(button)
+
+    expect(call.mock.calls.some(([u]) => String(u).includes('/candidates/more'))).toBe(false)
   })
 
   it('demande +5 ou +10 selon le bouton cliqué', async () => {
@@ -108,9 +121,14 @@ describe('MoreClips', () => {
   })
 
   it('dit qu’une exécution tourne déjà plutôt que « échec » sur un 409', async () => {
+    let concurrent = false
     const call = vi.fn(async (url: string) => {
-      if (url.includes('/candidates/more')) return response({ error: 'déjà en cours' }, 409)
-      return response(status())
+      if (url.includes('/candidates/more')) {
+        concurrent = true
+        return response({ error: 'déjà en cours' }, 409)
+      }
+      const running = concurrent ? { step: 'candidates' as const, progress: 0, waiting: null } : null
+      return response(status({ running }))
     })
     vi.stubGlobal('fetch', call)
     render(<MoreClips projectId="p1" />, { wrapper: envelope })
@@ -120,6 +138,30 @@ describe('MoreClips', () => {
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toMatch(/exécution.*(tourne|cours)/i),
     )
+  })
+
+  it('efface l’alerte du 409 une fois l’exécution concurrente terminée', async () => {
+    // La cause du finding Copilot : sans ce nettoyage, l'alerte affirme encore
+    // qu'une exécution tourne alors que les boutons sont redevenus actifs.
+    let concurrent = false
+    const call = vi.fn(async (url: string) => {
+      if (url.includes('/candidates/more')) {
+        concurrent = true
+        return response({ error: 'déjà en cours' }, 409)
+      }
+      const running = concurrent ? { step: 'candidates' as const, progress: 0, waiting: null } : null
+      return response(status({ running }))
+    })
+    vi.stubGlobal('fetch', call)
+    const { client, wrapper } = envelopeWithClient()
+    render(<MoreClips projectId="p1" />, { wrapper })
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: '+5' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
+
+    concurrent = false
+    await client.invalidateQueries({ queryKey: keys.projet('p1') })
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
   })
 
   it('affiche le message du serveur sur un 400', async () => {

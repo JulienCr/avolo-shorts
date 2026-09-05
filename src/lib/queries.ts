@@ -1138,12 +1138,10 @@ export function useUnschedulePublication() {
 
 /**
  * Ask for a further sweep pass — +5 or +10 clips — once triage is done.
- * Modeled on `useRetry` (`:632`), including its onSuccess/onSettled split.
  *
- * **`onSettled` invalidates the project state whatever happens, including on
- * a 409.** That is the exact moment the screen must go fetch the execution
- * the route just refused to double; without it the cache stays on
- * `running: null` and `refetchInterval` (`:128`) never restarts.
+ * @returns Invalidates the candidates only on success, and the project state
+ * on every outcome including a 409 — the running execution the route just
+ * refused to double still needs `refetchInterval` to pick it up.
  */
 export function useRequestMoreClips() {
   const client = useQueryClient()

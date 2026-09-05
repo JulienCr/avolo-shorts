@@ -48,8 +48,8 @@ export function LoopEnd({
       <section className="rounded-xl border border-dashed px-6 py-12 text-center">
         <h2 className="text-sm font-medium">Tout a été écarté.</h2>
         <p className="mx-auto mt-1 max-w-prose text-sm text-muted-foreground">
-          Rien ne part au montage. Un nouveau repérage rendra d’autres
-          propositions ; les décisions déjà prises, elles, y survivent.
+          Rien ne part au montage ; les décisions déjà prises survivent à un
+          nouveau repérage.
         </p>
         <MoreClips projectId={projectId} />
       </section>

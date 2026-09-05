@@ -484,6 +484,13 @@ détection de personnes tourne dessus, la prévisualisation le lit. L'original
 n'est rouvert qu'à l'export. Sans lui, ni l'interface ni la détection ne tiennent
 sur des fichiers de 12 Go.
 
+**Le déclenchement est l'écran de fin de tri, pas un bouton permanent.** Les
+boutons « +5 »/« +10 » (`src/components/review/more-clips.tsx`) ne rendent que
+quand plus rien n'attend de décision — c'est ce qui garantit que la règle
+ci-dessus s'applique sans exception, puisque tout clip existant porte alors une
+décision humaine. `ProjectStatus.moreClips` (`MoreClipsReport | null`) et
+`POST /api/projects/:id/candidates/more` portent l'état et la demande.
+
 ### Le clip est une liste de segments
 
 ```json

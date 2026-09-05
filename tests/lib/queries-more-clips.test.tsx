@@ -2,9 +2,6 @@
 
 /**
  * `useRequestMoreClips`, and its onSuccess/onSettled split.
- *
- * Separate file for the same reason as `queries-relance.test.tsx`: a shared
- * `queries.test.tsx` edited in parallel would conflict for nothing.
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -51,9 +48,9 @@ describe('useRequestMoreClips', () => {
   })
 
   it('invalide le projet mais pas les candidats sur un 409', async () => {
-    // Un 409 dit qu'une exécution tourne déjà : rien n'a été lancé, donc les
-    // candidats n'ont pas bougé, mais l'écran doit aller chercher l'exécution
-    // en cours pour que `refetchInterval` reparte.
+    // A 409 means an execution is already running: nothing was launched, so
+    // the candidates haven't moved, but the screen must fetch the running
+    // execution for `refetchInterval` to restart.
     vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'déjà en cours' }, 409)))
     const { invalid, envelope } = harness()
     const { result } = renderHook(() => useRequestMoreClips(), { wrapper: envelope })

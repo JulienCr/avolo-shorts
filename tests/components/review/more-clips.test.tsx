@@ -66,8 +66,8 @@ describe('MoreClips', () => {
     vi.stubGlobal('fetch', vi.fn(async () => response(status())))
     render(<MoreClips projectId="p1" />, { wrapper: envelope })
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '+5' })).toBeTruthy())
-    expect(screen.getByRole('button', { name: '+10' })).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Demander 5 clips supplémentaires' })).toBeTruthy())
+    expect(screen.getByRole('button', { name: 'Demander 10 clips supplémentaires' })).toBeTruthy()
   })
 
   it('ne rend aucun bouton quand le replay est épuisé', async () => {
@@ -78,8 +78,8 @@ describe('MoreClips', () => {
     render(<MoreClips projectId="p1" />, { wrapper: envelope })
 
     await waitFor(() => expect(screen.getByText(/épuisé|exploré/i)).toBeTruthy())
-    expect(screen.queryByRole('button', { name: '+5' })).toBeNull()
-    expect(screen.queryByRole('button', { name: '+10' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Demander 5 clips supplémentaires' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Demander 10 clips supplémentaires' })).toBeNull()
   })
 
   it('bloque les boutons pendant qu’une exécution tourne, avec sa raison à côté', async () => {
@@ -90,7 +90,7 @@ describe('MoreClips', () => {
     vi.stubGlobal('fetch', call)
     render(<MoreClips projectId="p1" />, { wrapper: envelope })
 
-    const button = await screen.findByRole('button', { name: '+5' })
+    const button = await screen.findByRole('button', { name: 'Demander 5 clips supplémentaires' })
     expect(button.getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByTestId('reason-more-clips').textContent).toMatch(/en cours/i)
 
@@ -99,7 +99,7 @@ describe('MoreClips', () => {
     expect(call.mock.calls.some(([u]) => String(u).includes('/candidates/more'))).toBe(false)
   })
 
-  it('demande +5 ou +10 selon le bouton cliqué', async () => {
+  it('demande +5 quand on clique +5', async () => {
     const call = vi.fn(async (url: string) => {
       if (url.includes('/candidates/more')) return response({ projectId: 'p1', plan: ['candidates'] })
       return response(status())
@@ -107,7 +107,28 @@ describe('MoreClips', () => {
     vi.stubGlobal('fetch', call)
     render(<MoreClips projectId="p1" />, { wrapper: envelope })
 
-    await userEvent.setup().click(await screen.findByRole('button', { name: '+10' }))
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Demander 5 clips supplémentaires' }))
+
+    await waitFor(() => expect(call).toHaveBeenCalledWith(
+      expect.stringContaining('/candidates/more'),
+      expect.anything(),
+    ))
+    const found = call.mock.calls.find(([u]) => String(u).includes('/candidates/more')) as unknown as [
+      string,
+      RequestInit,
+    ]
+    expect(JSON.parse(String(found[1].body))).toEqual({ count: 5 })
+  })
+
+  it('demande +10 quand on clique +10', async () => {
+    const call = vi.fn(async (url: string) => {
+      if (url.includes('/candidates/more')) return response({ projectId: 'p1', plan: ['candidates'] })
+      return response(status())
+    })
+    vi.stubGlobal('fetch', call)
+    render(<MoreClips projectId="p1" />, { wrapper: envelope })
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Demander 10 clips supplémentaires' }))
 
     await waitFor(() => expect(call).toHaveBeenCalledWith(
       expect.stringContaining('/candidates/more'),
@@ -133,7 +154,7 @@ describe('MoreClips', () => {
     vi.stubGlobal('fetch', call)
     render(<MoreClips projectId="p1" />, { wrapper: envelope })
 
-    await userEvent.setup().click(await screen.findByRole('button', { name: '+5' }))
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Demander 5 clips supplémentaires' }))
 
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toMatch(/exécution.*(tourne|cours)/i),
@@ -141,8 +162,8 @@ describe('MoreClips', () => {
   })
 
   it('efface l’alerte du 409 une fois l’exécution concurrente terminée', async () => {
-    // La cause du finding Copilot : sans ce nettoyage, l'alerte affirme encore
-    // qu'une exécution tourne alors que les boutons sont redevenus actifs.
+    // Without this, the alert would keep claiming an execution is running
+    // once the buttons have already gone back to normal.
     let concurrent = false
     const call = vi.fn(async (url: string) => {
       if (url.includes('/candidates/more')) {
@@ -156,7 +177,7 @@ describe('MoreClips', () => {
     const { client, wrapper } = envelopeWithClient()
     render(<MoreClips projectId="p1" />, { wrapper })
 
-    await userEvent.setup().click(await screen.findByRole('button', { name: '+5' }))
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Demander 5 clips supplémentaires' }))
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
 
     concurrent = false
@@ -173,7 +194,7 @@ describe('MoreClips', () => {
     vi.stubGlobal('fetch', call)
     render(<MoreClips projectId="p1" />, { wrapper: envelope })
 
-    await userEvent.setup().click(await screen.findByRole('button', { name: '+5' }))
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Demander 5 clips supplémentaires' }))
 
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain(message))
   })

@@ -13,21 +13,11 @@ import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 
 /**
- * La fin de la boucle de tri.
+ * The end of the triage loop: the kept clips with their editing progress.
  *
- * **Une boucle a besoin d'une fin.** Quand le compteur tombe à zéro, l'écran le
- * dit et propose la suite : la liste des clips gardés avec leur état de montage.
- * C'est aussi le seul endroit du parcours où une progression linéaire est
- * honnête, puisqu'on connaît enfin le dénominateur — le nombre de clips gardés
- * ne se sait qu'à la fin du tri, et c'est pourquoi le reste de l'écran compte
- * ce qui reste à faire plutôt qu'un pourcentage.
- *
- * **Elle tranche ce que `next` ne distingue pas.** « Tout a été écarté » et
- * « des clips gardés restent à monter » tombent tous deux sur `travail: 'sorted'`
- * : la liste est non vide, donc pas `none`, et sans clip gardé, donc pas
- * `delivered`. Les séparer demanderait une cinquième valeur de `Work` ou la liste
- * des clips en argument. C'est donc l'écran qui le dit, puisque c'est lui qui
- * tient la liste.
+ * @remarks Tells apart "everything discarded" from "guards remain to edit",
+ * which `next` conflates onto a single `travail: 'sorted'` — this screen
+ * holds the list, so it is the one that can tell them apart.
  */
 export function LoopEnd({
   projectId,

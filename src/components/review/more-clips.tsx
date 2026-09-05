@@ -5,7 +5,7 @@ import { useProject, useRequestMoreClips } from '@/lib/queries'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 
-const REASON_IN_CURRENT = 'Une exécution est déjà en cours ; les nouvelles propositions arriveront à sa fin.'
+const REASON_IN_CURRENT = 'Une exécution est déjà en cours ; la demande sera possible à sa fin.'
 
 /**
  * The bridge to the second sweep pass — the only way to reach it.
@@ -41,20 +41,38 @@ export function MoreClips({ projectId }: { projectId: string }) {
   return (
     <div className="mt-4 flex flex-col gap-1.5">
       <div className="flex gap-2">
-        <Button variant="outline" size="sm" aria-disabled={blocked} onClick={() => ask(5)}>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-disabled={blocked}
+          aria-label="Demander 5 clips supplémentaires"
+          onClick={() => ask(5)}
+        >
           +5
         </Button>
-        <Button variant="outline" size="sm" aria-disabled={blocked} onClick={() => ask(10)}>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-disabled={blocked}
+          aria-label="Demander 10 clips supplémentaires"
+          onClick={() => ask(10)}
+        >
           +10
         </Button>
       </div>
-      {inCurrent && (
-        <p data-testid="reason-more-clips" className="max-w-xs text-xs text-muted-foreground">
-          {REASON_IN_CURRENT}
-        </p>
-      )}
+      <Reason blocked={blocked} inCurrent={inCurrent} />
       <MoreClipsFailure error={moreClips.error} inCurrent={inCurrent} />
     </div>
+  )
+}
+
+/** Same idiom as `retry.tsx`'s `Reason`: only a running execution names itself. */
+function Reason({ blocked, inCurrent }: { blocked: boolean; inCurrent: boolean }) {
+  if (!blocked) return null
+  return (
+    <p data-testid="reason-more-clips" className="max-w-xs text-xs text-muted-foreground">
+      {inCurrent ? REASON_IN_CURRENT : 'Demande en cours d’envoi.'}
+    </p>
   )
 }
 

@@ -7,9 +7,10 @@
  * which clip is on screen after a keystroke.
  */
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ClipStatus } from '@/core/edl'
@@ -55,6 +56,17 @@ function candidate(n: number, status: ClipStatus = 'candidate', pass = 1): Candi
 const issue = next({ analysis: 'sortable', work: 'toSort' }, { id: 'p1' })
 
 /**
+ * `LoopEnd` is about to consult project state via react-query (`#327`):
+ * every mount needs a `QueryClient`, not just the ones that reach `done`.
+ */
+function envelope({ children }: { children: ReactNode }) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+}
+
+/**
  * Holds status the way the real page does with `usePatchClip`'s optimistic
  * write: without it, a decision would never come back to the screen.
  */
@@ -84,7 +96,7 @@ function remaining(): string | null {
 describe('SortStage', () => {
   it('P keeps the current clip and advances; X discards and advances', async () => {
     const user = userEvent.setup()
-    render(<Harness start={[candidate(1), candidate(2), candidate(3)]} />)
+    render(<Harness start={[candidate(1), candidate(2), candidate(3)]} />, { wrapper: envelope })
 
     expect(remaining()).toBe('3')
     expect(title()).toMatch(/Extrait 1/)
@@ -100,7 +112,7 @@ describe('SortStage', () => {
 
   it('K moves back without deciding; the remaining count only drops on a decision', async () => {
     const user = userEvent.setup()
-    render(<Harness start={[candidate(1), candidate(2), candidate(3)]} />)
+    render(<Harness start={[candidate(1), candidate(2), candidate(3)]} />, { wrapper: envelope })
 
     await user.keyboard('p')
     expect(title()).toMatch(/Extrait 2/)
@@ -119,7 +131,7 @@ describe('SortStage', () => {
 
   it('the buttons write the same decision as the keyboard', async () => {
     const user = userEvent.setup()
-    render(<Harness start={[candidate(1), candidate(2)]} />)
+    render(<Harness start={[candidate(1), candidate(2)]} />, { wrapper: envelope })
 
     await user.click(screen.getByRole('button', { name: /garder/i }))
     expect(title()).toMatch(/Extrait 2/)
@@ -127,7 +139,7 @@ describe('SortStage', () => {
   })
 
   it('shows the loop end once nothing remains, and none before', () => {
-    render(<Harness start={[candidate(1, 'kept'), candidate(2, 'discarded')]} />)
+    render(<Harness start={[candidate(1, 'kept'), candidate(2, 'discarded')]} />, { wrapper: envelope })
     expect(screen.getByText('Tout est trié.')).toBeTruthy()
   })
 
@@ -141,6 +153,7 @@ describe('SortStage', () => {
         next={issue}
         onStatus={() => {}}
       />,
+      { wrapper: envelope },
     )
     // A single-pass queue never carries the marker, on either clip.
     expect(screen.queryByTestId('pass-marker')).toBeNull()
@@ -156,6 +169,7 @@ describe('SortStage', () => {
         next={issue}
         onStatus={() => {}}
       />,
+      { wrapper: envelope },
     )
     // Clip 1 is pass 1, the queue's earliest: no marker on it.
     expect(screen.queryByTestId('pass-marker')).toBeNull()

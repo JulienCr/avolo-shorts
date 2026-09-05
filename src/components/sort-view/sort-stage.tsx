@@ -126,39 +126,37 @@ export function SortStage({
         <p className="text-sm text-muted-foreground">Rien à trier pour le moment.</p>
       ) : (
         <>
-          {/* The video is this screen's whole reason to exist, so it gets the
-              remaining height rather than a fixed `max-w`: the surrounding
-              flex column lets it grow, `aspect-video` keeps its shape. */}
-          <div className="flex w-full min-h-0 flex-1 items-center justify-center">
-            <div className="relative aspect-video h-full max-h-full max-w-full overflow-hidden rounded-xl bg-zinc-950">
-              {proxyUrl !== null && (
-                <video
-                  ref={video}
-                  src={proxyUrl}
-                  muted={muted}
-                  playsInline
-                  onTimeUpdate={onTimeUpdate}
-                  onSeeked={onTimeUpdate}
-                  className="size-full object-contain"
-                />
-              )}
-              {muted && (
-                <Badge
-                  variant="outline"
-                  className="absolute top-2 right-2 gap-1 bg-black/55 text-white backdrop-blur-sm"
-                >
-                  <VolumeX className="size-3" aria-hidden />
-                  <button type="button" onClick={() => setMuted(false)} className="underline">
-                    son coupé
-                  </button>
-                </Badge>
-              )}
-              {showsPassMarker && (
-                <Badge data-testid="pass-marker" variant="outline" className="absolute top-2 left-2 bg-black/55 text-white backdrop-blur-sm">
-                  nouvelle passe
-                </Badge>
-              )}
-            </div>
+          {/* `absolute inset-0`, not a flex/percentage size: a `<video>`'s
+              aspect ratio otherwise fights the flex layout sizing its
+              container, ballooning the whole page. Out of flow, it can't. */}
+          <div className="relative w-full min-h-0 flex-1 overflow-hidden rounded-xl bg-zinc-950">
+            {proxyUrl !== null && (
+              <video
+                ref={video}
+                src={proxyUrl}
+                muted={muted}
+                playsInline
+                onTimeUpdate={onTimeUpdate}
+                onSeeked={onTimeUpdate}
+                className="absolute inset-0 size-full object-contain"
+              />
+            )}
+            {muted && (
+              <Badge
+                variant="outline"
+                className="absolute top-2 right-2 gap-1 bg-black/55 text-white backdrop-blur-sm"
+              >
+                <VolumeX className="size-3" aria-hidden />
+                <button type="button" onClick={() => setMuted(false)} className="underline">
+                  son coupé
+                </button>
+              </Badge>
+            )}
+            {showsPassMarker && (
+              <Badge data-testid="pass-marker" variant="outline" className="absolute top-2 left-2 bg-black/55 text-white backdrop-blur-sm">
+                nouvelle passe
+              </Badge>
+            )}
           </div>
 
           <p data-testid="stage-title" className="text-base font-medium">

@@ -42,7 +42,10 @@ export function SortScreen({ scope }: { scope: SortScope }) {
   const issue = next(phase, { id: projectId })
 
   return (
-    <div className="flex min-h-full flex-col">
+    // `flex-1`, not just `min-h-full`: a flex item's `min-height` sets its own
+    // floor but never becomes a definite height its own children can fill —
+    // `main`'s `flex-1` video needs this one to actually stretch inside `body`.
+    <div className="flex min-h-full flex-1 flex-col">
       <AppBar lieu={{ kind: 'project', project: { id: projectId, title } }}>
         <Link href={linkProject(projectId)} className="text-sm text-muted-foreground hover:underline">
           Retour à la grille

@@ -694,13 +694,13 @@ describe('la fin de la boucle', () => {
     expect(output).toHaveProperty('pathname', '/')
   })
 
-  it('ne propose pas un lien vers l’écran où l’on est déjà', () => {
-    // Sur `{ complet, trie }`, `suite` vise cet écran-ci : la grille **est**
-    // l'action, et un lien vers soi-même volerait un arrêt de tabulation.
+  it('mène aux clips gardés, une vraie navigation de vue plutôt qu’un lien vers soi', () => {
+    // The sorted outcome now targets `?vue=gardes`, no longer the screen
+    // already on screen — so it renders instead of being suppressed.
     render(<Harness start={[candidate(1, 'kept'), candidate(2, 'discarded')]} />)
 
-    expect(screen.queryByRole('link', { name: /passer au montage/i })).toBeNull()
-    expect(screen.getByText(/tout est trié/i)).toBeTruthy()
+    const link = screen.getByRole('link', { name: /passer au montage/i })
+    expect(link.getAttribute('href')).toBe('/projects/p1?vue=gardes')
   })
 
   it('nomme ce qui débloque le montage quand le proxy manque', () => {

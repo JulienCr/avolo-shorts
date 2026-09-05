@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CandidateClip, ProjectStatus } from '@/lib/api'
 import { defaultPlatformAvailability } from '@/core/publication'
+import { linkSort } from '@/lib/navigation'
 import { lireSessionReview, writeSessionReview } from '@/components/review/session'
 import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
 
@@ -216,6 +217,38 @@ describe('l’écran de projet', () => {
 
     await waitFor(() => expect(screen.getByRole('article', { name: 'Extrait 1' })).toBeTruthy())
     expect(screen.queryByRole('button', { name: /reprendre l’analyse/i })).toBeNull()
+  })
+
+  it('mène au tri plein écran du projet quand le proxy est prêt', async () => {
+    serve(
+      state({
+        steps: { ...state().steps, candidates: true, proxy: true, analysis: true },
+        running: null,
+      }),
+      [candidate(1)],
+    )
+    mount()
+
+    const link = await screen.findByRole('link', { name: /trier/i })
+    expect(link.getAttribute('href')).toBe(linkSort({ kind: 'project', projectId: 'p1' }))
+    expect(link.getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('désactive le tri plein écran sans le proxy, et dit pourquoi', async () => {
+    serve(
+      state({
+        steps: { ...state().steps, candidates: true, proxy: false, analysis: true },
+        running: null,
+      }),
+      [candidate(1)],
+    )
+    mount()
+
+    const button = await screen.findByRole('button', { name: /trier/i })
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    const reasonId = button.getAttribute('aria-describedby')
+    expect(reasonId).not.toBeNull()
+    expect(document.getElementById(reasonId!)?.textContent).toMatch(/proxy/i)
   })
 
   it('affiche le bandeau d’échec même quand le repérage a réussi (#140)', async () => {

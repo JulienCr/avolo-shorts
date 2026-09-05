@@ -99,21 +99,9 @@ function editingProgress(mounts: number, guards: number): string {
 }
 
 /**
- * L'issue de la phase, telle que cet écran la rend.
+ * What comes after the loop, rendered as a paragraph, a link, or nothing.
  *
- * **`suite` rend une cible qui est une URL, jamais un ordre**, et ce qu'on en
- * fait appartient à l'écran. Trois cas, et le troisième est celui qui compte :
- *
- * - une **attente** est un résultat de plein droit — sa raison et ce qui la
- *   lèvera —, pas un état dégradé. `{ triable, trie }` est réel : Julien a fini
- *   de trier avant la fin de l'encodage, il n'a aucune action qui fasse avancer
- *   le montage, et forcer une action ici reviendrait à en inventer une ;
- * - une **action qui mène ailleurs** est un lien. C'est le succès du parcours —
- *   « choisir une autre émission » —, jusqu'ici inexprimable ;
- * - une **action qui vise cet écran-ci** ne se rend pas. « Trier les
- *   propositions » et « passer au montage » désignent la grille qui est déjà
- *   sous les yeux : un lien vers soi-même n'est pas une navigation, et il
- *   volerait un arrêt de tabulation.
+ * @remarks See PR #331's body for why these are the only three shapes.
  */
 function Issue({ next, projectId }: { next: Next; projectId: string }) {
   if (next.kind === 'waiting') {
@@ -124,13 +112,15 @@ function Issue({ next, projectId }: { next: Next; projectId: string }) {
     )
   }
 
+  // Kept only for a hypothetical future action targeting the default view —
+  // the sorted outcome below now points at `?vue=gardes`, so it renders.
   if (next.target === linkProject(projectId)) return null
 
   return (
     <Link
       data-testid="outcome"
       href={next.target}
-      className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-4')}
+      className={cn(buttonVariants({ variant: 'default' }), 'mt-4')}
     >
       {next.label}
     </Link>

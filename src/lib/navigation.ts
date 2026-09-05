@@ -84,6 +84,33 @@ export function linkClip(clipId: string): string {
 }
 
 /**
+ * The video sort view's scope: which candidates feed the queue.
+ *
+ * **A parameter from the start, one variant delivered.** `project` is the
+ * only branch wired; a cross-show queue lands later on the same route, with
+ * another scope — never a sibling route, so an already-used URL never needs
+ * renaming.
+ */
+export type SortScope = { kind: 'project'; projectId: string }
+
+/** The video sort view's URL for a given scope. */
+export function linkSort(scope: SortScope): string {
+  return `/sort?project=${encodeURIComponent(scope.projectId)}`
+}
+
+/**
+ * The scope read from `/sort`'s search params, or `null` if none is
+ * recognised — `SortScreen` decides what to do with that, this function only
+ * reads.
+ */
+export function scopeFromSearchParams(searchParams: URLSearchParams): SortScope | null {
+  // `URLSearchParams.get()` already decodes — unlike a route segment, which
+  // is why `routeId` isn't reused here: applying it would decode twice.
+  const projectId = searchParams.get('project')
+  return projectId === null ? null : { kind: 'project', projectId }
+}
+
+/**
  * The id a route hands back, decoded — the return leg of `linkProject` and
  * `linkClip`, which encode it.
  *

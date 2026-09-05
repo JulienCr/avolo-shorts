@@ -40,6 +40,7 @@ function state(fields: Partial<ProjectStatus> = {}): ProjectStatus {
     stopped: false,
     sizeBytes: 4_300_000_000,
     everRan: true,
+    moreClips: null,
     ...fields,
   }
 }

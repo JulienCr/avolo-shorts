@@ -52,6 +52,9 @@ import {
   schedulePublication,
   unschedulePublication,
 } from '@/lib/api'
+// Separate import, same rule as above: this file is shared with another PR
+// in flight, so additions go at the end without reordering what's there.
+import { requestMoreClips } from '@/lib/api'
 import { clipBounds } from '@/lib/editing'
 import type { TranscriptLine } from '@/lib/editing'
 import type { Platform, PublicationRecord } from '@/core/publication'
@@ -1129,6 +1132,30 @@ export function useUnschedulePublication() {
     onSuccess() {
       void client.invalidateQueries({ queryKey: keys.planningPool })
       void client.invalidateQueries({ queryKey: ['planning-schedule'] })
+    },
+  })
+}
+
+/**
+ * Ask for a further sweep pass — +5 or +10 clips — once triage is done.
+ *
+ * @returns Invalidates the candidates only on success, and the project state
+ * on every outcome including a 409 — the running execution the route just
+ * refused to double still needs `refetchInterval` to pick it up.
+ */
+export function useRequestMoreClips() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ projectId, count }: { projectId: string; count: 5 | 10 }) =>
+      requestMoreClips(projectId, count),
+    onSuccess(_shot, { projectId }) {
+      // Candidates only on success: a rejected +N launched nothing, so there
+      // is nothing new to fetch — reloading would pay for an unchanged state.
+      void client.invalidateQueries({ queryKey: keys.candidats(projectId) })
+    },
+    onSettled(_shot, _error, { projectId }) {
+      void client.invalidateQueries({ queryKey: keys.projet(projectId) })
     },
   })
 }

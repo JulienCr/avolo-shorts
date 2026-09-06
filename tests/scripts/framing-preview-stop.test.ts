@@ -6,6 +6,19 @@ import { describe, expect, it } from 'vitest'
 
 const repoRoot = path.resolve(__dirname, '../..')
 
+/** Asks the OS for a free port, instead of a fixed one a real service could already hold. */
+function getEphemeralPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer()
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : null
+      server.close(() => (port ? resolve(port) : reject(new Error('no ephemeral port assigned'))))
+    })
+    server.on('error', reject)
+  })
+}
+
 /** Polls `port` until a connection succeeds, so the test never races the listener's startup. */
 function waitForPort(port: number, deadline = Date.now() + 3000): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -35,7 +48,7 @@ function runStop(port: number): void {
 
 describe('framing-preview-stop', () => {
   it('signale et arrête un vrai serveur en écoute, sans lsof', async () => {
-    const port = 58421
+    const port = await getEphemeralPort()
     const listener = spawn('node', ['-e', `require('node:net').createServer().listen(${port}, '127.0.0.1')`])
     try {
       await waitForPort(port)
@@ -53,7 +66,8 @@ describe('framing-preview-stop', () => {
     }
   }, 10000)
 
-  it('sort en succès sans rien faire quand personne n’écoute', () => {
-    expect(() => runStop(58422)).not.toThrow()
+  it('sort en succès sans rien faire quand personne n’écoute', async () => {
+    const port = await getEphemeralPort()
+    expect(() => runStop(port)).not.toThrow()
   }, 10000)
 })

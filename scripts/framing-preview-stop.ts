@@ -7,10 +7,20 @@
 
 import { listeningPid } from './ui/listening-pid'
 
-const port = process.env.PORT ?? '4321'
+const port = process.env.PORT || '4321'
 
+let pid: number
 try {
-  process.kill(listeningPid(port), 'SIGINT')
+  pid = listeningPid(port)
 } catch {
   // No listener on this port: nothing to stop, same as the old `xargs -r`.
+  process.exit(0)
+}
+
+try {
+  process.kill(pid, 'SIGINT')
+} catch (err) {
+  // Race: the process exited between resolution and the signal — not an error.
+  if ((err as NodeJS.ErrnoException).code === 'ESRCH') process.exit(0)
+  throw err
 }

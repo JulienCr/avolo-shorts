@@ -684,12 +684,13 @@ describe('la fin de la boucle', () => {
     expect(screen.getByText(/tous sont montés/i)).toBeTruthy()
   })
 
-  it('distingue « tout a été écarté » de « des gardés restent à monter »', () => {
-    // `suite` ne sépare pas les deux : les deux tombent sur `travail: 'sorted'`.
-    // C'est l'écran qui tient la liste, donc c'est à lui de le dire.
+  it('distingue « aucun clip gardé » de « des gardés restent à monter »', () => {
+    // `suite` conflates both onto `travail: 'sorted'`; this screen holds the
+    // list and tells them apart. Same wording as zero candidates ever
+    // detected (#328) — true of both, unlike the old "everything discarded".
     render(<Harness start={[candidate(1, 'discarded'), candidate(2, 'discarded')]} />)
 
-    expect(screen.getByText(/tout a été écarté/i)).toBeTruthy()
+    expect(screen.getByText('Aucun clip gardé.')).toBeTruthy()
     expect(screen.queryByText(/tout est trié/i)).toBeNull()
   })
 
@@ -727,7 +728,7 @@ describe('la fin de la boucle', () => {
     render(<Harness start={[]} />)
 
     expect(screen.queryByText(/aucune proposition/i)).toBeNull()
-    expect(screen.getByText('Tout a été écarté.')).toBeTruthy()
+    expect(screen.getByText('Aucun clip gardé.')).toBeTruthy()
   })
 })
 

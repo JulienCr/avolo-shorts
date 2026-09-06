@@ -377,17 +377,6 @@ export function ReviewFeed({
         </div>
 
         <TabsContent value={view} className="flex flex-col gap-4">
-          {/* **Le détail dit lequel des deux cas, jamais les deux à la
-              fois.** `LoopEnd` ci-dessous couvre déjà « repérage terminé, zéro
-              candidat » (issue #328) : cette phrase ne porte donc plus que
-              l'autre. */}
-          {clips.length === 0 && !done && (
-            <Empty
-              title="Aucune proposition pour le moment."
-              detail="Le repérage n’a pas encore tourné."
-            />
-          )}
-
           {/* **La fin s'ajoute, elle ne remplace pas.** La dernière décision fait
               tomber le compteur à zéro : annoncer la fin *à la place* de la grille
               escamoterait vingt-cinq cartes sous la main au moment précis où l'on
@@ -403,7 +392,11 @@ export function ReviewFeed({
             />
           )}
 
-          {clips.length > 0 && visible.length === 0 && !done && (
+          {/* **Un seul foyer pour « rien à afficher ici ».** `LABELS_EMPTY[view]`
+              tient déjà vrai qu'il y ait zéro candidat en tout (issue #328) ou
+              seulement zéro dans cette vue : aucune des deux phrases ne parle
+              du repérage, donc aucune ne peut le dire au mauvais moment. */}
+          {visible.length === 0 && !done && (
             <Empty title={LABELS_EMPTY[view].title} detail={LABELS_EMPTY[view].detail} />
           )}
 

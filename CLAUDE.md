@@ -144,8 +144,8 @@ Les cas qui les ont produites, avec leurs chiffres : [`docs/lessons.md`](docs/le
   le throttling thermique cherché puis écarté : [`docs/lessons.md`](docs/lessons.md).
 - **Aucun lien symbolique absolu sous la racine** : Turbopack parcourt tout le
   dossier et refuse un lien qui en sort — `next build` meurt en accusant
-  `src/server/paths.ts`. `setup.sh` déjoint celui du venv ; détail dans
-  [`docs/lessons.md`](docs/lessons.md).
+  `src/server/paths.ts`. `setup.sh` ne déjoint que celui du venv ; le détail est
+  dans [`docs/lessons.md`](docs/lessons.md).
 - **Pas de Docker ici.** Node natif, Python en venv, ffmpeg natif.
 
 ## Livraison

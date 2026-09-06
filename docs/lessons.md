@@ -577,3 +577,10 @@ lien, sur un venv neuf comme sur un venv déjà là — `python -m venv` ne remp
 pas ce qui existe, et le script refuse de détruire un venv de sept gigaoctets
 pour ça. Le venv survit à l'opération : `sys.prefix` reste dans le dépôt, et
 torch 2.8.0+cu128 voit toujours la 4090.
+
+Une copie a le défaut de sa qualité : elle ne suit plus les mises à jour du
+système, et `python -m venv` ne la remplacerait pas davantage. La fonction la
+réaligne donc quand elle diverge de l'interpréteur que nomme `pyvenv.cfg`, et
+elle écrit à côté avant de renommer par-dessus — un `cp` sur le lien lui-même
+laisserait un venv sans interpréteur si le disque se remplissait en cours de
+route. (relevé par Codex et Copilot)

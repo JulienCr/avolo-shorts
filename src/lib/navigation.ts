@@ -15,6 +15,7 @@
 import type { ClipStatus } from '@/core/edl'
 import type { StepName } from '@/core/graph'
 import { isGuard, type Phase } from '@/core/phase'
+import type { View } from '@/components/review/template'
 
 /** De quoi nommer un projet dans un fil d'Ariane et y revenir. */
 type Landmarks = { id: string; title: string }
@@ -44,9 +45,14 @@ export type Lieu =
   | { kind: 'planning' }
   | { kind: 'unknown'; label: string }
 
-/** L'URL d'un projet. Encodée : les identifiants portent accents et espaces. */
-export function linkProject(projectId: string): string {
-  return `/projects/${encodeURIComponent(projectId)}`
+/**
+ * A project's URL, encoded, optionally landing on one of its tri views.
+ *
+ * @param view - Appends `?vue=<view>`; omitted for the default view.
+ */
+export function linkProject(projectId: string, view?: View): string {
+  const base = `/projects/${encodeURIComponent(projectId)}`
+  return view === undefined ? base : `${base}?vue=${view}`
 }
 
 /**
@@ -248,7 +254,7 @@ export function next(phase: Phase, project: { id: string }): Next {
               'Le montage s’ouvrira avec le proxy, en cours d’encodage. Les titres et les descriptions s’écrivent déjà.',
             unblockedBy: 'proxy',
           }
-        : { kind: 'action', label: 'Passer au montage', target: here }
+        : { kind: 'action', label: 'Passer au montage', target: linkProject(project.id, 'gardes') }
   }
 }
 

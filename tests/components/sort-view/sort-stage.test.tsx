@@ -143,6 +143,22 @@ describe('SortStage', () => {
     expect(screen.getByText('Tout est trié.')).toBeTruthy()
   })
 
+  it('links the loop end to the kept view — a real navigation from this screen', () => {
+    const sortedIssue = next({ analysis: 'complete', work: 'sorted' }, { id: 'p1' })
+    render(
+      <SortStage
+        projectId="p1"
+        clips={[candidate(1, 'kept'), candidate(2, 'discarded')]}
+        proxyUrl="blob:fake-proxy"
+        next={sortedIssue}
+        onStatus={() => {}}
+      />,
+      { wrapper: envelope },
+    )
+    const link = screen.getByRole('link', { name: /passer au montage/i })
+    expect(link.getAttribute('href')).toBe('/projects/p1?vue=gardes')
+  })
+
   it('marks a clip from a later pass only when the queue holds more than one pass', async () => {
     const user = userEvent.setup()
     const single = render(

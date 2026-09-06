@@ -215,6 +215,11 @@ export function ReviewFeed({
   const { visible, current, select, focusCard: focus, move, decide, decideOn, undo, done } =
     useSortLoop(clips, view, onStatus, attemptFocus, analysisComplete)
 
+  // Detection's own state is unknown here (#328's follow-up): every tab must
+  // read the neutral `atrier` copy rather than `gardes`/`ecartes`' own,
+  // which would otherwise assert an outcome ("no clip kept") not yet known.
+  const emptyLabelView: View = clips.length === 0 && !analysisComplete ? 'atrier' : view
+
   function open() {
     // Le lien de la carte, pas le routeur : une seule navigation, celle que le
     // clic emprunte déjà.
@@ -397,7 +402,10 @@ export function ReviewFeed({
               this tab, and on `atrier` true when detection's own state is
               unknown here (`analysisComplete` false). */}
           {visible.length === 0 && !done && (
-            <Empty title={LABELS_EMPTY[view].title} detail={LABELS_EMPTY[view].detail} />
+            <Empty
+              title={LABELS_EMPTY[emptyLabelView].title}
+              detail={LABELS_EMPTY[emptyLabelView].detail}
+            />
           )}
 
           {visible.length > 0 && (
@@ -489,10 +497,9 @@ export function ReviewFeed({
 }
 
 /**
- * `atrier`'s entry is reached only when `analysisComplete` is false — see
- * `useSortLoop`'s `done`, true otherwise on this tab whenever
- * `visible.length === 0`. Its wording must not claim detection is either
- * done or undone, since here that fact genuinely isn't known.
+ * `atrier`'s entry also stands in for `gardes`/`ecartes` when detection's
+ * state is unknown (`emptyLabelView`) — its wording must not claim detection
+ * is either done or undone, since here that fact genuinely isn't known.
  */
 const LABELS_EMPTY: Record<View, { title: string; detail: string }> = {
   atrier: {

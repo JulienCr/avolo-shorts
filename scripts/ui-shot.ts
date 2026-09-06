@@ -15,6 +15,7 @@ import path from 'node:path'
 import { chargerEnv, quit } from './dev-common'
 import { buildUiBoard } from './ui/board'
 import { decidePortGuard, resolveHostUrl } from './ui/guard'
+import { listeningPid } from './ui/listening-pid'
 import { SCREEN_PAIRS, verticalOverlap, type OverlapPair } from './ui/pairs'
 
 function value(args: string[], flag: string): string | undefined {
@@ -58,57 +59,6 @@ function commitLine(): string {
   const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim()
   const dirty = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim() !== ''
   return `${sha}${dirty ? ' (modifié)' : ''}`
-}
-
-/**
- * Le PID qui écoute `port`, sans `lsof` : sur cette machine, `lsof` rend un
- * résultat vide et sans erreur pour un port pourtant en écoute — les
- * espaces de noms réseau Docker qu'il tente de lister lui font perdre son
- * cache de sockets (`WARNING: can't stat() nsfs file system
- * /run/docker/netns/…`, mesuré ici même). `/proc/net/tcp{,6}` donne
- * l'inode du socket en écoute, puis un balayage de `/proc/<pid>/fd` donne
- * le PID qui le tient — même information, sans dépendre d'un binaire externe.
- */
-function listeningInode(port: number): string {
-  const hex = port.toString(16).toUpperCase().padStart(4, '0')
-  for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
-    const lines = fs.readFileSync(table, 'utf8').split('\n').slice(1)
-    for (const line of lines) {
-      const cols = line.trim().split(/\s+/)
-      if (cols.length < 10) continue
-      const localPort = cols[1].split(':')[1]
-      const state = cols[3]
-      if (localPort === hex && state === '0A') return cols[9]
-    }
-  }
-  throw new Error(`aucun processus n'écoute le port ${port}.`)
-}
-
-function pidHoldingInode(inode: string): number {
-  const target = `socket:[${inode}]`
-  for (const entry of fs.readdirSync('/proc')) {
-    if (!/^\d+$/.test(entry)) continue
-    let fds: string[]
-    try {
-      fds = fs.readdirSync(`/proc/${entry}/fd`)
-    } catch {
-      continue
-    }
-    for (const fd of fds) {
-      let link: string
-      try {
-        link = fs.readlinkSync(`/proc/${entry}/fd/${fd}`)
-      } catch {
-        continue
-      }
-      if (link === target) return Number(entry)
-    }
-  }
-  throw new Error(`aucun processus trouvé pour le socket en écoute (inode ${inode}).`)
-}
-
-function listeningPid(port: string): number {
-  return pidHoldingInode(listeningInode(Number(port)))
 }
 
 function repoRoot(): string {

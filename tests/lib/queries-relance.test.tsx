@@ -41,7 +41,7 @@ function bodySent(call: ReturnType<typeof vi.fn>): unknown {
   return JSON.parse(String(options.body))
 }
 
-const plan: RunPlan = { projectId: 'p1', shot: ['candidates', 'proxy'] }
+const plan: RunPlan = { projectId: 'p1', plan: ['candidates', 'proxy'] }
 
 afterEach(() => {
   cleanup()

@@ -191,23 +191,23 @@ export type { StepName }
 export type RunTarget = Exclude<StepName, 'renders'>
 
 /**
- * Ce que rend une demande d'analyse, création de projet comprise.
+ * What an analysis request returns, project creation included.
  *
- * **202 quand une analyse est lancée**, jamais 201 dans ce cas : ce que la
- * réponse confirme est qu'elle est acceptée et lancée, pas qu'elle est faite.
- * L'avancement se lit ensuite dans `ProjectStatus.running`, et l'échec éventuel
- * dans `ProjectStatus.error`. **Une création sans `launch` (23 août 2026, spec
- * §12) rend 201** — `shot` y est toujours vide, rien n'a démarré.
+ * **202 when an analysis is launched**, never 201 in that case: the response
+ * confirms it was accepted and started, not that it is done. Progress then
+ * reads from `ProjectStatus.running`, and any failure from
+ * `ProjectStatus.error`. **A creation with no `launch` (2026-08-23, spec §12)
+ * returns 201** — `plan` is always empty there, nothing started.
  */
 export type RunPlan = {
   projectId: string
   /**
-   * Les étapes qui vont tourner, dépendances remontées. **Un plan vide est une
-   * réponse valide et fréquente** : tout était déjà là, il n'y avait rien à
-   * faire. C'est là que se lit le saut d'étape — demander `candidates` sur un
-   * projet déjà transcrit ne rend que `['candidates']`.
+   * The steps that will run, dependencies pulled in. **An empty plan is a
+   * valid and frequent response**: everything was already there, nothing to
+   * do. This is where step-skipping shows up — requesting `candidates` on a
+   * project already transcribed returns only `['candidates']`.
    */
-  shot: StepName[]
+  plan: StepName[]
 }
 
 /**
@@ -891,14 +891,10 @@ export function runProject(
 /**
  * `POST /api/projects/:id/candidates/more` — ask the "+N clips" sweep pass
  * for more material once triage is done. `plan` names what actually ran,
- * same shape as `launch`'s own return — not `RunPlan.shot`, which this
- * route never wrote.
+ * same shape as `launch`'s own return.
  */
-export function requestMoreClips(
-  projectId: string,
-  count: 5 | 10,
-): Promise<{ projectId: string; plan: StepName[] }> {
-  return post(`/api/projects/${encodeURIComponent(projectId)}/candidates/more`, { count })
+export function requestMoreClips(projectId: string, count: 5 | 10): Promise<RunPlan> {
+  return post<RunPlan>(`/api/projects/${encodeURIComponent(projectId)}/candidates/more`, { count })
 }
 
 /**

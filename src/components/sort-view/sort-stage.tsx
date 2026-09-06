@@ -43,11 +43,7 @@ export function SortStage({
   proxyUrl: string | null
   next: Next
   onStatus: (clipId: string, status: Exclude<ClipStatus, 'exported'>) => void
-  /**
-   * `phaseProject(...).analysis === 'complete'` — this screen, unlike
-   * `ReviewFeed`, mounts on `proxyReady` alone, so zero clips does not
-   * already imply detection ran (issue #328).
-   */
+  /** `phaseProject(...).analysis === 'complete'`. */
   analysisComplete: boolean
 }) {
   const stage = useRef<HTMLDivElement>(null)

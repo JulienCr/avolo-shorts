@@ -392,11 +392,11 @@ export function ReviewFeed({
             />
           )}
 
-          {/* One home for "nothing to show here": `LABELS_EMPTY[view]` holds
+          {/* One home for "nothing to show here", `LABELS_EMPTY[view]`: true
               whether zero candidates ever existed (#328) or just none in
-              this tab — neither sentence names detection, so neither can
-              get it wrong. */}
-          {view !== 'atrier' && visible.length === 0 && !done && (
+              this tab, and on `atrier` true when detection's own state is
+              unknown here (`analysisComplete` false). */}
+          {visible.length === 0 && !done && (
             <Empty title={LABELS_EMPTY[view].title} detail={LABELS_EMPTY[view].detail} />
           )}
 
@@ -489,11 +489,16 @@ export function ReviewFeed({
 }
 
 /**
- * No `atrier` entry: on that tab, `visible.length === 0` already implies
- * `done` (see `useSortLoop`), so this map is never indexed with it — a
- * dead branch here would assert "Tout est trié." in a state that isn't.
+ * `atrier`'s entry is reached only when `analysisComplete` is false — see
+ * `useSortLoop`'s `done`, true otherwise on this tab whenever
+ * `visible.length === 0`. Its wording must not claim detection is either
+ * done or undone, since here that fact genuinely isn't known.
  */
-const LABELS_EMPTY: Record<Exclude<View, 'atrier'>, { title: string; detail: string }> = {
+const LABELS_EMPTY: Record<View, { title: string; detail: string }> = {
+  atrier: {
+    title: 'Aucune proposition pour le moment.',
+    detail: 'L’état du repérage n’est pas connu pour l’instant.',
+  },
   gardes: {
     title: 'Aucun clip gardé.',
     detail: 'Les clips gardés se montent depuis leur carte.',

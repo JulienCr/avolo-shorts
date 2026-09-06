@@ -36,8 +36,8 @@ export function LoopEnd({
   if (guards.length === 0) {
     return (
       <section className="rounded-xl border border-dashed px-6 py-12 text-center">
-        {/* **Vrai que des clips aient existé ou non** (issue #328) : « Tout a
-            été écarté » supposait qu'il y en avait eu à écarter. */}
+        {/* True whether clips ever existed or not (#328): the old "Tout a
+            été écarté." assumed there had been something to discard. */}
         <h2 className="text-sm font-medium">Aucun clip gardé.</h2>
         <p className="mx-auto mt-1 max-w-prose text-sm text-muted-foreground">
           Rien ne part au montage.

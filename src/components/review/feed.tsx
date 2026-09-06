@@ -392,11 +392,11 @@ export function ReviewFeed({
             />
           )}
 
-          {/* **Un seul foyer pour « rien à afficher ici ».** `LABELS_EMPTY[view]`
-              tient déjà vrai qu'il y ait zéro candidat en tout (issue #328) ou
-              seulement zéro dans cette vue : aucune des deux phrases ne parle
-              du repérage, donc aucune ne peut le dire au mauvais moment. */}
-          {visible.length === 0 && !done && (
+          {/* One home for "nothing to show here": `LABELS_EMPTY[view]` holds
+              whether zero candidates ever existed (#328) or just none in
+              this tab — neither sentence names detection, so neither can
+              get it wrong. */}
+          {view !== 'atrier' && visible.length === 0 && !done && (
             <Empty title={LABELS_EMPTY[view].title} detail={LABELS_EMPTY[view].detail} />
           )}
 
@@ -488,11 +488,12 @@ export function ReviewFeed({
   )
 }
 
-const LABELS_EMPTY: Record<View, { title: string; detail: string }> = {
-  atrier: {
-    title: 'Tout est trié.',
-    detail: 'Les propositions décidées se retrouvent dans les deux autres vues.',
-  },
+/**
+ * No `atrier` entry: on that tab, `visible.length === 0` already implies
+ * `done` (see `useSortLoop`), so this map is never indexed with it — a
+ * dead branch here would assert "Tout est trié." in a state that isn't.
+ */
+const LABELS_EMPTY: Record<Exclude<View, 'atrier'>, { title: string; detail: string }> = {
   gardes: {
     title: 'Aucun clip gardé.',
     detail: 'Les clips gardés se montent depuis leur carte.',

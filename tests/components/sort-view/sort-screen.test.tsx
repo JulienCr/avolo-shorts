@@ -120,5 +120,6 @@ describe('SortScreen', () => {
 
     await waitFor(() => expect(screen.getByText(/rien à trier/i)).toBeTruthy())
     expect(screen.queryByText('Tout est trié.')).toBeNull()
+    expect(screen.queryByText('Aucun clip gardé.')).toBeNull()
   })
 })

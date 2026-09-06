@@ -434,15 +434,9 @@ export function usePatchClip() {
       }
       const survivingPatch = pick(patch, kept)
 
-      // **L'instantané ne porte que le clip touché, pas la liste entière.**
-      // Sur vingt-cinq cartes on en trie plusieurs par seconde, donc plusieurs
-      // écritures se chevauchent : une liste complète capturée avant celle-ci,
-      // restaurée telle quelle en cas d'échec, annulerait au passage les
-      // décisions prises entre-temps sur les *autres* cartes — et qui, elles,
-      // ont réussi.
-      // One read, two facts: the candidate to restore on failure, and
-      // whether the list is there at all (issue #329) — a direct clip
-      // access before `/candidates` has resolved.
+      // A single clip's snapshot, not the whole list: restoring a captured
+      // list on failure would revert other cards' concurrent decisions that
+      // succeeded. One read here doubles as `candidatesMissing` (issue #329).
       const candidateList = client.getQueryData<CandidateClip[]>(keys.candidats(projectId))
       const candidatesMissing = candidateList === undefined
       const previousCandidate = candidateList?.find((c) => c.id === clipId)

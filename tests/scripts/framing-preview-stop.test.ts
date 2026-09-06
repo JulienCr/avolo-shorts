@@ -40,7 +40,13 @@ describe('framing-preview-stop', () => {
     try {
       await waitForPort(port)
       runStop(port)
-      const exit = await new Promise<{ signal: string | null }>((resolve) => listener.once('exit', (_code, signal) => resolve({ signal })))
+      // Race against a deadline shorter than the test timeout: if `'exit'` never
+      // fires (the regression this test exists to catch), the `finally` below
+      // still runs and kills the listener, instead of leaking it forever.
+      const exit = await Promise.race([
+        new Promise<{ signal: string | null }>((resolve) => listener.once('exit', (_code, signal) => resolve({ signal }))),
+        new Promise<{ signal: string | null }>((resolve) => setTimeout(() => resolve({ signal: null }), 5000)),
+      ])
       expect(exit.signal).toBe('SIGINT')
     } finally {
       if (listener.exitCode === null && listener.signalCode === null) listener.kill('SIGKILL')

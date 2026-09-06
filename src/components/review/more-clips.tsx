@@ -40,6 +40,7 @@ export function MoreClips({ projectId }: { projectId: string }) {
 
   return (
     <div className="mt-4 flex flex-col gap-1.5">
+      <p className="text-sm text-muted-foreground">Chercher d’autres clips dans le replay</p>
       <div className="flex gap-2">
         <Button
           variant="outline"

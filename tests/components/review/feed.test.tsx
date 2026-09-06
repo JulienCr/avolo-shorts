@@ -80,6 +80,7 @@ function Harness({
   start,
   viewInitial = 'atrier',
   proxyReady = true,
+  candidatesReady = true,
   summary = null,
   descriptionFooter,
   publicationAvailability,
@@ -87,17 +88,19 @@ function Harness({
   start: CandidateClip[]
   viewInitial?: View
   proxyReady?: boolean
+  /** Reachable state: a project-status request that failed (#328 follow-up). */
+  candidatesReady?: boolean
   summary?: SelectionReport | null
   descriptionFooter?: string
   publicationAvailability?: Record<Platform, PlatformAvailability>
 }) {
   const [clips, setClips] = useState(start)
   const [view, setView] = useState<View>(viewInitial)
-  // La vraie `suite`, calculée sur la vraie phase : c'est elle qui garantit
-  // qu'aucun état n'est une impasse, et la lui donner en dur ferait passer le
-  // test à côté de la garantie.
-  const steps = { candidates: true, proxy: proxyReady } as Record<StepName, boolean>
-  const issue = next(phaseProject(steps, null, null, clips), { id: 'p1' })
+  // The real `next`, computed off the real phase: it is what guarantees no
+  // state is a dead end, and hardcoding it would let the test miss that.
+  const steps = { candidates: candidatesReady, proxy: proxyReady } as Record<StepName, boolean>
+  const phase = phaseProject(steps, null, null, clips)
+  const issue = next(phase, { id: 'p1' })
   return (
     <QueryClientProvider client={queryClient}>
       <ReviewFeed
@@ -108,6 +111,7 @@ function Harness({
         proxyReady={proxyReady}
         summary={summary}
         next={issue}
+        analysisComplete={phase.analysis === 'complete'}
         descriptionFooter={descriptionFooter}
         publicationAvailability={publicationAvailability}
         onStatus={(clipId, status) =>
@@ -137,6 +141,7 @@ function Vivant({ list }: { list: CandidateClip[] }) {
         proxyReady
         summary={null}
         next={next(phaseProject(steps, null, null, clips), { id: 'p1' })}
+        analysisComplete
         onStatus={(clipId, status) => setStatuses((s) => ({ ...s, [clipId]: status }))}
       />
     </QueryClientProvider>
@@ -448,6 +453,7 @@ describe('le retour, et lui seul', () => {
           proxyReady
           summary={null}
           next={next(phaseProject(steps, null, null, list), { id: 'p1' })}
+          analysisComplete
           onStatus={() => {}}
         />
       </QueryClientProvider>
@@ -680,12 +686,13 @@ describe('la fin de la boucle', () => {
     expect(screen.getByText(/tous sont montés/i)).toBeTruthy()
   })
 
-  it('distingue « tout a été écarté » de « des gardés restent à monter »', () => {
-    // `suite` ne sépare pas les deux : les deux tombent sur `travail: 'sorted'`.
-    // C'est l'écran qui tient la liste, donc c'est à lui de le dire.
+  it('distingue « aucun clip gardé » de « des gardés restent à monter »', () => {
+    // `suite` conflates both onto `travail: 'sorted'`; this screen holds the
+    // list and tells them apart. Same wording as zero candidates ever
+    // detected (#328) — true of both, unlike the old "everything discarded".
     render(<Harness start={[candidate(1, 'discarded'), candidate(2, 'discarded')]} />)
 
-    expect(screen.getByText(/tout a été écarté/i)).toBeTruthy()
+    expect(screen.getByText('Aucun clip gardé.')).toBeTruthy()
     expect(screen.queryByText(/tout est trié/i)).toBeNull()
   })
 
@@ -717,14 +724,28 @@ describe('la fin de la boucle', () => {
     expect(screen.getByTestId('outcome').textContent).toMatch(/titres|descriptions/i)
   })
 
-  it('ne parle pas de fin sur une liste vide', () => {
-    // Zéro candidat n'est pas une boucle terminée : c'est un repérage qui n'a
-    // rien rendu, ou qui n'a pas encore tourné.
+  it('atteint la fin de boucle sur une liste vide une fois le repérage terminé (#328)', () => {
+    // Zero candidates, detection finished: the case #328 makes reachable,
+    // not a list that hasn't run yet.
     render(<Harness start={[]} />)
 
-    expect(screen.queryByText(/tout est trié/i)).toBeNull()
-    expect(screen.getByText(/aucune proposition/i)).toBeTruthy()
+    expect(screen.queryByText(/aucune proposition/i)).toBeNull()
+    expect(screen.getByText('Aucun clip gardé.')).toBeTruthy()
   })
+
+  it.each([['gardes'], ['ecartes']] as const)(
+    // A failed project-status request (`project-screen.tsx:174`) mounts the
+    // feed with zero clips and detection state unknown: neither tab may
+    // claim a definitive outcome, whichever one the URL restored.
+    'ne prétend pas à un résultat définitif sur %s quand le repérage n’est pas connu',
+    (view) => {
+      render(<Harness start={[]} candidatesReady={false} viewInitial={view} />)
+
+      expect(screen.getByText(/état du repérage n’est pas connu/i)).toBeTruthy()
+      expect(screen.queryByText('Aucun clip gardé.')).toBeNull()
+      expect(screen.queryByText(/Rien n’a encore été mis de côté/i)).toBeNull()
+    },
+  )
 })
 
 describe('le montage sans proxy', () => {

@@ -35,6 +35,7 @@ export function SortStage({
   proxyUrl,
   next,
   onStatus,
+  analysisComplete,
 }: {
   projectId: string
   clips: readonly CandidateClip[]
@@ -42,6 +43,8 @@ export function SortStage({
   proxyUrl: string | null
   next: Next
   onStatus: (clipId: string, status: Exclude<ClipStatus, 'exported'>) => void
+  /** `phaseProject(...).analysis === 'complete'`. */
+  analysisComplete: boolean
 }) {
   const stage = useRef<HTMLDivElement>(null)
   const video = useRef<HTMLVideoElement>(null)
@@ -59,6 +62,7 @@ export function SortStage({
     'atrier',
     onStatus,
     attemptFocus,
+    analysisComplete,
   )
 
   const currentClip = visible.find((c) => c.id === current) ?? null

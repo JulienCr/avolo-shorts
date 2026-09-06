@@ -56,6 +56,7 @@ export function ReviewFeed({
   next,
   onStatus,
   header,
+  analysisComplete,
   publicationAvailability,
   publicationAvailabilityError,
   onRetryPublicationAvailability,
@@ -114,6 +115,11 @@ export function ReviewFeed({
   onStatus: (clipId: string, status: Exclude<ClipStatus, 'exported'>) => void
   /** Ce que la page pose en bout de ligne d'en-tête — la relance, notamment. */
   header?: ReactNode
+  /**
+   * `phaseProject(...).analysis === 'complete'` — distinguishes "detection
+   * never ran" from "detection ran, zero candidates" (issue #328).
+   */
+  analysisComplete: boolean
 }) {
   const counts = count(clips)
   const word = detectionWord(summary)
@@ -207,7 +213,12 @@ export function ReviewFeed({
   }
 
   const { visible, current, select, focusCard: focus, move, decide, decideOn, undo, done } =
-    useSortLoop(clips, view, onStatus, attemptFocus)
+    useSortLoop(clips, view, onStatus, attemptFocus, analysisComplete)
+
+  // Detection's own state is unknown here (#328's follow-up): every tab must
+  // read the neutral `atrier` copy rather than `gardes`/`ecartes`' own,
+  // which would otherwise assert an outcome ("no clip kept") not yet known.
+  const emptyLabelView: View = clips.length === 0 && !analysisComplete ? 'atrier' : view
 
   function open() {
     // Le lien de la carte, pas le routeur : une seule navigation, celle que le
@@ -371,13 +382,6 @@ export function ReviewFeed({
         </div>
 
         <TabsContent value={view} className="flex flex-col gap-4">
-          {clips.length === 0 && (
-            <Empty
-              title="Aucune proposition pour le moment."
-              detail="Le repérage n’a rien rendu, ou il n’a pas encore tourné."
-            />
-          )}
-
           {/* **La fin s'ajoute, elle ne remplace pas.** La dernière décision fait
               tomber le compteur à zéro : annoncer la fin *à la place* de la grille
               escamoterait vingt-cinq cartes sous la main au moment précis où l'on
@@ -393,8 +397,15 @@ export function ReviewFeed({
             />
           )}
 
-          {clips.length > 0 && visible.length === 0 && !done && (
-            <Empty title={LABELS_EMPTY[view].title} detail={LABELS_EMPTY[view].detail} />
+          {/* One home for "nothing to show here", `LABELS_EMPTY[view]`: true
+              whether zero candidates ever existed (#328) or just none in
+              this tab, and on `atrier` true when detection's own state is
+              unknown here (`analysisComplete` false). */}
+          {visible.length === 0 && !done && (
+            <Empty
+              title={LABELS_EMPTY[emptyLabelView].title}
+              detail={LABELS_EMPTY[emptyLabelView].detail}
+            />
           )}
 
           {visible.length > 0 && (
@@ -485,10 +496,15 @@ export function ReviewFeed({
   )
 }
 
+/**
+ * `atrier`'s entry also stands in for `gardes`/`ecartes` when detection's
+ * state is unknown (`emptyLabelView`) — its wording must not claim detection
+ * is either done or undone, since here that fact genuinely isn't known.
+ */
 const LABELS_EMPTY: Record<View, { title: string; detail: string }> = {
   atrier: {
-    title: 'Tout est trié.',
-    detail: 'Les propositions décidées se retrouvent dans les deux autres vues.',
+    title: 'Aucune proposition pour le moment.',
+    detail: 'L’état du repérage n’est pas connu pour l’instant.',
   },
   gardes: {
     title: 'Aucun clip gardé.',

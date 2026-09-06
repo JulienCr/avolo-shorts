@@ -319,14 +319,26 @@ describe('l’écran de projet', () => {
   })
 
   it('ne laisse pas un projet introuvable sur un squelette éternel', async () => {
-    // Troisième origine d'erreur, distincte des deux autres : ce n'est ni
-    // l'analyse qui a échoué ni la liste qui ne charge pas, c'est l'état du
-    // projet lui-même.
+    // A third error origin, distinct from the other two: neither the
+    // analysis failing nor the list failing to load — the project's own
+    // state.
     serve(null, [])
     mount()
 
     await waitFor(() => expect(screen.getByText(/ne se charge pas/i)).toBeTruthy())
     expect(screen.getByRole('button', { name: /réessayer/i })).toBeTruthy()
+  })
+
+  it('ne rend pas un onglet « à trier » vide quand la phase elle-même est inconnue', async () => {
+    // The state Codex found: project status fails, candidates resolve to
+    // `[]` — `analysisComplete` is false, so `atrier` must show something,
+    // and that something must not claim detection is done either way.
+    serve(null, [])
+    mount()
+
+    await waitFor(() => expect(screen.getByText('Aucune proposition pour le moment.')).toBeTruthy())
+    expect(screen.queryByText('Tout est trié.')).toBeNull()
+    expect(screen.queryByText(/repérage n.a pas encore tourné/i)).toBeNull()
   })
 
   it('laisse trier ce qui est chargé même si l’état du projet manque', async () => {

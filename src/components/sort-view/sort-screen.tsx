@@ -67,6 +67,7 @@ export function SortScreen({ scope }: { scope: SortScope }) {
               proxyUrl={`/api/projects/${encodeURIComponent(projectId)}/proxy`}
               next={issue}
               onStatus={(clipId, status) => patch.mutate({ clipId, projectId, patch: { status } })}
+              analysisComplete={phase.analysis === 'complete'}
             />
             {/* Une écriture optimiste qui échoue remet le clip comme il
                 était — même mot qu'à la grille (`ProjectScreen`), sinon la

@@ -111,4 +111,15 @@ describe('SortScreen', () => {
     await waitFor(() => expect(screen.getByTestId('stage-title')).toBeTruthy())
     expect(screen.queryByText(/en cours d.encodage/i)).toBeNull()
   })
+
+  it('does not show the loop end on zero candidates while detection has not finished', async () => {
+    // Negative control: proxy ready, candidates step not — the reachable
+    // state that conflates "never ran" with "ran and found nothing".
+    serve(state({ steps: { ...state().steps, proxy: true, candidates: false } }), [])
+    mount()
+
+    await waitFor(() => expect(screen.getByText(/rien à trier/i)).toBeTruthy())
+    expect(screen.queryByText('Tout est trié.')).toBeNull()
+    expect(screen.queryByText('Aucun clip gardé.')).toBeNull()
+  })
 })

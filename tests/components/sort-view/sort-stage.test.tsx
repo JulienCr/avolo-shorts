@@ -85,6 +85,7 @@ function Harness({ start }: { start: CandidateClip[] }) {
       onStatus={(clipId, status) =>
         setClips((cs) => cs.map((c) => (c.id === clipId ? { ...c, status } : c)))
       }
+      analysisComplete
     />
   )
 }
@@ -156,6 +157,7 @@ describe('SortStage', () => {
         proxyUrl="blob:fake-proxy"
         next={sortedIssue}
         onStatus={() => {}}
+        analysisComplete
       />,
       { wrapper: envelope },
     )
@@ -172,6 +174,7 @@ describe('SortStage', () => {
         proxyUrl="blob:fake-proxy"
         next={issue}
         onStatus={() => {}}
+        analysisComplete
       />,
       { wrapper: envelope },
     )
@@ -188,6 +191,7 @@ describe('SortStage', () => {
         proxyUrl="blob:fake-proxy"
         next={issue}
         onStatus={() => {}}
+        analysisComplete
       />,
       { wrapper: envelope },
     )

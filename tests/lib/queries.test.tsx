@@ -640,7 +640,7 @@ describe('useClipRevision (issue #280)', () => {
 })
 
 describe('useCreateProject', () => {
-  const plan: RunPlan = { projectId: 'p1', shot: ['audio', 'transcript'] }
+  const plan: RunPlan = { projectId: 'p1', plan: ['audio', 'transcript'] }
 
   it('invalide la liste des projets', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response(plan, 202)))

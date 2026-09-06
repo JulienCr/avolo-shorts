@@ -527,3 +527,23 @@ détour : le schéma structuré n'existe qu'en JSON, les noms de champs portent 
 sens pour le modèle, et l'économie ne pèse que 63 jetons par clip de
 métadonnées (soit 629 sur une demande de 10 clips), 418 avec des clés courtes
 — 1,4 % du total. Aucune des deux pistes n'a été retenue.
+
+## La cécité de `lsof` ne se reproduit pas depuis le processus qui la teste
+
+Sur cette machine WSL, `lsof -iTCP -sTCP:LISTEN` rend zéro ligne avec un
+**exit 0**, sans stderr, pendant que `ss -ltn` voit bien les sockets en
+écoute — cause : `permission denied` sur `/run/docker/netns/`. Issue #298.
+
+Elle ne se reproduit **pas** contre un processus que le test lance lui-même :
+essayés sans succès un `net.createServer` nu, un enfant détaché par `setsid`,
+des workers `cluster`, et un vrai `next dev`. Elle ne se manifeste que contre
+un processus **préexistant, de longue durée, extérieur à la session**
+(vérifié contre un `next-server` d'un autre projet, actif depuis 2 h). Et
+`unshare --net` ne la simule pas : il rend un symptôme différent, l'injoignable,
+alors que la cécité laisse le port répondre.
+
+Conséquence pour les tests : un test du chemin d'arrêt peut prouver que la
+résolution et l'arrêt fonctionnent, il ne peut pas servir de discriminant
+avant/après pour ce défaut précis sur cette machine. Le résolveur qui
+contourne `lsof` vit dans `scripts/ui/listening-pid.ts`, en lisant
+`/proc/net/tcp{,6}` puis `/proc/<pid>/fd`.

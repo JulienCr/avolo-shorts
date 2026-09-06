@@ -142,6 +142,10 @@ Les cas qui les ont produites, avec leurs chiffres : [`docs/lessons.md`](docs/le
   thermique ni réglable. Trois passes, la médiane, `/proc/loadavg` relevé à côté
   du chiffre, et **un écart inférieur à ~10 % n'est pas établi**. Le pourquoi, et
   le throttling thermique cherché puis écarté : [`docs/lessons.md`](docs/lessons.md).
+- **Aucun lien symbolique absolu sous la racine** : Turbopack parcourt tout le
+  dossier et refuse un lien qui en sort — `next build` meurt en accusant
+  `src/server/paths.ts`. `setup.sh` déjoint celui du venv ; détail dans
+  [`docs/lessons.md`](docs/lessons.md).
 - **Pas de Docker ici.** Node natif, Python en venv, ffmpeg natif.
 
 ## Livraison

@@ -364,6 +364,24 @@ YOLO("yolo11n.yaml").predict(
 PY
 }
 
+# Turbopack walks the whole project directory and refuses any symlink whose
+# target leaves it, so the `bin/python3 -> /usr/bin/python3` that `python -m venv`
+# writes kills `next build`. Copy the interpreter in. See docs/lessons.md.
+detach_system_python() {
+  [ -d "$VENV/bin" ] || return 0
+  local link real
+  # `-lname '/*'` ne retient que les liens dont la cible immédiate est absolue :
+  # les rendre réels suffit, ceux qui pointent vers eux restent dans le venv.
+  while IFS= read -r link; do
+    real=$(readlink -f "$link") || continue
+    case "$real" in "$REPO_DIR"/*) continue ;; esac
+    rm -f "$link"
+    cp "$real" "$link" || { bad "copie de $real dans le venv impossible"; exit 1; }
+    chmod 755 "$link"
+    say "$(basename "$link") recopié dans worker/venv : un lien vers $real ferait échouer next build"
+  done < <(find "$VENV/bin" -maxdepth 1 -type l -lname '/*')
+}
+
 if [ "$SKIP_DETECT" -eq 1 ]; then
   say "worker/venv sauté (--skip-detect) : l'étape analysis ne tournera pas"
 elif [ "$FORCE" -eq 0 ] && [ -x "$VENV_PY" ] && cuda_infers "$VENV_PY"; then
@@ -401,6 +419,8 @@ else
     exit 1
   fi
 fi
+
+detach_system_python
 
 # Les poids, à côté du venv. Téléchargés ici plutôt que laissés à ultralytics :
 # livré à lui-même il les tire au premier appel, dans le dossier de travail du

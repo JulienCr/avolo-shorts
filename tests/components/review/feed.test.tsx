@@ -25,6 +25,7 @@ import type { View } from '@/components/review/template'
 import type { Platform, PlatformAvailability } from '@/core/publication'
 import { lireSessionReview, writeSessionReview } from '@/components/review/session'
 import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
+import { resetDecideStatusForTests } from '@/lib/clip-status'
 
 // **`PointerEvent` n'existe pas sous `jsdom`.** La case de sélection en masse
 // (Base UI `Checkbox`) dispatche elle-même un `PointerEvent` synthétique à la
@@ -35,6 +36,9 @@ afterEach(() => {
   cleanup()
   window.sessionStorage.clear()
   vi.restoreAllMocks()
+  // Reused clip ids across `it()` blocks would otherwise read a previous
+  // test's decision (issue #330) — see `resetDecideStatusForTests`.
+  resetDecideStatusForTests()
 })
 
 function candidate(n: number, status: ClipStatus = 'candidate'): CandidateClip {

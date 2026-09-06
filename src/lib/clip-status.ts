@@ -46,3 +46,63 @@ export function toggleStatus(
   const active = decision === 'kept' ? isGuard(current) : isDiscarded(current)
   return active ? 'candidate' : decision
 }
+
+/**
+ * The status each clip's decide gesture last dispatched, kept next to
+ * `toggleStatus` (issue #330) — not a component ref, which can't cross the
+ * clip screen and the sort screen closing over the same server truth.
+ */
+const decided = new Map<string, ClipStatus>()
+
+/**
+ * Toggles from the remembered decision, falling back to `fallback` when
+ * nothing is remembered yet, stores the result, and returns it.
+ *
+ * @param fallback The caller's own snapshot of the server status.
+ * Call synchronously, one line before `mutate`/`onStatus`, never after an
+ * `await`: it is the only value guaranteed current for the very next
+ * dispatch, ahead of the query cache that `cancelQueries` has not settled yet.
+ */
+export function decideStatus(
+  clipId: string,
+  fallback: ClipStatus,
+  decision: Decision,
+): Exclude<ClipStatus, 'exported'> {
+  const next = toggleStatus(peekStatus(clipId, fallback), decision)
+  decided.set(clipId, next)
+  return next
+}
+
+/**
+ * The status a `decideStatus` call for `clipId` would toggle from right now.
+ *
+ * @param fallback Used only when nothing is remembered yet.
+ * Read this before the toggle to capture what a decision actually reverts —
+ * e.g. an undo stack entry, which must not record the caller's render
+ * snapshot when a remembered decision already supersedes it.
+ */
+export function peekStatus(clipId: string, fallback: ClipStatus): ClipStatus {
+  return decided.get(clipId) ?? fallback
+}
+
+/** Resynchronises the remembered status from a confirmed server value. */
+export function resyncStatus(clipId: string, status: ClipStatus): void {
+  decided.set(clipId, status)
+}
+
+/** Forgets a clip's remembered status, e.g. when no server value survives to resync from. */
+export function forgetStatus(clipId: string): void {
+  decided.delete(clipId)
+}
+
+/**
+ * Test-only: wipes every remembered status.
+ *
+ * `decided` is module state, so it survives across `it()` blocks in the same
+ * file (issue #330) — a harness that decides through `useSortLoop` without a
+ * real `usePatchClip` never resynchronises, and a reused clip id then reads
+ * a previous test's decision. Call in `afterEach`.
+ */
+export function resetDecideStatusForTests(): void {
+  decided.clear()
+}

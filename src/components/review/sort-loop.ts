@@ -5,7 +5,7 @@ import { useState } from 'react'
 import type { ClipStatus } from '@/core/edl'
 import { count } from '@/core/phase'
 import type { CandidateClip } from '@/lib/api'
-import { toggleStatus, type Decision } from '@/lib/clip-status'
+import { decideStatus, peekStatus, resyncStatus, type Decision } from '@/lib/clip-status'
 import { belongs, idsForView, type View } from '@/components/review/template'
 
 /**
@@ -133,8 +133,13 @@ export function useSortLoop(
   }
 
   function apply(clip: CandidateClip, decision: Decision) {
-    setStack((p) => [...p, { clipId: clip.id, before: clip.status }])
-    onStatus(clip.id, toggleStatus(clip.status, decision))
+    // Records what `decideStatus` is about to toggle from, not the render
+    // snapshot: a second rapid press (issue #330) toggles from the remembered
+    // decision, and `before` must match or `undo` reverts to the wrong status.
+    const before = peekStatus(clip.id, clip.status)
+    setStack((p) => [...p, { clipId: clip.id, before }])
+    // Synchronous, before `onStatus` (issue #330) — see `decideStatus`.
+    onStatus(clip.id, decideStatus(clip.id, clip.status, decision))
   }
 
   function decide(decision: Decision) {
@@ -160,7 +165,11 @@ export function useSortLoop(
     setStack((p) => p.slice(0, -1))
     // `exported` never gets written back: the server rejects it on `PATCH`,
     // and the render this decision undoes has been discarded regardless.
-    onStatus(last.clipId, last.before === 'exported' ? 'kept' : last.before)
+    const restored = last.before === 'exported' ? 'kept' : last.before
+    // Resync the decide map (issue #330): `undo` bypasses `decideStatus`,
+    // and without this the map stays one step stale after the revert.
+    resyncStatus(last.clipId, restored)
+    onStatus(last.clipId, restored)
     focusCard(last.clipId)
   }
 

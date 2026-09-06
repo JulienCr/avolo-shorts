@@ -17,8 +17,12 @@ import type { ClipStatus } from '@/core/edl'
 import type { CandidateClip } from '@/lib/api'
 import { useSortLoop } from '@/components/review/sort-loop'
 import type { View } from '@/components/review/template'
+import { resetDecideStatusForTests } from '@/lib/clip-status'
 
 afterEach(cleanup)
+// `decided` is module state (issue #330): without this, a clip id reused
+// across `it()` blocks in this file would read a previous test's decision.
+afterEach(resetDecideStatusForTests)
 
 function clip(id: string, status: ClipStatus): CandidateClip {
   return {
@@ -74,5 +78,39 @@ describe('useSortLoop, undo across a view change', () => {
     act(() => result.current.undo())
     expect(statuses.c1).toBe('candidate')
     expect(attemptFocus).toHaveBeenCalledWith('c1')
+  })
+})
+
+/**
+ * A second rapid press before render (issue #330): `apply`'s undo entry must
+ * record what the decision actually toggled from, not the render snapshot
+ * `clip.status` — otherwise `undo` reverts to the wrong status.
+ */
+describe('useSortLoop, undo across two rapid decisions on the same card', () => {
+  it('undoes each decision in the order it was taken, not the render snapshot', () => {
+    const statuses: Record<string, ClipStatus> = { c1: 'candidate' }
+    const onStatus = vi.fn((id: string, status: ClipStatus) => {
+      statuses[id] = status
+    })
+    const attemptFocus = vi.fn(() => true)
+
+    const { result } = renderHook(
+      ({ view }: { view: View }) => useSortLoop([clip('c1', statuses.c1)], view, onStatus, attemptFocus),
+      { initialProps: { view: 'atrier' as View } },
+    )
+
+    // No rerender between the two: `clip.status` in the closure is still
+    // 'candidate' for both, exactly the repeat #330 targets.
+    act(() => {
+      result.current.decideOn('c1', 'kept')
+      result.current.decideOn('c1', 'kept')
+    })
+    expect(statuses.c1).toBe('candidate') // second press cancels the first
+
+    act(() => result.current.undo())
+    expect(statuses.c1).toBe('kept') // undoes the second decision
+
+    act(() => result.current.undo())
+    expect(statuses.c1).toBe('candidate') // undoes the first, back to the original
   })
 })

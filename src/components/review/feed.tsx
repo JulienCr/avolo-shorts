@@ -351,7 +351,7 @@ export function ReviewFeed({
           part. Un seul panneau suffit — celui de la vue active, dont le contenu
           change avec elle. */}
       <Tabs value={view} onValueChange={(value) => onView(value as View)}>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList>
             {VIEWS.map(({ value, label }) => (
               <TabsTrigger key={value} value={value}>
@@ -503,7 +503,7 @@ function ButtonSort({ projectId, proxyReady }: { projectId: string; proxyReady: 
 
   if (!proxyReady) {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
           variant="outline"
@@ -515,7 +515,7 @@ function ButtonSort({ projectId, proxyReady }: { projectId: string; proxyReady: 
           Trier
         </Button>
         <p id={reason} data-testid="reason-sort" className="text-xs text-muted-foreground">
-          Le tri plein écran s’ouvrira avec le proxy, en cours d’encodage.
+          Le tri plein écran s’ouvrira une fois le proxy du projet prêt.
         </p>
       </div>
     )

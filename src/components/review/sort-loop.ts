@@ -104,6 +104,8 @@ export function useSortLoop(
   view: View,
   onStatus: (clipId: string, status: Exclude<ClipStatus, 'exported'>) => void,
   attemptFocus: AttemptFocus,
+  /** `phaseProject(...).analysis === 'complete'` — see issue #328. */
+  analysisComplete: boolean,
 ): SortLoop {
   const visible = useViewFrozen(clips, view)
   const [selection, setSelection] = useState<string | null>(null)
@@ -185,6 +187,6 @@ export function useSortLoop(
     decideOn,
     undo,
     remaining: counts.aSort,
-    done: clips.length > 0 && counts.aSort === 0 && view === 'atrier',
+    done: (clips.length > 0 || analysisComplete) && counts.aSort === 0 && view === 'atrier',
   }
 }

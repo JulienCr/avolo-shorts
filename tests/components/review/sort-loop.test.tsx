@@ -57,7 +57,7 @@ describe('useSortLoop, undo across a view change', () => {
 
     const { result, rerender } = renderHook(
       ({ view }: { view: View }) =>
-        useSortLoop([clip('c1', statuses.c1), clip('c2', statuses.c2)], view, onStatus, attemptFocus),
+        useSortLoop([clip('c1', statuses.c1), clip('c2', statuses.c2)], view, onStatus, attemptFocus, true),
       { initialProps: { view: 'atrier' as View } },
     )
 
@@ -95,7 +95,7 @@ describe('useSortLoop, undo across two rapid decisions on the same card', () => 
     const attemptFocus = vi.fn(() => true)
 
     const { result } = renderHook(
-      ({ view }: { view: View }) => useSortLoop([clip('c1', statuses.c1)], view, onStatus, attemptFocus),
+      ({ view }: { view: View }) => useSortLoop([clip('c1', statuses.c1)], view, onStatus, attemptFocus, true),
       { initialProps: { view: 'atrier' as View } },
     )
 
@@ -112,5 +112,14 @@ describe('useSortLoop, undo across two rapid decisions on the same card', () => 
 
     act(() => result.current.undo())
     expect(statuses.c1).toBe('candidate') // undoes the first, back to the original
+  })
+})
+
+describe('useSortLoop, done at zero candidates', () => {
+  it('is done on an empty list once detection has finished', () => {
+    const { result } = renderHook(() =>
+      useSortLoop([], 'atrier', vi.fn(), vi.fn(() => true), true),
+    )
+    expect(result.current.done).toBe(true)
   })
 })

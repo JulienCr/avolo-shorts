@@ -360,6 +360,7 @@ export function ProjectScreen({ id }: { id: string }) {
                 proxyReady={steps.proxy === true}
                 summary={project.data?.selectionReport ?? null}
                 next={next(phase, { id })}
+                analysisComplete={phase.analysis === 'complete'}
                 onStatus={(clipId, status) =>
                   patch.mutate({ clipId, projectId: id, patch: { status } })
                 }

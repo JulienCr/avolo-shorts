@@ -97,7 +97,8 @@ function Harness({
   // qu'aucun état n'est une impasse, et la lui donner en dur ferait passer le
   // test à côté de la garantie.
   const steps = { candidates: true, proxy: proxyReady } as Record<StepName, boolean>
-  const issue = next(phaseProject(steps, null, null, clips), { id: 'p1' })
+  const phase = phaseProject(steps, null, null, clips)
+  const issue = next(phase, { id: 'p1' })
   return (
     <QueryClientProvider client={queryClient}>
       <ReviewFeed
@@ -108,6 +109,7 @@ function Harness({
         proxyReady={proxyReady}
         summary={summary}
         next={issue}
+        analysisComplete={phase.analysis === 'complete'}
         descriptionFooter={descriptionFooter}
         publicationAvailability={publicationAvailability}
         onStatus={(clipId, status) =>
@@ -137,6 +139,7 @@ function Vivant({ list }: { list: CandidateClip[] }) {
         proxyReady
         summary={null}
         next={next(phaseProject(steps, null, null, clips), { id: 'p1' })}
+        analysisComplete
         onStatus={(clipId, status) => setStatuses((s) => ({ ...s, [clipId]: status }))}
       />
     </QueryClientProvider>
@@ -448,6 +451,7 @@ describe('le retour, et lui seul', () => {
           proxyReady
           summary={null}
           next={next(phaseProject(steps, null, null, list), { id: 'p1' })}
+          analysisComplete
           onStatus={() => {}}
         />
       </QueryClientProvider>
@@ -717,13 +721,13 @@ describe('la fin de la boucle', () => {
     expect(screen.getByTestId('outcome').textContent).toMatch(/titres|descriptions/i)
   })
 
-  it('ne parle pas de fin sur une liste vide', () => {
-    // Zéro candidat n'est pas une boucle terminée : c'est un repérage qui n'a
-    // rien rendu, ou qui n'a pas encore tourné.
+  it('atteint la fin de boucle sur une liste vide une fois le repérage terminé (#328)', () => {
+    // Zero candidates, detection finished: the case #328 makes reachable,
+    // not a list that hasn't run yet.
     render(<Harness start={[]} />)
 
-    expect(screen.queryByText(/tout est trié/i)).toBeNull()
-    expect(screen.getByText(/aucune proposition/i)).toBeTruthy()
+    expect(screen.queryByText(/aucune proposition/i)).toBeNull()
+    expect(screen.getByText('Tout a été écarté.')).toBeTruthy()
   })
 })
 

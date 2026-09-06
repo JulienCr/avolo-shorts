@@ -56,6 +56,7 @@ export function ReviewFeed({
   next,
   onStatus,
   header,
+  analysisComplete,
   publicationAvailability,
   publicationAvailabilityError,
   onRetryPublicationAvailability,
@@ -114,6 +115,11 @@ export function ReviewFeed({
   onStatus: (clipId: string, status: Exclude<ClipStatus, 'exported'>) => void
   /** Ce que la page pose en bout de ligne d'en-tête — la relance, notamment. */
   header?: ReactNode
+  /**
+   * `phaseProject(...).analysis === 'complete'` — distinguishes "detection
+   * never ran" from "detection ran, zero candidates" (issue #328).
+   */
+  analysisComplete: boolean
 }) {
   const counts = count(clips)
   const word = detectionWord(summary)
@@ -207,7 +213,7 @@ export function ReviewFeed({
   }
 
   const { visible, current, select, focusCard: focus, move, decide, decideOn, undo, done } =
-    useSortLoop(clips, view, onStatus, attemptFocus)
+    useSortLoop(clips, view, onStatus, attemptFocus, analysisComplete)
 
   function open() {
     // Le lien de la carte, pas le routeur : une seule navigation, celle que le
@@ -371,10 +377,14 @@ export function ReviewFeed({
         </div>
 
         <TabsContent value={view} className="flex flex-col gap-4">
-          {clips.length === 0 && (
+          {/* **Le détail dit lequel des deux cas, jamais les deux à la
+              fois.** `LoopEnd` ci-dessous couvre déjà « repérage terminé, zéro
+              candidat » (issue #328) : cette phrase ne porte donc plus que
+              l'autre. */}
+          {clips.length === 0 && !done && (
             <Empty
               title="Aucune proposition pour le moment."
-              detail="Le repérage n’a rien rendu, ou il n’a pas encore tourné."
+              detail="Le repérage n’a pas encore tourné."
             />
           )}
 

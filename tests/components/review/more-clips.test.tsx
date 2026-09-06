@@ -68,6 +68,7 @@ describe('MoreClips', () => {
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Demander 5 clips supplémentaires' })).toBeTruthy())
     expect(screen.getByRole('button', { name: 'Demander 10 clips supplémentaires' })).toBeTruthy()
+    expect(screen.getByText('Chercher d’autres clips dans le replay')).toBeTruthy()
   })
 
   it('ne rend aucun bouton quand le replay est épuisé', async () => {
@@ -80,6 +81,7 @@ describe('MoreClips', () => {
     await waitFor(() => expect(screen.getByText(/épuisé|exploré/i)).toBeTruthy())
     expect(screen.queryByRole('button', { name: 'Demander 5 clips supplémentaires' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Demander 10 clips supplémentaires' })).toBeNull()
+    expect(screen.queryByText('Chercher d’autres clips dans le replay')).toBeNull()
   })
 
   it('bloque les boutons pendant qu’une exécution tourne, avec sa raison à côté', async () => {

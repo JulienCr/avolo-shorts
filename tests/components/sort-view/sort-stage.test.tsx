@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClipStatus } from '@/core/edl'
 import { next } from '@/lib/navigation'
 import type { CandidateClip } from '@/lib/api'
+import { resetDecideStatusForTests } from '@/lib/clip-status'
 import { SortStage } from '@/components/sort-view/sort-stage'
 
 beforeEach(() => {
@@ -28,6 +29,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  // Reused clip ids across `it()` blocks would otherwise read a previous
+  // test's decision (issue #330) — see `resetDecideStatusForTests`.
+  resetDecideStatusForTests()
 })
 
 function candidate(n: number, status: ClipStatus = 'candidate', pass = 1): CandidateClip {

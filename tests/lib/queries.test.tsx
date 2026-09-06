@@ -477,6 +477,36 @@ describe('usePatchClip', () => {
     expect(cache?.clip.hookStyle).toEqual({ textColor: 'red' })
     expect(cache?.clip.framingStyle).toEqual({ splitMinShotMs: 400 })
   })
+
+  /**
+   * **Issue #329**: a decide taken before `/candidates` has loaded — a
+   * direct clip access — must still invalidate the list, not only on the
+   * overlapping-write path `clipsOverlapping` already covers.
+   */
+  it('invalide la liste des candidats quand elle n’était pas chargée, même sans chevauchement', async () => {
+    const id = 'c-329-missing-list'
+    const { client, envelope, invalid } = harness()
+    // Deliberately not seeding `keys.candidats('p1')`: `onMutate` reads
+    // `undefined` there, exactly the case `onSettled` used to ignore.
+    const before = framing({ ratio: '16:9', shots: [shot(0, 20, '16:9', 0.5)] })
+    client.setQueryData<ClipDetail>(keys.clip(id), detail(before))
+
+    const patchResult: PatchClipResult = {
+      applied: true,
+      clip: { ...clip!, id, status: 'kept' },
+      outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+      framing: before,
+      seq: 1,
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => response(patchResult)))
+
+    const { result } = renderHook(() => usePatchClip(), { wrapper: envelope })
+    await act(async () => {
+      await result.current.mutateAsync({ clipId: id, projectId: 'p1', patch: { status: 'kept' } })
+    })
+
+    expect(invalid).toHaveBeenCalledWith(expect.objectContaining({ queryKey: keys.candidats('p1') }))
+  })
 })
 
 /**

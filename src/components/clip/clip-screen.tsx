@@ -44,7 +44,7 @@ import { resolveHook } from '@/core/hook'
 import { clipExportEligibility, composeDescription } from '@/core/publication'
 import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
 import { ApiError, HOOK_DEFAULTS } from '@/lib/api'
-import { LABELS_STATUS, isDiscarded, isGuard, toggleStatus, type Decision } from '@/lib/clip-status'
+import { LABELS_STATUS, decideStatus, isDiscarded, isGuard, type Decision } from '@/lib/clip-status'
 import { indexTranscript, lineInitial, toMontageTime } from '@/lib/editing'
 import { differences, useAutosave } from '@/lib/autosave'
 import { clipNext, clipPrevious, linkClip } from '@/lib/navigation'
@@ -380,11 +380,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const discardPressed = isDiscarded(liveStatus)
 
   function decide(decision: Decision) {
-    patch.mutate({
-      clipId: clip.id,
-      projectId: clip.projectId,
-      patch: { status: toggleStatus(liveStatus, decision) },
-    })
+    // Synchronous, before `mutate`, one line — issue #330: only a plain map
+    // written at dispatch time is guaranteed current for the very next
+    // rapid repeat of the same gesture.
+    const status = decideStatus(clip.id, liveStatus, decision)
+    patch.mutate({ clipId: clip.id, projectId: clip.projectId, patch: { status } })
   }
 
   useShortcuts({

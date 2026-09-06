@@ -17,6 +17,7 @@ import { framing, shot, splitCells } from '../../fixtures/framing'
 import { DUBBING_ANCHORS, dubbingCellsFor } from '@/core/dubbing'
 import { defaultPlatformAvailability } from '@/core/publication'
 import type { CandidateClip, ClipDetail } from '@/lib/api'
+import { resetDecideStatusForTests } from '@/lib/clip-status'
 import { startHistory } from '@/lib/history'
 import { toMontageTime } from '@/lib/editing'
 import { useEditor } from '@/store/editor'
@@ -191,6 +192,10 @@ afterEach(() => {
   vi.unstubAllGlobals()
   replaceMock.mockClear()
   query = ''
+  // `c2` is reused across most tests here: an earlier mutation's `onSuccess`
+  // resyncs `clip-status.ts`'s decide map, and would otherwise leak into a
+  // later test's first decision (issue #330).
+  resetDecideStatusForTests()
 })
 
 describe('la boucle de montage', () => {
@@ -687,6 +692,25 @@ describe('garder et écarter, depuis l’écran de clip', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /^écarté$/i })).toBeTruthy())
 
     expect(patches).toEqual(['kept', 'discarded'])
+  })
+
+  /**
+   * **Issue #330.** Two `P` presses with no render between them — the
+   * shortcut handler runs synchronously, outside React's batching — must
+   * still cancel rather than repeat: the second press reads the status the
+   * first one just decided, not the stale render snapshot both would
+   * otherwise share.
+   */
+  it('un second `P` très rapproché annule le premier plutôt que de le répéter', async () => {
+    const patches: unknown[] = []
+    vi.stubGlobal('fetch', stubDecisionFetch(patches))
+    await mount('c2', candidateDetail())
+
+    fireEvent.keyDown(document.body, { key: 'p' })
+    fireEvent.keyDown(document.body, { key: 'p' })
+
+    await waitFor(() => expect(patches).toHaveLength(2))
+    expect(patches).toEqual(['kept', 'candidate'])
   })
 
   function stubDecisionFetch(patches: unknown[]) {

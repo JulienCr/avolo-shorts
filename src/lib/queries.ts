@@ -58,6 +58,7 @@ import { requestMoreClips } from '@/lib/api'
 import { clipBounds } from '@/lib/editing'
 import type { TranscriptLine } from '@/lib/editing'
 import type { Platform, PublicationRecord } from '@/core/publication'
+import { forgetStatus, resyncStatus } from '@/lib/clip-status'
 
 export const keys = {
   projets: ['projects'] as const,
@@ -439,9 +440,12 @@ export function usePatchClip() {
       // restaurée telle quelle en cas d'échec, annulerait au passage les
       // décisions prises entre-temps sur les *autres* cartes — et qui, elles,
       // ont réussi.
-      const previousCandidate = client
-        .getQueryData<CandidateClip[]>(keys.candidats(projectId))
-        ?.find((c) => c.id === clipId)
+      // One read, two facts: the candidate to restore on failure, and
+      // whether the list is there at all (issue #329) — a direct clip
+      // access before `/candidates` has resolved.
+      const candidateList = client.getQueryData<CandidateClip[]>(keys.candidats(projectId))
+      const candidatesMissing = candidateList === undefined
+      const previousCandidate = candidateList?.find((c) => c.id === clipId)
       const previousClip = client.getQueryData<ClipDetail>(keys.clip(clipId))?.clip
 
       client.setQueryData<CandidateClip[]>(keys.candidats(projectId), (list) =>
@@ -451,7 +455,7 @@ export function usePatchClip() {
         detail ? { ...detail, clip: { ...detail.clip, ...survivingPatch } } : detail,
       )
 
-      return { previousCandidate, previousClip, jeton: variables.seq }
+      return { previousCandidate, previousClip, jeton: variables.seq, candidatesMissing }
     },
 
     onError(_error, { clipId, projectId }, context) {
@@ -473,6 +477,13 @@ export function usePatchClip() {
           detail ? { ...detail, clip: previousClip } : detail,
         )
       }
+
+      // Resync the remembered decide status (issue #330) to whatever
+      // survives the rollback, or forget it when neither cache held a value
+      // to resync from — the next gesture then falls back to its own read.
+      const restoredStatus = previousCandidate?.status ?? previousClip?.status
+      if (restoredStatus) resyncStatus(clipId, restoredStatus)
+      else forgetStatus(clipId)
     },
 
     onSuccess({ clip, outputs, framing, seq }: PatchClipResult, { clipId, projectId }, context) {
@@ -504,6 +515,10 @@ export function usePatchClip() {
       // N'avance que si les bornes ont vraiment bougé, jamais sur un champ
       // sans rapport (issue #280).
       adoptConfirmedBounds(clipId, clip.segments)
+
+      // Unconditionally, whichever field was patched (issue #330): the
+      // server can flip `status` as a side effect of an unrelated field.
+      resyncStatus(clipId, clip.status)
     },
 
     /**
@@ -514,11 +529,14 @@ export function usePatchClip() {
      * Le rollback de `onError`, lui, reste immédiat : une invalidation laisserait
      * l'écran dans son état optimiste, donc faux, le temps du rechargement.
      */
-    async onSettled(_data, _error, { clipId, projectId }: Variables) {
-      if (!clipsOverlapping.has(clipId)) return
+    async onSettled(_data, _error, { clipId, projectId }: Variables, context) {
+      // Additive to the overlapping branch (issue #329): a decision taken
+      // before `/candidates` had loaded never invalidated it otherwise.
+      const overlapping = clipsOverlapping.has(clipId)
+      if (!overlapping && !context?.candidatesMissing) return
       // Une, parce que celle-ci y est encore.
       if (inFlight(clipId) > 1) return
-      clipsOverlapping.delete(clipId)
+      if (overlapping) clipsOverlapping.delete(clipId)
       await client.invalidateQueries({ queryKey: keys.clip(clipId) })
       void client.invalidateQueries({ queryKey: keys.candidats(projectId) })
 

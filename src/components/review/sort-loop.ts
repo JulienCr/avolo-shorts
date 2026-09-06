@@ -5,7 +5,7 @@ import { useState } from 'react'
 import type { ClipStatus } from '@/core/edl'
 import { count } from '@/core/phase'
 import type { CandidateClip } from '@/lib/api'
-import { decideStatus, resyncStatus, type Decision } from '@/lib/clip-status'
+import { decideStatus, peekStatus, resyncStatus, type Decision } from '@/lib/clip-status'
 import { belongs, idsForView, type View } from '@/components/review/template'
 
 /**
@@ -133,7 +133,11 @@ export function useSortLoop(
   }
 
   function apply(clip: CandidateClip, decision: Decision) {
-    setStack((p) => [...p, { clipId: clip.id, before: clip.status }])
+    // Records what `decideStatus` is about to toggle from, not the render
+    // snapshot: a second rapid press (issue #330) toggles from the remembered
+    // decision, and `before` must match or `undo` reverts to the wrong status.
+    const before = peekStatus(clip.id, clip.status)
+    setStack((p) => [...p, { clipId: clip.id, before }])
     // Synchronous, before `onStatus` (issue #330) — see `decideStatus`.
     onStatus(clip.id, decideStatus(clip.id, clip.status, decision))
   }

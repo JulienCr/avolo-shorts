@@ -17,6 +17,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { DEFAULT_DESCRIPTION_FOOTER, DEFAULT_SCHEDULE_HOURS, FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
 import type { Clip, ClipDetail, ExportResult, PatchClipResult, RunPlan, Settings } from '@/lib/api'
+import type { ClipStatus } from '@/core/edl'
+import { decideStatus, peekStatus, resetDecideStatusForTests } from '@/lib/clip-status'
 import {
   keys,
   useClip,
@@ -81,6 +83,7 @@ afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  resetDecideStatusForTests()
 })
 
 describe('useExporter', () => {
@@ -476,6 +479,67 @@ describe('usePatchClip', () => {
     const cache = client.getQueryData<ClipDetail>(keys.clip(id))
     expect(cache?.clip.hookStyle).toEqual({ textColor: 'red' })
     expect(cache?.clip.framingStyle).toEqual({ splitMinShotMs: 400 })
+  })
+
+  /**
+   * **Issue #330's reconciliation tail** (relevé par Copilot, Codex et
+   * Aristarque): when both writes of an overlapping pair fail, `onError`
+   * resyncs `decided` to the losing pair's *optimistic* value, not the
+   * server truth. The final reconciliation in `onSettled` already reloads
+   * that truth for `adoptConfirmedBounds` — it must resync `decided` too.
+   */
+  it('resynchronise le statut mémorisé sur le rechargement de réconciliation, même si les deux écritures échouent', async () => {
+    const id = 'c-330-reconcile'
+    const { client, envelope } = harness()
+    const before = framing({ ratio: '16:9', shots: [shot(0, 20, '16:9', 0.5)] })
+    // Server truth throughout: neither gesture below ever actually applies.
+    client.setQueryData<ClipDetail>(keys.clip(id), { ...detail(before), clip: { ...clip!, status: 'candidate' } })
+    decideStatus(id, 'candidate', 'kept')
+
+    // Gesture A's own `PATCH` hangs (still in flight over the network) while
+    // gesture B runs to completion and fails — the window where B's rollback
+    // target is A's optimistic write, not the server value.
+    let resolveFirstPatch!: (r: Response) => void
+    const firstPatchPending = new Promise<Response>((resolve) => {
+      resolveFirstPatch = resolve
+    })
+    let patchCalls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'PATCH') {
+          patchCalls += 1
+          return patchCalls === 1 ? firstPatchPending : response({ error: 'rejete' }, 409)
+        }
+        return response({ ...detail(before), clip: { ...clip!, status: 'candidate' } })
+      }),
+    )
+
+    const { result } = renderHook(
+      () => {
+        useClip(id) // needed so `invalidateQueries` actually refetches
+        return usePatchClip()
+      },
+      { wrapper: envelope },
+    )
+
+    let firstPromise!: Promise<PatchClipResult>
+    await act(async () => {
+      firstPromise = result.current.mutateAsync({ clipId: id, projectId: 'p1', patch: { status: 'kept' } })
+      await Promise.resolve() // lets A's `onMutate` write its optimistic cache before B starts
+    })
+    decideStatus(id, 'kept', 'discarded')
+    await act(async () => {
+      await result.current.mutateAsync({ clipId: id, projectId: 'p1', patch: { status: 'discarded' } }).catch(() => undefined)
+    })
+
+    resolveFirstPatch(response({ error: 'rejete' }, 409))
+    await act(async () => {
+      await firstPromise.catch(() => undefined)
+    })
+
+    await waitFor(() => expect(client.getQueryData<ClipDetail>(keys.clip(id))?.clip.status).toBe('candidate'))
+    expect(peekStatus(id, 'exported' as ClipStatus)).toBe('candidate')
   })
 
   /**

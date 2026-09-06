@@ -68,9 +68,21 @@ export function decideStatus(
   fallback: ClipStatus,
   decision: Decision,
 ): Exclude<ClipStatus, 'exported'> {
-  const next = toggleStatus(decided.get(clipId) ?? fallback, decision)
+  const next = toggleStatus(peekStatus(clipId, fallback), decision)
   decided.set(clipId, next)
   return next
+}
+
+/**
+ * The status a `decideStatus` call for `clipId` would toggle from right now.
+ *
+ * @param fallback Used only when nothing is remembered yet.
+ * Read this before the toggle to capture what a decision actually reverts —
+ * e.g. an undo stack entry, which must not record the caller's render
+ * snapshot when a remembered decision already supersedes it.
+ */
+export function peekStatus(clipId: string, fallback: ClipStatus): ClipStatus {
+  return decided.get(clipId) ?? fallback
 }
 
 /** Resynchronises the remembered status from a confirmed server value. */

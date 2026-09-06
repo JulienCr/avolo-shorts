@@ -538,7 +538,13 @@ export function usePatchClip() {
       // `invalidateQueries` résout même si son refetch échoue : sans ces deux
       // garde-fous, le store confirmé publierait le cache optimiste. (Codex, Copilot)
       const state = client.getQueryState<ClipDetail>(keys.clip(clipId))
-      if (state?.status === 'success' && state.data) adoptConfirmedBounds(clipId, state.data.clip.segments)
+      if (state?.status === 'success' && state.data) {
+        adoptConfirmedBounds(clipId, state.data.clip.segments)
+        // A losing write's `onError` can resync `decided` to another write's
+        // stale optimistic value (relevé par Aristarque); this reconciliation
+        // already reloads the true status, so resync from it too.
+        resyncStatus(clipId, state.data.clip.status)
+      }
     },
   })
 }

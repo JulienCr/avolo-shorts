@@ -547,3 +547,40 @@ résolution et l'arrêt fonctionnent, il ne peut pas servir de discriminant
 avant/après pour ce défaut précis sur cette machine. Le résolveur qui
 contourne `lsof` vit dans `scripts/ui/listening-pid.ts`, en lisant
 `/proc/net/tcp{,6}` puis `/proc/<pid>/fd`.
+
+## Un lien symbolique qui sort du dépôt tue `next build`
+
+`pnpm build` meurt sur `FATAL: Symlink [project]/worker/venv/bin/python is
+invalid, it points out of the filesystem root`, et le message accuse
+`src/server/paths.ts`, qui n'y est pour rien. Turbopack (Next 16.3.1) attache à
+ce fichier une `DirAssetReference` couvrant toute la racine du projet : les
+chemins y sont construits à l'exécution depuis `REPLAY_DIR`, `STAGE_DIR` et
+`PROJECTS_DIR`, donc l'analyseur statique ne peut rien restreindre. Il parcourt
+alors les 20 Go de `projects/` et les 7 Go de `worker/`, et s'arrête au premier
+lien dont la cible sort du dossier.
+
+Ce lien, `worker/venv/bin/python3 -> /usr/bin/python3`, est écrit par
+`python -m venv`. Il datait du 18 août 2026, et le build a cassé sans que rien
+ne bouge dans le code. La CI reste verte parce que `worker/venv` est ignoré par
+git : elle n'a jamais eu de venv. Le défaut ne se voit que sur une machine de
+développement, ce qui lui a permis de tenir vingt jours.
+
+Essayé le 6 septembre 2026, sans succès : fermer la référence côté code. Retirer
+le `path.resolve` sur une valeur dynamique dans `root()` ne change rien, la
+référence vient d'ailleurs dans le fichier. La traquer plus loin reviendrait à
+cacher au bundler des appels `path` et `fs` parfaitement légitimes, et elle
+reviendrait au premier chemin dynamique écrit ensuite.
+
+Le correctif tient donc à la racine du dépôt : aucun lien absolu en dessous.
+`detach_system_python`, dans `setup.sh`, recopie l'interpréteur à la place du
+lien, sur un venv neuf comme sur un venv déjà là — `python -m venv` ne remplace
+pas ce qui existe, et le script refuse de détruire un venv de sept gigaoctets
+pour ça. Le venv survit à l'opération : `sys.prefix` reste dans le dépôt, et
+torch 2.8.0+cu128 voit toujours la 4090.
+
+Une copie a le défaut de sa qualité : elle ne suit plus les mises à jour du
+système, et `python -m venv` ne la remplacerait pas davantage. La fonction la
+réaligne donc quand elle diverge de l'interpréteur que nomme `pyvenv.cfg`, et
+elle écrit à côté avant de renommer par-dessus — un `cp` sur le lien lui-même
+laisserait un venv sans interpréteur si le disque se remplissait en cours de
+route. (relevé par Codex et Copilot)

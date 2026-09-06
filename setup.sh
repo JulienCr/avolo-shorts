@@ -364,6 +364,42 @@ YOLO("yolo11n.yaml").predict(
 PY
 }
 
+# Write beside the target and rename over it: copying straight onto the link
+# would leave the venv without an interpreter if the disk filled up halfway.
+# (relevé par Codex et Copilot)
+replace_with_copy() {
+  cp "$1" "$2.new" || { bad "copie de $1 dans worker/venv impossible"; exit 1; }
+  chmod 755 "$2.new"
+  mv -f "$2.new" "$2"
+}
+
+# Turbopack walks the whole project directory and refuses a symlink whose target
+# leaves it, so the `bin/python3 -> /usr/bin/python3` that `python -m venv` writes
+# kills `next build`. Keep a real copy instead. See docs/lessons.md.
+detach_system_python() {
+  [ -d "$VENV/bin" ] || return 0
+  local link real repo base
+  repo=$(readlink -f "$REPO_DIR")
+  base=$(sed -n 's/^[[:space:]]*home[[:space:]]*=[[:space:]]*//p' "$VENV/pyvenv.cfg" 2>/dev/null)
+
+  # Only links whose immediate target is absolute: replacing those is enough,
+  # since whatever points at them then resolves inside the venv.
+  while IFS= read -r link; do
+    real=$(readlink -f "$link") || { bad "$link ne se résout pas : worker/venv est à refaire"; exit 1; }
+    case "$real" in "$repo"/*) continue ;; esac
+    replace_with_copy "$real" "$link"
+    say "$(basename "$link") recopié dans worker/venv : un lien vers $real ferait échouer next build"
+  done < <(find "$VENV/bin" -maxdepth 1 -type l -name 'python*' -lname '/*')
+
+  # A copy stops tracking the interpreter a system update replaces, and
+  # `python -m venv` never overwrites a file that is already there.
+  if [ -n "$base" ] && [ -x "$base/python3" ] && [ -f "$VENV/bin/python3" ] &&
+     ! cmp -s "$base/python3" "$VENV/bin/python3"; then
+    replace_with_copy "$base/python3" "$VENV/bin/python3"
+    say "worker/venv/bin/python3 remis à niveau sur $base/python3"
+  fi
+}
+
 if [ "$SKIP_DETECT" -eq 1 ]; then
   say "worker/venv sauté (--skip-detect) : l'étape analysis ne tournera pas"
 elif [ "$FORCE" -eq 0 ] && [ -x "$VENV_PY" ] && cuda_infers "$VENV_PY"; then
@@ -401,6 +437,8 @@ else
     exit 1
   fi
 fi
+
+detach_system_python
 
 # Les poids, à côté du venv. Téléchargés ici plutôt que laissés à ultralytics :
 # livré à lui-même il les tire au premier appel, dans le dossier de travail du

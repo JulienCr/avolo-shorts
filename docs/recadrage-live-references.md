@@ -259,7 +259,89 @@ distribution de ces SDK bouge — vérifier la disponibilité avant d'en dépend
 
 ---
 
-## 6. Les contraintes de plateforme
+## 6. Savoir qui parle
+
+Visé à terme par ADR-0001 : cadrer sur le locuteur, basculer en split quand les
+deux se chevauchent.
+
+### Ce que le dépôt a déjà mesuré, et qui est fermé
+
+`docs/locuteur-et-orientation.md`, § « Qui parle : la voie la moins chère est
+fermée », 20 août 2026. Sur 48 fenêtres, 634 s, **17 927 images mesurables**,
+sans aucun étiquetage humain (les plans à une personne disent qui parle) :
+
+| mesure | AUC corpus | AUC médiane par fenêtre |
+|---|---|---|
+| `rawDiff` | 0,523 | 0,492 |
+| `normDiff` | 0,502 | 0,496 |
+| `centerDiff` | 0,509 | 0,498 |
+| **`noseShift`, témoin de bruit de tête** | **0,551** | 0,491 |
+
+**Le témoin bat les trois mesures de bouche.** Courbe de décalage plate sur
+±267 ms. Orientation, immobilité de tête et résolution éprouvées et écartées.
+
+**Ce que ça ferme** : une statistique de différence d'images. **Ce que ça ne
+ferme pas**, et le document le dit explicitement : un modèle appris (Light-ASD,
+TalkNet), et **la voie audio, jamais essayée**.
+
+### Le gisement
+
+Même document, § « Ce que ça vaudrait », sur les quatre émissions, en temps de
+plan restreint au montage (2 023 s) :
+
+| | temps | part du montage |
+|---|---|---|
+| Plans à exactement 2 personnes, 16:9, >= 4 s | 878 s | **43,4 %** |
+| dont les **deux** rangs, seuls, donneraient un 9:16 | 555 s | 27,4 % |
+| dont **un seul** des deux | 197 s | **9,7 %** |
+| dont aucun | 126 s | 6,2 % |
+
+Très inégal selon l'émission : 63,7 % sur `nabla`, 19,0 % sur `cqlp`.
+
+### En direct, la question change de nature
+
+Le chemin fichier ne voit qu'une piste audio **déjà mélangée** — d'où la
+difficulté. OBS tient les **sources audio séparées**, et obs-websocket les
+diffuse :
+
+> **`InputVolumeMeters`** — « A high-volume event providing volume levels of all
+> active inputs **every 50 milliseconds**. » (obs-websocket v5.0.0, abonnement
+> `EventSubscription::InputVolumeMeters`)
+
+Vingt relevés par seconde, sur toutes les entrées, sans GPU ni modèle. **Si
+chaque comédien a son micro sur une entrée OBS distincte, « qui parle » est
+résolu.** Reste à associer un micro à un corps à l'écran — problème stable dans
+un plan, sans commune mesure avec une détection audiovisuelle de locuteur.
+
+**La dépendance à vérifier en premier** : la configuration son de l'émission.
+Micro d'ambiance ou mixage unique, et cette voie s'effondre.
+
+### La piste NVIDIA, réelle mais mal emballée
+
+[NIM Active Speaker Detection](https://docs.nvidia.com/nim/maxine/active-speaker-detection/latest/overview.html)
+— [catalogue NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/maxine/collections/nvaractivespeakerdetection/-)
+— [essai en ligne](https://build.nvidia.com/nvidia/active-speaker-detection)
+
+Ça existe et ça fait exactement ça : « detect and identify active speakers within
+a video stream through the analysis of visual and diarized audio data », « can
+track multiple speakers across various video cutscenes ». Sortie par image :
+boîtes englobantes, identifiants de locuteur, état de parole, confiance. Il passe
+par le backend du **SDK AR**, et supporte le multi-caméra et multi-micro.
+
+**Trois réserves, dans l'ordre où elles font mal :**
+
+1. **L'emballage est celui d'une régie de diffusion, pas d'un poste de travail.**
+   Le NIM vise les flux non compressés en **SMPTE ST 2110** via **NVIDIA
+   Rivermax**, et se déploie par **charts Helm sur une grappe Holoscan for
+   Media**. L'alternative est un point d'accès **infonuagique** — donc latence et
+   coût par image. Rien qui ressemble au redistribuable Windows du Body Pose.
+2. **Il prend la diarisation en entrée**, pas seulement la vidéo. Il ne répond
+   donc pas à « qui parle » : il associe un locuteur déjà connu à un visage. Si
+   les micros sont séparés, on a déjà le « qui » et ce service résout la moitié
+   la plus facile.
+3. Aucune latence publiée, comme partout ailleurs dans ce dossier.
+
+## 7. Les contraintes de plateforme
 
 Elles conditionnent le projet entier et ne dépendent pas de nous. À vérifier sur
 les comptes AVOLO **avant** d'écrire du code.

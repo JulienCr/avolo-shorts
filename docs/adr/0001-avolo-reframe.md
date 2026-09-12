@@ -86,6 +86,41 @@ ce qui prédit la survie d'un plugin, c'est qu'un mainteneur en ait besoin toute
 les semaines pour son propre usage. AVOLO coche cette case ; Intel ne la cochait
 pas.
 
+### Le cadrage sur le locuteur, et le split quand ils se marchent dessus
+
+Capacité visée, pas prévue pour le premier jet. Sur un plan à deux, cadrer en
+9:16 sur **celle qui parle** ; quand les deux se chevauchent sur une durée à
+définir, basculer en **split**, une personne par cellule.
+
+Le gisement est déjà chiffré (`docs/locuteur-et-orientation.md`) : les plans à
+exactement deux personnes, en 16:9, d'au moins 4 s pèsent **43,4 % du temps de
+montage**, et **9,7 % sont des plans où un seul des deux rangs est cadrable** —
+donc suivre le locuteur n'exige pas que les deux le soient, il suffit que celle
+qui parle le soit. Le `split` existe par ailleurs déjà côté `avolo-shorts`.
+
+**Ce qui rend la capacité tenable en direct alors qu'elle ne l'est pas sur
+fichier** : le chemin fichier ne dispose que d'une piste audio **déjà mélangée**,
+et la voie la moins chère y est fermée — une statistique de différence d'images
+sur la région de bouche donne un pile-ou-face, mesuré sur 17 927 images, le
+témoin de bruit de tête battant les trois mesures. OBS, lui, tient les **sources
+audio séparées**. Si chaque comédien porte son micro sur une entrée OBS distincte,
+« qui parle » est un **niveau audio**, pas un modèle de vision :
+`InputVolumeMeters` diffuse le niveau de toutes les entrées actives **toutes les
+50 ms**.
+
+C'est le même cadeau structurel que les frontières de plans : ce qui coûte cher
+sur fichier est donné en direct.
+
+**Ce qui reste à résoudre, et qui n'est pas le plus dur** : associer un micro à
+un corps à l'écran. Le « qui » est connu, il manque le « lequel ». Problème
+stable à l'intérieur d'un plan, et bien plus petit qu'une détection
+audiovisuelle de locuteur.
+
+**La dépendance qui décide de tout** : des micros séparés par comédien, sur des
+entrées OBS distinctes. Sur un micro d'ambiance ou un mixage unique, la voie
+s'effondre et on retombe sur la vision — à vérifier sur la configuration son de
+l'émission avant d'engager quoi que ce soit.
+
 **Deux choix restent ouverts, volontairement.** Ils se décideront avec la
 politique en main, pas aujourd'hui :
 

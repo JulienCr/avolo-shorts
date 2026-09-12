@@ -1,0 +1,141 @@
+# ADR-0001 — `avolo-reframe` : le recadrage en direct
+
+- **Statut** : accepté, sous réserve du go/no-go de la section « Ce qui peut encore invalider ceci »
+- **Date** : 12 septembre 2026
+- **Portée** : un dépôt à venir, distinct d'`avolo-shorts`. Rien dans ce dépôt-ci ne change.
+
+## Le besoin
+
+Diffuser l'émission en direct **simultanément en 16:9 et en 9:16**, vers TikTok
+et Instagram, sans seconde régie ni second opérateur. La sortie verticale ne peut
+pas être un crop fixe au centre : il faut cadrer sur ce qui se passe à l'image.
+
+C'est un problème **causal**, et c'est ce qui le sépare d'`avolo-shorts`. Tout
+`src/core/framing.ts` décide au 90e percentile d'un plan **entier** — une
+information qui n'existe pas encore quand le plan est en train d'être joué.
+
+## La décision
+
+**Un nouveau dépôt, `avolo-reframe`, structuré en cœur et adaptateurs dès le
+premier commit.** `avolo-shorts` n'est pas touché.
+
+- **Le cœur** : la politique de cadrage, en fonctions pures.
+  `(détections + évènements de scène + état) → rectangle de crop`. Pas de
+  framework, pas d'async, état explicite passé en paramètre.
+- **Les adaptateurs** : le transport. Un par cible, jetable, mince.
+
+**Premier adaptateur : obs-websocket, hors processus.** Pas le plugin natif.
+
+**L'objectif final reste le plugin natif** ; il est décrit plus bas.
+
+### Pourquoi pas le plugin natif en premier
+
+Trois raisons, par ordre de poids.
+
+1. **Le risque du projet est la politique, pas la plomberie.** La politique
+   causale — quand recalculer, combien de temps laisser retomber après une
+   bascule, quelle hystérésis contre l'oscillation, que faire quand un comédien
+   sort du champ — n'est écrite nulle part et n'a jamais été mesurée. Elle ne se
+   règle qu'en la regardant tourner sur de vraies émissions, et il en faudra des
+   dizaines d'itérations. Une itération coûte quelques secondes hors processus,
+   quelques minutes en C++ (compiler, installer, redémarrer OBS, remonter la
+   scène). Le facteur décide du nombre d'itérations qu'on fera vraiment.
+
+2. **Le travail jeté est minuscule.** Le cœur et le réglage du modèle sont
+   conservés intégralement ; seul l'adaptateur websocket, de l'ordre de deux
+   cents lignes, disparaît au port.
+
+3. **Le débit de contrôle requis est faible, et c'est une conséquence de nos
+   propres décisions.** Le crop est fixe à l'intérieur d'un plan (spec §10, et la
+   caméra qui suit le sujet a été mesurée puis écartée). La sortie de la politique
+   est donc **un rectangle par bascule de scène**, pas vingt-cinq par seconde.
+   obs-websocket est correctement dimensionné pour ça. Il ne s'écroulerait que
+   sur un panoramique continu, que le projet refuse déjà.
+
+Et un avertissement tiré de l'état de l'art (voir
+[`docs/recadrage-live-references.md`](../recadrage-live-references.md) §1) : les
+quatre outils de cadrage automatique pour OBS qu'on a recensés sont **tous des
+plugins natifs**, et tous morts ou moribonds — Intel a archivé le sien le 17 août
+2026. Ce qui les tue n'est pas de les écrire, c'est de les maintenir à travers la
+matrice C++ x versions d'OBS x pilotes x générations de GPU.
+
+## L'objectif final : le plugin natif
+
+Ce que le plugin doit être quand il existera, et qui décide de ce qu'on écrit
+aujourd'hui.
+
+**Ce qu'il fait.** Un filtre OBS qui détecte les **corps** présents sur une
+source et pose, sur un canevas vertical, le cadre le plus serré qui les tienne —
+recalculé à chaque bascule de scène, fixe entre deux.
+
+**Le créneau, et il est réel.** Rien dans l'écosystème OBS ne cadre **plusieurs
+corps** vers un canevas vertical. Les quatre outils recensés suivent des
+**visages**, un seul pour trois d'entre eux. Or nos comédiens jouent debout,
+face à face, **de profil** — le cas que la spec §2 a mesuré avant de choisir
+YOLO, et qui donnait 5 à 30 % d'images sans aucune détection sous MediaPipe. Le
+README d'obs-face-tracker documente littéralement notre scène comme son cas
+d'échec.
+
+**Ce qui le rend moins fragile que ses prédécesseurs.** Les canevas sont
+désormais une **API du cœur d'OBS** (PR #11832 et #11833, fusionnées), et non
+plus une invention de plugin tiers. Le plugin viserait donc une API officielle,
+et fonctionnerait pour tout OBS 32.1+, sans dépendre d'Aitum.
+
+**Publié en open source**, mais comme conséquence et non comme justification :
+ce qui prédit la survie d'un plugin, c'est qu'un mainteneur en ait besoin toutes
+les semaines pour son propre usage. AVOLO coche cette case ; Intel ne la cochait
+pas.
+
+**Deux choix restent ouverts, volontairement.** Ils se décideront avec la
+politique en main, pas aujourd'hui :
+
+- **Le langage du cœur.** Si le cœur doit servir à la fois le plugin C++ et le
+  côté Node d'`avolo-shorts`, un cœur **Rust exposé en ABI C** est le seul qui
+  tienne les deux (appelable depuis C++, depuis Node par napi-rs, depuis Python
+  par pyo3). Tant que la cible est le direct seul, C++ direct suffit.
+- **Le détecteur.** YOLO11-pose exporté en TensorRT, ou le **3D Body Pose du
+  SDK AR de NVIDIA Maxine** (34 points, multi-personnes, redistribuable Windows,
+  Ada supporté). Le second supprime la dépendance à Python mais ne rend pas les
+  17 points COCO : `torsoBounds` et la définition `bust` demanderaient un
+  remappage **et une re-mesure**, la skill `cadrage` étant formelle sur ce point.
+
+## Ce qui ne change pas
+
+- **`avolo-shorts` reste tel quel.** Aucun code partagé pour l'instant. Si le
+  cœur mûrit, le chemin fichier deviendra un adaptateur de plus — plus tard, et
+  ce sera une autre décision.
+- **Les décisions de cadrage du projet restent en vigueur** : corps et non
+  visages, crop fixe dans un plan, ratio choisi par plan. `avolo-reframe` les
+  transpose au direct, il ne les rouvre pas.
+- **Le double streaming lui-même ne demande aucun développement** : Aitum
+  Vertical plus Aitum Multistream le font, gratuitement. Le recadrage automatique
+  est l'itération suivante, pas un prérequis. Premier tournage utile possible
+  avec un crop réglé à la main — le même découpage que l'itération 0 de la spec.
+
+## Conséquences
+
+- Un dépôt de plus à tenir.
+- La politique causale est une dette de mesure ouverte : elle n'a aucun chiffre
+  derrière elle aujourd'hui, et il lui faudra son propre corpus de cas de
+  contrôle, sur le modèle de `scripts/framing/cases.ts`.
+- Le port vers C++ n'est mécanique **que si** la discipline du cœur est tenue
+  (fonctions pures, état explicite). Si elle se relâche, le port redevient une
+  réécriture et l'arbitrage ci-dessus s'effondre.
+
+## Ce qui peut encore invalider ceci
+
+Un test d'une demi-heure sur la machine de production, à faire avant d'écrire
+quoi que ce soit. Le détail des appels est en
+[`docs/recadrage-live-references.md`](../recadrage-live-references.md) §3.
+
+1. OBS >= 32.1 et Aitum Vertical en 1.6.x. En dessous, la voie hors processus
+   n'existe pas.
+2. `GetCanvasList` renvoie-t-il le canevas vertical, et avec quels champs — les
+   notes de version disent « **partial** support », et la doc ne détaille pas sa
+   réponse.
+3. Un `SetSceneItemTransform` portant un crop prend-il effet sur une source du
+   canevas vertical **sans avoir ouvert le filtre dans l'interface**. Un défaut
+   de cette forme est documenté sur Move Transition.
+
+Si 2 ou 3 échouent, la voie hors processus tombe et l'arbitrage est à refaire —
+le plugin natif redeviendrait le premier pas, faute d'alternative.
